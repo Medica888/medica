@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* App.css owns all tokens, layout, and component styles.
+   This file only provides the Tailwind base import. */
+body {
+  margin: 0;
+}

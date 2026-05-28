@@ -1,0 +1,240 @@
+import { useState } from 'react'
+import { DEFAULT_CONFIG } from '../../lib/quizTypes'
+import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
+import { buildTopicMetadata } from '../../lib/topicIntelligence'
+import { normalizeGenerationConfig } from '../../lib/generationScope'
+import ModeSelector from './ModeSelector'
+import SubjectSelector from './SubjectSelector'
+import SystemSelector from './SystemSelector'
+import TopicSelector from './TopicSelector'
+import QuestionCountSelector from './QuestionCountSelector'
+import DifficultySelector from './DifficultySelector'
+import ClinicalFocusInput from './ClinicalFocusInput'
+import CoachTopicInput from './CoachTopicInput'
+import LivePreview from '../layout/LivePreview'
+
+const STANDARDIZED_BLOCK = 'standardized-40-question-block'
+
+const LOCKED_CONFIG = {
+  mode:               'exam',
+  questionCount:      40,
+  subject:            'All',
+  system:             'All',
+  topic:              '',
+  clinicalFocus:      '',
+  coachSpecificTopic: '',
+  difficulty:         'standardized',
+  blockType:          STANDARDIZED_BLOCK,
+}
+
+/** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null }} props */
+export default function QuizBuilder({ onStart, generationError = null }) {
+  const [config, setConfig] = useState(() => {
+    const saved = getLastQuizConfig()
+    return saved ? { ...DEFAULT_CONFIG, ...saved } : { ...DEFAULT_CONFIG }
+  })
+  const [saved, setSaved]               = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [error, setError]               = useState(generationError)
+
+  const isStandardized = config.blockType === STANDARDIZED_BLOCK
+
+  const update = (key, val) => {
+    if (isStandardized) return
+    setConfig(c => {
+      const next = { ...c, [key]: val }
+      if (key === 'mode' && val !== 'coach') next.coachSpecificTopic = ''
+      return next
+    })
+    setSaved(false)
+    setError(null)
+  }
+
+  const handleGenerate = () => {
+    if (isGenerating) return
+    setIsGenerating(true)
+    setError(null)
+    try {
+      const effectiveConfig = isStandardized
+        ? { ...config, ...LOCKED_CONFIG }
+        : config
+      console.log("[QUIZBUILDER CONFIG BEFORE GENERATE]", effectiveConfig)
+      const base = normalizeGenerationConfig({
+        ...effectiveConfig,
+        topic:              effectiveConfig.topic.trim(),
+        clinicalFocus:      effectiveConfig.clinicalFocus.trim(),
+        coachSpecificTopic: effectiveConfig.mode === 'coach'
+          ? effectiveConfig.coachSpecificTopic.trim()
+          : '',
+        createdAt: new Date().toISOString(),
+      })
+      const topicMetadata = buildTopicMetadata(base)
+      const final = {
+        ...base,
+        rawTopic:      topicMetadata.rawTopic,
+        canonicalTopic: topicMetadata.canonicalTopic,
+        topicSlug:     topicMetadata.topicSlug,
+        topicSource:   topicMetadata.topicSource,
+        topicMetadata,
+      }
+      saveLastQuizConfig(final)
+      setSaved(true)
+      if (onStart) {
+        onStart(final)
+        // Component unmounts — no state reset needed
+      } else {
+        // Dev / demo mode: no navigation, reset after delay
+        setIsGenerating(false)
+        setTimeout(() => setSaved(false), 5000)
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
+      setIsGenerating(false)
+    }
+  }
+
+  return (
+    <div className="qb-page">
+      <div className="qb-inner">
+
+        {/* Page header */}
+        <div className="qb-page-hdr">
+          <div className="qb-badge">
+            <div className="qb-badge-dot" aria-hidden="true" />
+            USMLE Step 1 · Quiz Generator
+          </div>
+          <h1 className="qb-title">Generate Your Personalized Step&nbsp;1 Assessment</h1>
+          <p className="qb-subtitle">
+            Create a clinically focused quiz for Exam, Practice, or Coach Mode.
+          </p>
+        </div>
+
+        {/* Two-column layout */}
+        <div className="qb-layout">
+
+          {/* Left: form card */}
+          <div className="qb-card">
+
+            <div className="qb-card-sec-hdr">Quiz Mode</div>
+            <ModeSelector value={config.mode} onChange={v => update('mode', v)} />
+
+            {isStandardized ? (
+              <div className="qb-locked-panel" role="note">
+                <svg className="qb-locked-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <rect x="3" y="6" width="8" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+                  <path d="M5 6V4.5a2 2 0 0 1 4 0V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+                <div>
+                  <div className="qb-locked-title">Standardized 40-Question Block</div>
+                  <div className="qb-locked-desc">
+                    Subjects, systems, topics, difficulty, and question count are locked for fair comparison.
+                  </div>
+                  <div className="qb-locked-pills">
+                    <span className="qb-locked-pill">Exam Mode</span>
+                    <span className="qb-locked-pill">40 Questions</span>
+                    <span className="qb-locked-pill">All Subjects</span>
+                    <span className="qb-locked-pill">All Systems</span>
+                    <span className="qb-locked-pill">Standardized Difficulty</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="qb-card-sec-hdr">Subject &amp; System</div>
+                <SubjectSelector value={config.subject} onChange={v => update('subject', v)} />
+                <SystemSelector value={config.system} onChange={v => update('system', v)} />
+
+                <div className="qb-card-sec-hdr">Topic, Questions &amp; Difficulty</div>
+                <TopicSelector value={config.topic} onChange={v => update('topic', v)} />
+                <QuestionCountSelector
+                  value={config.questionCount}
+                  onChange={v => update('questionCount', v)}
+                  mode={config.mode}
+                />
+                <DifficultySelector
+                  value={config.difficulty}
+                  onChange={v => update('difficulty', v)}
+                />
+
+                <div className="qb-card-sec-hdr">Focus &amp; Context</div>
+                <ClinicalFocusInput
+                  value={config.clinicalFocus}
+                  onChange={v => update('clinicalFocus', v)}
+                />
+                {config.mode === 'coach' && (
+                  <CoachTopicInput
+                    value={config.coachSpecificTopic}
+                    onChange={v => update('coachSpecificTopic', v)}
+                  />
+                )}
+              </>
+            )}
+
+            {/* Generate */}
+            <div className="qb-gen-area">
+              <button
+                type="button"
+                className={`qb-gen-btn${saved ? ' saved' : ''}${isGenerating ? ' generating' : ''}`}
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                aria-busy={isGenerating}
+              >
+                {isGenerating ? (
+                  <>
+                    <svg className="qb-gen-spinner" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,.3)" strokeWidth="2" />
+                      <path d="M8 2a6 6 0 0 1 6 6" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    Preparing Quiz…
+                  </>
+                ) : saved ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3 8L6.5 11.5L13 5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Configuration Saved
+                  </>
+                ) : (
+                  <>
+                    Generate Quiz
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3 8h10M9.5 4L13 8l-3.5 4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </>
+                )}
+              </button>
+
+              {error && (
+                <div className="qb-error-msg" role="alert">
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                    <circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M6.5 4v3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    <circle cx="6.5" cy="9.5" r=".75" fill="currentColor" />
+                  </svg>
+                  {error}
+                </div>
+              )}
+
+              {saved && !isGenerating && (
+                <div className="qb-save-msg" role="status" aria-live="polite">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M4 6l1.5 1.5L8 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Configuration saved. Launching your session…
+                </div>
+              )}
+
+              <div className="qb-gen-trust">
+                ✦ Adaptive USMLE-style questions · Built for mastery
+              </div>
+            </div>
+          </div>
+
+          {/* Right: live preview */}
+          <LivePreview config={config} />
+        </div>
+      </div>
+    </div>
+  )
+}

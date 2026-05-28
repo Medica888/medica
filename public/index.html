@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="color-scheme" content="light dark"/>
+  <title>MEDICA Skills Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <!-- ── Stylesheet bundle ── -->
+  <link rel="stylesheet" href="styles/tokens.css"/>
+  <link rel="stylesheet" href="styles/animations.css"/>
+  <link rel="stylesheet" href="styles/layout.css"/>
+  <link rel="stylesheet" href="styles/sidebar.css"/>
+  <link rel="stylesheet" href="styles/dashboard.css"/>
+  <link rel="stylesheet" href="styles/workspace.css"/>
+  <link rel="stylesheet" href="styles/quiz.css"/>
+  <link rel="stylesheet" href="styles/exam.css"/>
+  <link rel="stylesheet" href="styles/analytics.css"/>
+  <link rel="stylesheet" href="styles/modals.css"/>
+  <link rel="stylesheet" href="styles/responsive.css"/>
+
+  <!-- ── CDN dependencies ── -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<a href="#main-content" class="skip-link">Skip to main content</a>
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <svg class="logo-svg" viewBox="0 0 28 32" fill="none">
+        <defs><linearGradient id="lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#2A82E0"/><stop offset="1" stop-color="#1250A0"/></linearGradient></defs>
+        <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#lg)"/>
+        <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" stroke="rgba(255,255,255,.12)" stroke-width=".6" fill="none"/>
+        <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white"/>
+        <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white"/>
+        <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+        <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+      </svg>
+      <div class="logo-words">
+        <span class="logo-name">MEDICA</span>
+        <span class="logo-sub">Medical Education Centre</span>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="hdr-pill">
+        <div class="hdr-dot"></div>
+        <span class="hdr-pill-txt">Skills Platform</span>
+      </div>
+      <div class="hdr-sep"></div>
+      <span class="hdr-model">Claude Sonnet 4.6</span>
+      <div class="hdr-sep"></div>
+      <button id="dark-toggle" class="dark-toggle" aria-label="Toggle dark mode">◐</button>
+      <button id="sb-toggle" class="sb-toggle" aria-label="Toggle sidebar">☰</button>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" aria-label="Skills navigation">
+    <div class="sb-body">
+      <div class="sb-section">
+        <span class="sb-section-txt">Skills</span>
+        <div class="sb-section-line"></div>
+      </div>
+      <div id="sb-nav"></div>
+    </div>
+    <div class="sb-footer">
+      <button class="btn-new" onclick="openModal()">
+        <div class="btn-new-ic">+</div>
+        <span>New Custom Skill</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main" id="main-content">
+
+    <!-- ── DASHBOARD VIEW -->
+    <div id="view-home" role="region" aria-label="Dashboard">
+      <div class="dash-hero">
+        <div class="dash-eyebrow">Medica AI</div>
+        <h1 class="dash-title">What would you like<br>to create today?</h1>
+        <p class="dash-sub">Select a skill below. Write a brief guide and the AI will generate brand-aligned content, prompts, or MCQs — ready to use.</p>
+        <div class="dash-search-row">
+          <div class="dash-search">
+            <svg class="dash-search-ico" width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#A8BFD4" stroke-width="1.4"/><path d="M10 10L13 13" stroke="#A8BFD4" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <input id="search-input" type="text" placeholder="Search skills…" aria-label="Search skills" oninput="filterSkills(this.value)"/>
+          </div>
+        </div>
+      </div>
+      <div class="dash-grid-wrap" id="dash-grid-wrap"></div>
+    </div>
+
+    <!-- ── WORKSPACE VIEW -->
+    <div id="view-workspace">
+      <div class="ws-bar">
+        <div class="ws-bar-left">
+          <button class="btn-back" onclick="goHome()">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            All Skills
+          </button>
+          <div class="ws-crumb">
+            <span id="ws-cat" style="color:var(--t4)"></span>
+            <span class="ws-crumb-sep">›</span>
+            <span class="ws-crumb-active">
+              <span id="ws-ico"></span>
+              <span id="ws-name"></span>
+            </span>
+          </div>
+        </div>
+        <button class="btn-gen" id="gen-btn" onclick="generate()">
+          <div class="sp"></div>
+          <span class="bt">Generate</span>
+          <svg class="bi" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7h9M8.5 3.5L12 7l-3.5 3.5" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      <div class="ws-split">
+        <!-- Editor pane -->
+        <div class="pane">
+          <div class="pane-hdr">
+            <div class="pane-hdr-l">
+              <div class="ph-dot b"></div>
+              <span class="pane-lbl">Your Guide</span>
+            </div>
+            <div class="pane-hdr-r">
+              <span class="save-flash" id="save-fl">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 2.5" stroke="#0FAD6F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Saved
+              </span>
+              <button class="btn-xs" onclick="loadTpl()">Template</button>
+              <button class="btn-xs" onclick="clearGuide()">Clear</button>
+            </div>
+          </div>
+          <textarea id="guide-ta" class="guide-ta"
+            placeholder="Write your content brief here…&#10;&#10;Describe the topic, target audience, specialty, key messages, tone, and any specific clinical or brand details.&#10;&#10;The more context you give, the better the output."
+            oninput="onInput()"></textarea>
+        </div>
+
+        <!-- Output pane -->
+        <div class="pane">
+          <div class="pane-hdr">
+            <div class="pane-hdr-l">
+              <div class="ph-dot p"></div>
+              <span class="pane-lbl">Generated Output</span>
+            </div>
+            <div class="pane-hdr-r">
+              <button class="btn-xs" id="copy-btn" onclick="copyOut()" style="display:none">Copy All</button>
+              <button class="btn-xs" id="clr-btn" onclick="clearOut()" style="display:none">Clear</button>
+            </div>
+          </div>
+          <div class="out-scroll">
+            <div class="out-ph" id="out-ph">
+              <div class="out-ph-ico">✦</div>
+              <p>Write a guide and click Generate — your AI content will appear here.</p>
+            </div>
+            <div class="out-body" id="out-body" aria-live="polite" aria-atomic="false"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── USMLE ANATOMY SETUP VIEW -->
+    <div id="view-ua-setup">
+      <div class="ua-inner">
+
+        <div class="ua-hero">
+          <div class="ua-hero-badge">
+            <div class="ua-hero-badge-dot"></div>
+            USMLE Step 1 &nbsp;·&nbsp; Anatomy Generator
+          </div>
+          <h1 class="ua-hero-title">Generate Your Personalized<br>Anatomy Assessment</h1>
+          <p class="ua-hero-sub">NBME-style anatomy questions designed for clinical reasoning and Step 1 mastery. Configure below for a personalized exam.</p>
+        </div>
+
+        <div class="ua-cols">
+
+          <!-- LEFT: Form card -->
+          <div class="ua-form-card">
+            <div class="ua-form-body">
+
+              <!-- Region / System -->
+              <div class="ua-field">
+                <div class="ua-field-lbl">
+                  <span class="ua-field-icon" style="background:rgba(23,105,200,.1)">🧠</span>
+                  Region / System
+                </div>
+                <div class="ua-region-grid" id="ua-region-grid"></div>
+              </div>
+
+              <!-- Focus Areas -->
+              <div class="ua-field">
+                <div class="ua-field-lbl">
+                  <span class="ua-field-icon" style="background:rgba(107,63,189,.1)">🎯</span>
+                  Focus Areas
+                  <span style="font-weight:400;font-size:10px;color:var(--t4);text-transform:none;letter-spacing:0">(select all that apply)</span>
+                </div>
+                <div class="ua-chips" id="ua-focus-chips"></div>
+              </div>
+
+              <!-- Difficulty -->
+              <div class="ua-field">
+                <div class="ua-field-lbl">
+                  <span class="ua-field-icon" style="background:rgba(204,58,58,.1)">📊</span>
+                  Difficulty
+                </div>
+                <div class="ua-seg" id="ua-seg-diff">
+                  <button class="ua-seg-btn active" onclick="uaSetDiff(this,'Step 1')">Step 1</button>
+                  <button class="ua-seg-btn" onclick="uaSetDiff(this,'Hard Step 1')">Hard Step 1</button>
+                  <button class="ua-seg-btn" onclick="uaSetDiff(this,'Step 2 CK')">Step 2 CK</button>
+                </div>
+              </div>
+
+              <!-- Question Count -->
+              <div class="ua-field">
+                <div class="ua-field-lbl">
+                  <span class="ua-field-icon" style="background:rgba(15,173,111,.1)">🔢</span>
+                  Number of Questions
+                </div>
+                <div class="ua-count-row">
+                  <div class="ua-stepper">
+                    <button class="ua-step-btn" onclick="uaChangeCount(-5)">−</button>
+                    <div class="ua-step-num" id="ua-count-num">10</div>
+                    <button class="ua-step-btn" onclick="uaChangeCount(5)">+</button>
+                  </div>
+                  <div class="ua-count-meta">
+                    Estimated time: <span class="ua-count-time" id="ua-count-time">~13 min</span><br>
+                    <span id="ua-count-diff-lbl" style="font-size:11px">Standard practice</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Clinical Themes -->
+              <div class="ua-field">
+                <div class="ua-field-lbl">
+                  <span class="ua-field-icon" style="background:rgba(224,123,32,.1)">🏥</span>
+                  Clinical Themes
+                  <span style="font-weight:400;font-size:10px;color:var(--t4);text-transform:none;letter-spacing:0">(optional)</span>
+                </div>
+                <textarea class="ua-textarea" id="ua-themes"
+                  placeholder="Add preferred clinical themes or contexts…&#10;&#10;e.g. trauma, surgery complications, sports injuries, postoperative anatomy, compression neuropathies"></textarea>
+              </div>
+
+            </div>
+
+            <div class="ua-form-footer">
+              <button class="ua-cta" onclick="uaGenerate()">
+                Generate My Anatomy Exam
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9.5 4L13 8l-3.5 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="ua-cta-sub">NBME-style · Personalized · High-Yield</div>
+              <div class="ua-trust">✦ Clinical reasoning over memorization · UWorld-quality explanations</div>
+            </div>
+          </div>
+
+          <!-- RIGHT: Live preview card -->
+          <div class="ua-preview-card">
+            <div class="ua-preview-hdr">
+              <div class="ua-preview-hdr-dot"></div>
+              <div class="ua-preview-hdr-title">Live Preview</div>
+              <div class="ua-preview-hdr-sub">Updates as you configure</div>
+            </div>
+            <div class="ua-preview-body">
+
+              <div class="ua-sum-row">
+                <div class="ua-sum-item">
+                  <div class="ua-sum-icon">🧠</div>
+                  <div class="ua-sum-text">
+                    <div class="ua-sum-lbl">Region</div>
+                    <div class="ua-sum-val empty" id="ua-prev-region">None selected</div>
+                  </div>
+                </div>
+                <div class="ua-sum-item">
+                  <div class="ua-sum-icon">🎯</div>
+                  <div class="ua-sum-text">
+                    <div class="ua-sum-lbl">Focus</div>
+                    <div class="ua-sum-val empty" id="ua-prev-focus">Any focus</div>
+                  </div>
+                </div>
+                <div class="ua-sum-item">
+                  <div class="ua-sum-icon">📊</div>
+                  <div class="ua-sum-text">
+                    <div class="ua-sum-lbl">Difficulty</div>
+                    <div class="ua-sum-val" id="ua-prev-diff">Step 1</div>
+                  </div>
+                </div>
+                <div class="ua-sum-item">
+                  <div class="ua-sum-icon">⏱</div>
+                  <div class="ua-sum-text">
+                    <div class="ua-sum-lbl">Assessment</div>
+                    <div class="ua-sum-val" id="ua-prev-time">10 questions · ~13 min</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ua-sample-q">
+                <div class="ua-sample-lbl">Sample question style</div>
+                <div class="ua-sample-stem" id="ua-sample-stem">Select a region above to see a representative question style for that anatomical system.</div>
+                <div class="ua-sample-opts" id="ua-sample-opts"></div>
+              </div>
+
+              <div class="ua-checklist">
+                <div class="ua-check-item"><div class="ua-check-ico">✓</div>Clinical vignettes with realistic presentations</div>
+                <div class="ua-check-item"><div class="ua-check-ico">✓</div>UWorld-style explanations for every option</div>
+                <div class="ua-check-item"><div class="ua-check-ico">✓</div>High-yield pearls + memory anchors</div>
+                <div class="ua-check-item"><div class="ua-check-ico">✓</div>Performance analytics after completion</div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 1 MASTERY SETUP VIEW -->
+    <div id="view-s1-setup">
+      <div class="s1-card">
+        <div class="s1-card-hdr">
+          <div class="s1-badge">
+            <div class="s1-badge-dot"></div>
+            Step 1 Mastery
+          </div>
+          <div class="s1-title">Build Your Quiz</div>
+          <div class="s1-sub">Configure your personalised USMLE Step 1 practice session below</div>
+        </div>
+
+        <div class="s1-form">
+
+          <!-- Mode -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(23,105,200,0.12);color:var(--blue)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 3.5v2.2l1.4 1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              </span>
+              Mode
+            </div>
+            <div class="s1-seg" id="s1-seg-mode">
+              <button class="s1-seg-btn active" onclick="s1SetMode(this,'timed')">Exam</button>
+              <button class="s1-seg-btn" onclick="s1SetMode(this,'unlimited')">Practice</button>
+              <button class="s1-seg-btn" onclick="s1SetMode(this,'explanatory')">Coach</button>
+            </div>
+          </div>
+
+          <!-- Subject -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(15,173,111,0.12);color:var(--green)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1.5" y="1.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 5.5h4M3.5 3.5h4M3.5 7.5h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </span>
+              Subject
+            </div>
+            <select class="s1-select" id="s1-subject">
+              <option value="All Subjects">All Subjects</option>
+              <option value="Anatomy">Anatomy</option>
+              <option value="Physiology">Physiology</option>
+              <option value="Biochemistry">Biochemistry</option>
+              <option value="Pathology">Pathology</option>
+              <option value="Pharmacology">Pharmacology</option>
+              <option value="Microbiology">Microbiology</option>
+              <option value="Immunology">Immunology</option>
+              <option value="Behavioural Science">Behavioural Science</option>
+              <option value="Biostatistics">Biostatistics</option>
+              <option value="Genetics">Genetics</option>
+            </select>
+          </div>
+
+          <!-- Organ System -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(107,63,189,0.12);color:var(--purple)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1.5C3.3 1.5 1.5 3.3 1.5 5.5S3.3 9.5 5.5 9.5 9.5 7.7 9.5 5.5 7.7 1.5 5.5 1.5z" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 3.5v2l1.5 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              </span>
+              Organ System
+            </div>
+            <div class="s1-pills" id="s1-pills-sys">
+              <button class="s1-pill active" onclick="s1SetSystem(this,'All')">All</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Cardiovascular')">Cardiovascular</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Respiratory')">Respiratory</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Renal')">Renal</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'GI')">GI</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Neurology')">Neurology</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Endocrine')">Endocrine</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Musculoskeletal')">Musculoskeletal</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Reproductive')">Reproductive</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Haematology')">Haematology</button>
+              <button class="s1-pill" onclick="s1SetSystem(this,'Psychiatry')">Psychiatry</button>
+            </div>
+          </div>
+
+          <!-- Topic -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(224,123,32,0.12);color:var(--orange)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="4" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 9.5c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              </span>
+              Topic <span style="color:var(--t4);font-weight:400;font-size:11px">(optional)</span>
+            </div>
+            <input class="s1-input" id="s1-topic" type="text" placeholder="e.g. Heart failure, Loop diuretics, RAAS…"/>
+          </div>
+
+          <!-- Number of Questions -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(23,105,200,0.10);color:var(--blue)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 8.5h1.5V5L2 5.8M5 3.5c0-1 1.5-1 1.5 0 0 .8-1.5 1.2-1.5 2.5H8M9 8.5H6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              Number of Questions
+            </div>
+            <div class="s1-pills" id="s1-pills-q">
+              <button class="s1-pill" onclick="s1SetQ(this,5)">5</button>
+              <button class="s1-pill active" onclick="s1SetQ(this,10)">10</button>
+              <button class="s1-pill" onclick="s1SetQ(this,20)">20</button>
+              <button class="s1-pill" onclick="s1SetQ(this,40)">40</button>
+            </div>
+          </div>
+
+          <!-- Difficulty -->
+          <div class="s1-field">
+            <div class="s1-field-lbl">
+              <span class="s1-lbl-icon" style="background:rgba(204,58,58,0.10);color:var(--red)">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 9L5.5 2 9 9M3.5 6.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              Difficulty
+            </div>
+            <div class="s1-seg" id="s1-seg-diff">
+              <button class="s1-seg-btn active" onclick="s1SetDiff(this,'Balanced')">Balanced</button>
+              <button class="s1-seg-btn" onclick="s1SetDiff(this,'More Easy')">More Easy</button>
+              <button class="s1-seg-btn" onclick="s1SetDiff(this,'More Hard')">More Hard</button>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="s1-footer">
+          <div class="s1-trust">✦ Adaptive USMLE-style questions · Built for mastery</div>
+          <button class="s1-cta" onclick="s1GenerateQuiz()">
+            Generate Quiz
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9.5 4L13 8l-3.5 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     FULLSCREEN EXAM LOADING
+══════════════════════════════════════════════════════════ -->
+<div id="exam-loading">
+  <div class="el-ambient">
+    <div class="el-ambient-1"></div>
+    <div class="el-ambient-2"></div>
+    <div class="el-ambient-3"></div>
+  </div>
+  <div class="el-card">
+    <!-- Logo -->
+    <div class="el-logo">
+      <svg width="40" height="46" viewBox="0 0 28 32" fill="none">
+        <defs><linearGradient id="ellg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#2A82E0"/><stop offset="1" stop-color="#1250A0"/></linearGradient></defs>
+        <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#ellg)"/>
+        <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" stroke="rgba(255,255,255,.14)" stroke-width=".6" fill="none"/>
+        <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white"/>
+        <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white"/>
+        <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+        <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+      </svg>
+      <div class="el-logo-words">
+        <span class="el-logo-name">MEDICA</span>
+        <span class="el-logo-sub">Medical Education Centre</span>
+      </div>
+    </div>
+
+    <div class="el-divider"></div>
+
+    <!-- Badge -->
+    <div style="margin-bottom:10px">
+      <span class="el-badge">
+        <span class="el-badge-dot"></span>
+        USMLE Step 1 &nbsp;·&nbsp; Exam Engine
+      </span>
+    </div>
+
+    <!-- Headline -->
+    <div class="el-headline" id="el-headline">Preparing your exam block</div>
+
+    <!-- Stages -->
+    <div class="el-stages" id="el-stages"></div>
+
+    <!-- Progress bar -->
+    <div class="el-bar-row">
+      <div class="el-bar-track"><div class="el-bar-fill" id="el-bar-fill"></div></div>
+      <span class="el-bar-pct" id="el-bar-pct">0%</span>
+    </div>
+
+    <!-- Trust -->
+    <div class="el-trust">Designed to simulate real board-style reasoning</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     FULLSCREEN EXAM ENGINE
+══════════════════════════════════════════════════════════ -->
+<div id="view-exam">
+
+  <!-- Exam Header -->
+  <div class="exam-hdr">
+    <div class="exam-hdr-logo">
+      <svg width="24" height="28" viewBox="0 0 28 32" fill="none">
+        <defs><linearGradient id="elg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#2A82E0"/><stop offset="1" stop-color="#1250A0"/></linearGradient></defs>
+        <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#elg)"/>
+        <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white"/>
+        <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white"/>
+        <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+        <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+      </svg>
+      <div class="exam-hdr-logo-words">
+        <span class="exam-hdr-logo-name">MEDICA</span>
+        <span class="exam-hdr-logo-sub">Medical Education Centre</span>
+      </div>
+    </div>
+    <div class="exam-hdr-mid">
+      <span class="exam-hdr-progress-txt" id="exam-progress-txt">Q 1 of 10</span>
+      <div class="exam-hdr-bar"><div class="exam-hdr-bar-fill" id="exam-hdr-bar-fill" style="width:0%"></div></div>
+      <span class="exam-hdr-progress-txt" id="exam-answered-txt">0 answered</span>
+    </div>
+    <div class="exam-hdr-right">
+      <div class="exam-timer" id="exam-timer">
+        <div class="exam-timer-dot"></div>
+        <span id="exam-timer-txt">00:00</span>
+      </div>
+      <button class="exam-end-btn" onclick="examConfirmEnd()">End Session</button>
+    </div>
+  </div>
+
+  <!-- Main question area -->
+  <div class="exam-main" id="exam-main"></div>
+
+  <!-- Bottom navigation row + navigator -->
+  <div id="exam-footer-wrap">
+    <div class="exam-nav-row" id="exam-nav-row">
+      <button class="exam-nav-btn" id="exam-prev-btn" onclick="examPrev()">← Previous</button>
+      <div class="exam-nav-center">
+        <button class="exam-skip-btn" id="exam-skip-btn" onclick="examSkip()">Skip</button>
+      </div>
+      <button class="exam-nav-btn primary" id="exam-next-btn" onclick="examNext()">Next →</button>
+    </div>
+    <div class="exam-navigator">
+      <div class="exam-nav-scroll" id="exam-nav-scroll"></div>
+      <div class="exam-nav-legend">
+        <span class="exam-nav-legend-item"><span class="exam-nav-legend-dot" style="background:#F2F6FB;border:1.5px solid #D4E3F0;display:inline-block;border-radius:3px"></span> Unanswered</span>
+        <span class="exam-nav-legend-item"><span class="exam-nav-legend-dot" style="background:#E8FBF2;border:1.5px solid #0FAD6F;display:inline-block;border-radius:3px"></span> Answered</span>
+        <span class="exam-nav-legend-item"><span class="exam-nav-legend-dot" style="background:#FDF0E3;border:1.5px solid #E07B20;display:inline-block;border-radius:3px"></span> Marked</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- End-exam confirmation -->
+  <div class="exam-confirm-overlay" id="exam-confirm-overlay" style="display:none" onclick="examConfirmBg(event)">
+    <div class="exam-confirm-modal" id="exam-confirm-modal">
+      <div class="exam-confirm-icon">🏁</div>
+      <div class="exam-confirm-title">Submit your exam?</div>
+      <div class="exam-confirm-sub" id="exam-confirm-sub">You still have unanswered questions. Submitting will end your session and show results.</div>
+      <div class="exam-confirm-stats" id="exam-confirm-stats"></div>
+      <div class="exam-confirm-actions">
+        <button class="exam-confirm-cancel" onclick="examConfirmClose()">Keep Going</button>
+        <button class="exam-confirm-submit" onclick="examEnd()">Submit Exam</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- CUSTOM SKILL MODAL -->
+<div class="overlay" id="overlay" onclick="bgClick(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Create Custom Skill</h2>
+      <p>Define a new skill with a tailored AI system prompt for specialized Medica content.</p>
+    </div>
+    <div class="frow"><label>Skill Name</label><input id="cs-name" type="text" placeholder="e.g. Telegram Post, Email Newsletter"/></div>
+    <div class="frow"><label>Category</label>
+      <select id="cs-cat">
+        <option>Social Media</option><option>Events</option><option>Education</option>
+        <option>Outreach</option><option>Brand</option><option>Custom</option>
+      </select>
+    </div>
+    <div class="frow"><label>Description</label><input id="cs-desc" type="text" placeholder="One-line description of what this skill creates"/></div>
+    <div class="frow"><label>System Prompt</label><textarea id="cs-sys" style="min-height:140px" placeholder="Write the full Claude system prompt. Include Medica brand context, audience, format requirements, and output structure."></textarea></div>
+    <div class="frow"><label>Guide Template <span style="font-weight:400;text-transform:none;font-size:10px;color:var(--t4)">(optional)</span></label><textarea id="cs-tpl" style="min-height:68px" placeholder="Pre-fills the editor when this skill is selected"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="createSkill()">Create Skill</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODE PICKER MODAL -->
+<div class="overlay" id="mode-overlay" onclick="modeBgClick(event)">
+  <div class="mode-modal">
+    <div class="mode-modal-head">
+      <div class="mode-modal-title">Choose Quiz Mode</div>
+      <div class="mode-modal-sub">How would you like to practice?</div>
+    </div>
+    <div class="mode-cards">
+      <button class="mode-card" onclick="startWithMode('timed')">
+        <div class="mode-card-icon">⏱</div>
+        <div class="mode-card-name">Exam</div>
+        <div class="mode-card-desc">Overall countdown — 1 min per question. Unanswered questions auto-marked wrong when time runs out.</div>
+      </button>
+      <button class="mode-card" onclick="startWithMode('unlimited')">
+        <div class="mode-card-icon">∞</div>
+        <div class="mode-card-name">Practice</div>
+        <div class="mode-card-desc">No timer. Take as long as you need on each question.</div>
+      </button>
+      <button class="mode-card" onclick="startWithMode('explanatory')">
+        <div class="mode-card-icon">📖</div>
+        <div class="mode-card-name">Coach</div>
+        <div class="mode-card-desc">Full explanation shown after every answer — why you were right or wrong, plus the high-yield pearl.</div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── JavaScript bundle ── -->
+<script src="scripts/uiState.js"></script>
+<script src="scripts/quizEngine.js"></script>
+<script src="scripts/analyticsEngine.js"></script>
+<script src="scripts/examEngine.js"></script>
+<script src="scripts/app.js"></script>
+</body>
+</html>

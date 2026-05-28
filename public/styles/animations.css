@@ -1,0 +1,38 @@
+/* ── ALL @keyframes ───────────────────────────────────────── */
+
+/* Workspace */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* MCQ quiz */
+@keyframes mcq-fadein { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes opt-in { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:translateX(0)} }
+@keyframes pulse-timer { 0%,100%{opacity:1} 50%{opacity:.55} }
+@keyframes expl-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* Quiz loading screen */
+@keyframes ql-fadein  { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+@keyframes ql-bar     { 0%{width:0%;opacity:.7} 60%{width:78%;opacity:1} 100%{width:93%;opacity:1} }
+@keyframes ql-pulse   { 0%,100%{opacity:.3;transform:scale(1)} 50%{opacity:1;transform:scale(1.25)} }
+@keyframes ql-step    { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes ql-glow    { 0%,100%{box-shadow:0 0 0 0 rgba(23,105,200,0)} 50%{box-shadow:0 0 0 6px rgba(23,105,200,.08)} }
+
+/* Exam loading */
+@keyframes el-card-in  { from{opacity:0;transform:translateY(28px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+@keyframes el-card-out { from{opacity:1;transform:scale(1)} to{opacity:0;transform:scale(1.04)} }
+@keyframes el-stage-in { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+@keyframes el-glow-amb { 0%,100%{opacity:.14} 50%{opacity:.28} }
+@keyframes el-dot-pulse { 0%,100%{opacity:.4;transform:scale(1)} 50%{opacity:1;transform:scale(1.35)} }
+@keyframes el-spin2     { to{transform:rotate(360deg)} }
+@keyframes el-check-pop { 0%{transform:scale(0)} 60%{transform:scale(1.3)} 100%{transform:scale(1)} }
+
+/* Fullscreen exam engine */
+@keyframes exam-fadein { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+@keyframes exam-opt-in { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+@keyframes exam-confirm-in { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
+@keyframes exam-opt-confirm { 0%{transform:scale(.992)} 55%{transform:scale(1.004)} 100%{transform:scale(1)} }
+
+/* View & card transitions */
+@keyframes view-in    { from{opacity:0;transform:translateY(9px)}  to{opacity:1;transform:translateY(0)} }
+@keyframes card-in    { from{opacity:0;transform:translateY(6px)}  to{opacity:1;transform:translateY(0)} }
+@keyframes sb-item-in { from{opacity:0;transform:translateX(-5px)} to{opacity:1;transform:translateX(0)} }

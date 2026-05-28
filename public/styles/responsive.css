@@ -1,0 +1,96 @@
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE — MEDIA QUERIES
+══════════════════════════════════════════════════════════ */
+
+/* ── Workspace split: single column on narrow screens ── */
+@media (max-width: 860px) {
+  .ws-split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .pane + .pane { border-left: none; border-top: 1px solid var(--border-s); }
+}
+
+/* ── Step 1 Mastery Setup: compact padding on mobile ── */
+@media (max-width: 640px) {
+  #view-s1-setup { padding: 28px 14px 56px; }
+  .s1-card-hdr, .s1-form, .s1-footer { padding-left: 22px; padding-right: 22px; }
+  .s1-title { font-size: 19px; }
+}
+
+/* ── UA Anatomy Setup: single-column layout on tablet ── */
+@media (max-width: 900px) {
+  .ua-cols { grid-template-columns: 1fr; }
+}
+
+/* ── UA Region grid: 2-column on mobile ── */
+@media (max-width: 640px) {
+  .ua-region-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Mobile sidebar toggle visibility ── */
+@media (max-width: 768px) {
+  .sb-toggle { display: flex !important; }
+
+  .sidebar {
+    position: fixed;
+    top: var(--hdr);
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform .22s cubic-bezier(.4,0,.2,1);
+    width: var(--sidebar);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0,0,0,.35);
+  }
+
+  .app {
+    grid-template-columns: 0 1fr;
+  }
+}
+
+/* ── Responsive header ── */
+@media (max-width: 600px) {
+  .hdr-title { display: none; }
+  header { padding: 0 12px; }
+}
+
+/* ── Responsive dashboard grid ── */
+@media (max-width: 520px) {
+  .skill-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+  }
+  .dash-hero { padding: 24px 16px 16px; }
+  .dash-grid-wrap { padding: 16px 16px 24px; }
+  .dash-title { font-size: 20px; }
+}
+
+/* ── Exam: compact on mobile ── */
+@media (max-width: 600px) {
+  .exam-card { padding: 24px 20px; }
+  .exam-hdr { padding: 0 16px; }
+  .exam-hdr-bar { width: 100px; }
+  .exam-nav-row { padding: 10px 16px; }
+  .exam-navigator { padding: 10px 16px 12px; }
+  .exam-review-list-inner { padding: 16px 16px 48px; }
+  .er-score-card { flex-direction: column; text-align: center; gap: 20px; }
+  .er-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .er-btns-card { grid-template-columns: 1fr; }
+}
+
+/* ── Mode cards: stack vertically on small screens ── */
+@media (max-width: 480px) {
+  .mode-cards { flex-direction: column; }
+  .mode-modal { padding: 20px 16px 18px; }
+}
+
+/* ── Reduced motion support ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

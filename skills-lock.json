@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "design-flow": {
+      "source": "julianoczkowski/designer-skills",
+      "sourceType": "github",
+      "skillPath": "design-flow/SKILL.md",
+      "computedHash": "4bd0b9ed67cd28e1af9301465815911041e0cd918f1c9b35e5abd41f69d163bf"
+    },
+    "frontend-design": {
+      "source": "julianoczkowski/designer-skills",
+      "sourceType": "github",
+      "skillPath": "frontend-design/SKILL.md",
+      "computedHash": "f29733021097cd63e0a6ce8d890cdbcb1fdacb7ee7e79fafe645b6db54aa82ad"
+    }
+  }
+}

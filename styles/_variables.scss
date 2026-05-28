@@ -1,0 +1,70 @@
+// ─── MEDICA BRAND SCSS VARIABLES ────────────────────────────────────────────
+// Source of truth: synced with CSS custom properties in index.html
+// Use these in component SCSS; import tailwind.config.js for Tailwind usage.
+
+// ── Colors: Background & Surface ────────────────────────────────────────────
+$bg:          #EEF3FA;
+$card:        #FFFFFF;
+
+// ── Colors: Navigation ──────────────────────────────────────────────────────
+$nav:         #080F1C;
+$nav-2:       #0D1729;
+$nav-3:       #142034;
+$nav-line:    rgba(255, 255, 255, 0.06);
+$nav-hover:   rgba(255, 255, 255, 0.06);
+$nav-active:  rgba(24, 110, 210, 0.22);
+
+// ── Colors: Primary Blue ─────────────────────────────────────────────────────
+$blue:        #1769C8;
+$blue-hover:  #1359AA;
+$blue-10:     #E6F0FB;
+$blue-20:     #C8DEFA;
+$blue-glow:   rgba(23, 105, 200, 0.28);
+
+// ── Colors: Text ────────────────────────────────────────────────────────────
+$t1:          #0B1D33;   // primary
+$t2:          #33516E;   // secondary
+$t3:          #7094B2;   // tertiary
+$t4:          #A8BFD4;   // muted/placeholder
+
+// ── Colors: Borders ──────────────────────────────────────────────────────────
+$border:      #D4E3F0;
+$border-soft: #E8F1FA;
+
+// ── Colors: Status / Semantic ────────────────────────────────────────────────
+$green:       #0FAD6F;
+$orange:      #E07B20;
+$purple:      #6B3FBD;
+$red:         #CC3A3A;
+
+// ── Colors: Category Accents ─────────────────────────────────────────────────
+$cat-social:   #1769C8;
+$cat-events:   #6B3FBD;
+$cat-edu:      #0FAD6F;
+$cat-outreach: #E07B20;
+$cat-brand:    #CC3A7A;
+$cat-custom:   #5A6880;
+
+// ── Shadows ──────────────────────────────────────────────────────────────────
+$sh-card:  0 1px 4px rgba(11, 29, 51, 0.07), 0 2px 10px rgba(11, 29, 51, 0.05);
+$sh-hover: 0 6px 24px rgba(11, 29, 51, 0.13), 0 2px 8px rgba(11, 29, 51, 0.08);
+$sh-btn:   0 2px 10px $blue-glow, 0 1px 3px rgba(11, 29, 51, 0.1);
+$sh-modal: 0 24px 64px rgba(11, 29, 51, 0.22), 0 4px 16px rgba(11, 29, 51, 0.1);
+
+// ── Border Radius ────────────────────────────────────────────────────────────
+$r:    10px;
+$r-lg: 16px;
+$r-xl: 20px;
+
+// ── Layout ───────────────────────────────────────────────────────────────────
+$sidebar-width: 222px;
+$header-height: 54px;
+
+// ── Typography ───────────────────────────────────────────────────────────────
+$font-base: 'Poppins', sans-serif;
+
+$fw-light:    300;
+$fw-regular:  400;
+$fw-medium:   500;
+$fw-semibold: 600;
+$fw-bold:     700;

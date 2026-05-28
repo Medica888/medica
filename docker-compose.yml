@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: medica-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: medica
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - medica-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d medica"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: medica-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@medica.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - medica-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  medica-net:
+    driver: bridge

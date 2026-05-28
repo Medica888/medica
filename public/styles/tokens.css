@@ -1,0 +1,144 @@
+/* ── TOKENS ──────────────────────────────────────────────── */
+:root {
+  --bg:          #EEF3FA;
+  --card:        #FFFFFF;
+  --nav:         #080F1C;
+  --nav2:        #0D1729;
+  --nav3:        #142034;
+  --nav-line:    rgba(255,255,255,0.06);
+  --nav-hover:   rgba(255,255,255,0.06);
+  --nav-active:  rgba(24,110,210,0.22);
+
+  --blue:        #1769C8;
+  --blue-h:      #1359AA;
+  --blue-10:     #E6F0FB;
+  --blue-20:     #C8DEFA;
+  --blue-glow:   rgba(23,105,200,0.28);
+
+  --t1: #0B1D33;
+  --t2: #33516E;
+  --t3: #7094B2;
+  --t4: #A8BFD4;
+
+  --border:      #D4E3F0;
+  --border-s:    #E8F1FA;
+
+  --green:  #0FAD6F;
+  --orange: #E07B20;
+  --purple: #6B3FBD;
+  --red:    #CC3A3A;
+
+  /* category accent colors */
+  --cat-social:   #1769C8;
+  --cat-events:   #6B3FBD;
+  --cat-edu:      #0FAD6F;
+  --cat-outreach: #E07B20;
+  --cat-brand:    #CC3A7A;
+  --cat-custom:   #5A6880;
+
+  /* Shadow hierarchy — 4 levels: flat → card → hover → floating */
+  --sh-flat:  0 1px 2px rgba(11,29,51,.05);
+  --sh-card:  0 1px 3px rgba(11,29,51,.05), 0 3px 8px rgba(11,29,51,.05);
+  --sh-hover: 0 4px 16px rgba(11,29,51,.09), 0 1px 4px rgba(11,29,51,.06);
+  --sh-btn:   0 2px 8px rgba(23,105,200,.22), 0 1px 3px rgba(11,29,51,.08);
+  --sh-modal: 0 20px 56px rgba(11,29,51,.18), 0 4px 16px rgba(11,29,51,.08);
+
+  --r:    10px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --sidebar: 222px;
+  --hdr: 54px;
+
+  /* ── Expanded design system ─────────────────────────── */
+
+  /* Spacing scale */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Typography scale */
+  --text-xs:   10px;
+  --text-sm:   11.5px;
+  --text-base: 13px;
+  --text-md:   14.5px;
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-2xl:  26px;
+  --text-3xl:  32px;
+  --text-4xl:  38px;
+
+  /* Radius scale */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  16px;
+  --r-xl:  20px;
+  --r-2xl: 24px;
+  --r-full: 9999px;
+
+  /* Motion tokens */
+  --duration-fast:   100ms;
+  --duration-base:   150ms;
+  --duration-slow:   250ms;
+  --duration-enter:  350ms;
+  --ease-default:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring:     cubic-bezier(0.22, 0.68, 0, 1.1);
+  --ease-out:        cubic-bezier(0, 0, 0.2, 1);
+
+  /* Status colors */
+  --status-success:        #0FAD6F;
+  --status-success-bg:     #E8FBF2;
+  --status-success-border: rgba(15,173,111,.25);
+  --status-warning:        #E07B20;
+  --status-warning-bg:     #FDF0E3;
+  --status-warning-border: rgba(224,123,32,.25);
+  --status-danger:         #CC3A3A;
+  --status-danger-bg:      #FBE8E8;
+  --status-danger-border:  rgba(204,58,58,.25);
+  --status-info:           #1769C8;
+  --status-info-bg:        #E6F0FB;
+  --status-info-border:    rgba(23,105,200,.25);
+}
+
+/* Dark mode tokens */
+.dark {
+  --bg:        #0B1220;
+  --card:      #111827;
+  --nav:       #060C16;
+  --nav2:      #0A1020;
+  --nav3:      #0F1930;
+  --nav-line:  rgba(255,255,255,0.07);
+  --nav-hover: rgba(255,255,255,0.06);
+  --nav-active:rgba(24,110,210,0.25);
+
+  --blue:    #3B8EE0;
+  --blue-h:  #2F7ED0;
+  --blue-10: rgba(23,105,200,0.14);
+  --blue-20: rgba(23,105,200,0.28);
+
+  --t1: #E8EEF7;
+  --t2: #98B0CA;
+  --t3: #5F7E9C;
+  --t4: #3D5C7A;
+
+  --border:   #1E2E42;
+  --border-s: #172030;
+
+  --sh-card:  0 1px 4px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.2);
+  --sh-hover: 0 6px 24px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
+  --sh-modal: 0 24px 64px rgba(0,0,0,.6), 0 4px 16px rgba(0,0,0,.4);
+
+  --status-success-bg:  rgba(15,173,111,.12);
+  --status-warning-bg:  rgba(224,123,32,.12);
+  --status-danger-bg:   rgba(204,58,58,.12);
+  --status-info-bg:     rgba(23,105,200,.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--t1); overflow: hidden; -webkit-font-smoothing: antialiased; }
