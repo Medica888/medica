@@ -219,3 +219,13 @@ export interface AdaptiveBlueprint {
   targetConcepts:  string[]; // allocated for this session: 50% weak + 30% medium
   promptFocusText: string;   // injected into AI generation prompt (server-internal)
 }
+
+export interface AdaptiveFlashcardPlan {
+  strategy:             AdaptiveStrategy;
+  enabled:              boolean;
+  reason?:              string;
+  weakConcepts:         string[]; // all weak concepts, sorted weakest-first
+  targetConcepts:       string[]; // top MAX_TARGET_CONCEPTS from weakConcepts
+  recommendedCardCount: number;   // targetConcepts.length * 2, max 20
+  promptFocusText:      string;   // server-internal, injected into AI prompt
+}

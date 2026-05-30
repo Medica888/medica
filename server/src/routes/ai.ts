@@ -2,10 +2,11 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
+import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 import type { AuthRequest } from '../middleware/auth.js';
 import { getRepositories } from '../repositories/index.js';
-import type { AdaptiveBlueprint } from '../types/index.js';
+import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -673,6 +674,157 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[generate-questions]', msg);
     res.status(500).json({ error: msg || 'Question generation failed', code: 'GENERATION_FAILED' });
+  }
+});
+
+// ─── POST /api/generate-flashcards ───────────────────────────────────────────
+// NOTE: This endpoint has no frontend caller as of Phase 3.3.
+// It is backend-complete; wiring a UI call site is a separate step.
+
+const FC_GEN_SYSTEM = `You are an elite USMLE Step 1 flashcard writer for MEDICA Medical Education Centre.
+
+Output ONLY a valid JSON object — no markdown fences, no commentary, no text before or after. Raw JSON only.
+
+CRITICAL JSON SAFETY RULES:
+- Never use double quotes ( " ) inside any string value. Use single quotes or rephrase.
+- Never include raw newlines inside string values. One continuous line per string.
+- No trailing commas after the last item in any array or object.
+
+Each flashcard must be self-contained — answerable without any external context.
+Front: clear clinical question, max 16 words.
+Back: precise mechanism or fact, max 15 words.
+
+Schema:
+{
+  "flashcards": [
+    {
+      "concept": "Specific concept name",
+      "type": "Recall",
+      "front": "What is the mechanism of ACE inhibitor cough?",
+      "back": "Bradykinin accumulation from inhibited ACE-mediated degradation.",
+      "subject": "Pharmacology",
+      "system": "Cardiovascular",
+      "tag": "Recall",
+      "pearl": "Switching to ARBs resolves cough — ARBs do not affect bradykinin.",
+      "memoryAnchor": "ACE = Accumulates Cough-inducing bradyKinin"
+    }
+  ]
+}
+
+type must be exactly one of: "Recall", "Pearl", "Trap", "Mnemonic".
+pearl and memoryAnchor are optional — omit when not applicable.
+Generate exactly the number of flashcards requested.`;
+
+const VALID_FC_TYPES = new Set(['Recall', 'Pearl', 'Trap', 'Mnemonic']);
+
+function normalizeFlashcard(raw: Record<string, any>, now: string): Record<string, any> | null {
+  const front = String(raw.front || '').trim();
+  const back  = String(raw.back  || '').trim();
+  if (!front || !back) return null;
+
+  const type = VALID_FC_TYPES.has(raw.type) ? raw.type : 'Recall';
+  const id   = `fc_adaptive_${randomUUID()}_${type.toLowerCase()}`;
+
+  return {
+    id,
+    front,
+    back,
+    clinicalPrompt:   front,
+    coreMechanism:    back,
+    tag:              type,
+    concept:          String(raw.concept || '').trim(),
+    testedConcept:    String(raw.concept || '').trim(),
+    subject:          String(raw.subject || '').trim(),
+    system:           String(raw.system  || '').trim(),
+    pearl:            String(raw.pearl   || '').trim() || null,
+    memoryAnchor:     String(raw.memoryAnchor || '').trim() || null,
+    sourceQuestionId: `adaptive_${randomUUID()}`,
+    sourceMode:       'adaptive' as const,
+    reinforcementPriority: 'high' as const,
+    reviewStatus:     'new' as const,
+    reviewCount:      0,
+    createdAt:        now,
+  };
+}
+
+router.post('/generate-flashcards', optionalAuth, async (req: AuthRequest, res: Response) => {
+  const { config: rawConfig } = req.body ?? {};
+  const count = Math.min(Math.max(Number(rawConfig?.count ?? 10), 1), 30);
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI generation unavailable — API key not configured', code: 'NO_API_KEY' });
+    return;
+  }
+
+  try {
+    // Build adaptive plan when user is authenticated
+    let plan: AdaptiveFlashcardPlan | null = null;
+    if (req.userId) {
+      try {
+        const { userConceptMastery, concepts } = getRepositories();
+        const bp = await new AdaptiveFlashcardService(userConceptMastery, concepts)
+          .buildAdaptiveFlashcardPlan(req.userId);
+        if (bp.enabled) plan = bp;
+      } catch (err) {
+        console.warn('[generate-flashcards] adaptive plan skipped:', (err as Error).message);
+      }
+    }
+
+    // Build prompt
+    const lines: string[] = [`Generate exactly ${count} USMLE Step 1 clinical reinforcement flashcards.`];
+    if (rawConfig?.subject && rawConfig.subject !== 'All Subjects') lines.push(`Subject: ${rawConfig.subject}`);
+    if (rawConfig?.system  && rawConfig.system  !== 'All Systems')  lines.push(`Organ System: ${rawConfig.system}`);
+    if (plan?.promptFocusText) lines.push('', plan.promptFocusText);
+    lines.push('', `Generate exactly ${count} flashcards. Output valid JSON only.`);
+    const prompt = lines.join('\n');
+
+    const response = await callWithRetry({
+      model:      process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
+      max_tokens: Math.min(count * 300, 4096),
+      system:     FC_GEN_SYSTEM,
+      messages:   [{ role: 'user', content: prompt }],
+    } as Anthropic.MessageCreateParamsNonStreaming);
+
+    const text = response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as Anthropic.TextBlock).text)
+      .join('');
+
+    let s = text.trim().replace(/^```(?:json)?\s*\n?/gi, '').replace(/\n?```\s*$/gi, '').trim();
+    const start = s.indexOf('{'), end = s.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+      res.status(500).json({ error: 'AI returned invalid JSON', code: 'PARSE_ERROR' });
+      return;
+    }
+    const parsed = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(parsed.flashcards)) {
+      res.status(500).json({ error: 'AI response missing flashcards array', code: 'EMPTY_RESULT' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const flashcards = parsed.flashcards
+      .map((raw: Record<string, any>) => normalizeFlashcard(raw, now))
+      .filter((fc: Record<string, any> | null): fc is Record<string, any> => fc !== null)
+      .slice(0, count);
+
+    if (flashcards.length === 0) {
+      res.status(500).json({ error: 'AI generated no valid flashcards', code: 'EMPTY_RESULT' });
+      return;
+    }
+
+    console.log(`[generate-flashcards] strategy=${plan ? 'adaptive' : 'random'} requested=${count} returned=${flashcards.length}`);
+
+    res.json({
+      flashcards,
+      count:             flashcards.length,
+      flashcardStrategy: plan ? 'adaptive' : 'random',
+      adaptiveConcepts:  plan ? plan.targetConcepts : [],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[generate-flashcards]', msg);
+    res.status(500).json({ error: msg || 'Flashcard generation failed', code: 'GENERATION_FAILED' });
   }
 });
 
