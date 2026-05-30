@@ -4,6 +4,7 @@ import { ExamService } from '../services/ExamService.js';
 import { AnalyticsService } from '../services/AnalyticsService.js';
 import { ConceptMappingService } from '../services/ConceptMappingService.js';
 import { ConceptMasteryService } from '../services/ConceptMasteryService.js';
+import { ProgressTrackingService } from '../services/ProgressTrackingService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { createSessionSchema } from '../schemas/exam.js';
@@ -26,10 +27,14 @@ router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Re
   try {
     const session = await getService().createSession(req.userId!, req.body);
     // Fire-and-forget: update analytics snapshot after every new exam
-    const { analytics, examSessions } = getRepositories();
+    const { analytics, examSessions, userConceptMastery, masterySnapshots } = getRepositories();
     new AnalyticsService(analytics, examSessions)
       .saveSnapshot(req.userId!)
       .catch((err) => console.error('[analytics] snapshot update failed:', err));
+    // Fire-and-forget: capture mastery progress snapshot (independent — one cannot swallow the other)
+    new ProgressTrackingService(userConceptMastery, masterySnapshots)
+      .takeSnapshot(req.userId!, session.id)
+      .catch((err) => console.error('[progress] snapshot failed:', err));
     res.status(201).json({ session });
   } catch {
     res.status(500).json({ error: 'Internal server error' });

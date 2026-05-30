@@ -7083,6 +7083,44 @@ html, body, #root {
 }
 .qb-adaptive-chip--dim { background: var(--bg); color: var(--t4); border-color: var(--border-s); }
 
+/* ── PROGRESS PANEL (Phase 3.6) ────────────────────────────── */
+
+.pp-panel { display: flex; flex-direction: column; gap: 16px; }
+
+.pp-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+.pp-velocity-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px; flex-shrink: 0;
+}
+.pp-velocity--up   { background: color-mix(in srgb, var(--status-stable)   12%, transparent); color: var(--status-stable); }
+.pp-velocity--down { background: color-mix(in srgb, var(--status-critical) 12%, transparent); color: var(--status-critical); }
+.pp-velocity--flat { background: var(--bg); color: var(--t4); border: 1px solid var(--border-s); }
+
+/* Stat cards */
+.pp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pp-stat-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; background: var(--bg);
+  border: 1px solid var(--border-s); border-radius: 9px;
+}
+.pp-stat-label { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t4); }
+.pp-stat-main  { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.pp-stat-val   { font-size: 22px; font-weight: 700; color: var(--t1); line-height: 1; }
+.pp-stat-prev  { font-size: 11px; color: var(--t3); }
+
+/* Delta */
+.pp-delta { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+.pp-delta-val     { font-size: 12px; font-weight: 700; }
+.pp-delta-label   { font-size: 10.5px; color: var(--t4); }
+.pp-delta--up     { color: var(--status-stable); }
+.pp-delta--down   { color: var(--status-critical); }
+.pp-delta--neutral { color: var(--t4); }
+
+/* Chart */
+.pp-chart-wrap  { margin-top: 4px; }
+.pp-chart-label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t4); margin-bottom: 8px; }
+
 /* ── STUDY PRESCRIPTION PANEL (Phase 3.5) ──────────────────── */
 
 .spp-panel { display: flex; flex-direction: column; gap: 16px; }

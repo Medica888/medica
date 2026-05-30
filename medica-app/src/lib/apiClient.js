@@ -91,6 +91,10 @@ export const mastery = {
     request('GET', '/api/mastery/adaptive-flashcards-preview'),
   prescription: () =>
     request('GET', '/api/mastery/prescription'),
+  progress: () =>
+    request('GET', '/api/mastery/progress'),
+  timeline: () =>
+    request('GET', '/api/mastery/timeline'),
 };
 
 // ── Generate ──────────────────────────────────────────────────────────────

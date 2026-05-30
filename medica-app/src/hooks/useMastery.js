@@ -45,6 +45,14 @@ export function useStudyPrescription() {
   return useApiCall(() => masteryApi.prescription())
 }
 
+export function useMasteryProgress() {
+  return useApiCall(() => masteryApi.progress())
+}
+
+export function useMasteryTimeline() {
+  return useApiCall(() => masteryApi.timeline())
+}
+
 export function useMasteryConcept(conceptId) {
   return useApiCall(
     () => (conceptId ? masteryApi.concept(conceptId) : Promise.resolve(null)),

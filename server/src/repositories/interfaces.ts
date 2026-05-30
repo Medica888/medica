@@ -8,6 +8,7 @@ import type {
   Concept,
   QuestionConcept,
   UserConceptMastery,
+  MasterySnapshot,
   PaginationParams,
   PaginatedResult,
 } from '../types/index.js';
@@ -114,6 +115,32 @@ export interface IQuestionConceptsRepository {
   /** tx must be passed when called inside a transaction so uncommitted writes are visible. */
   findByQuestionId(questionId: string, tx?: unknown): Promise<QuestionConcept[]>;
   findByConceptId(conceptId: string): Promise<QuestionConcept[]>;
+}
+
+export interface IMasterySnapshotsRepository {
+  /** Insert a full-mastery-state snapshot batch; one row per concept. */
+  insertBatch(
+    snapshots: {
+      userId:       string;
+      conceptId:    string;
+      sessionId:    string;
+      masteryScore: number;
+      confidence:   number;
+      attemptCount: number;
+    }[],
+  ): Promise<void>;
+
+  /** All snapshots for a user, ordered by created_at ASC. */
+  findByUserId(userId: string): Promise<MasterySnapshot[]>;
+
+  /**
+   * Session IDs with snapshots, oldest to newest.
+   * Used to find "current" (last) and "previous" (second-last) batches.
+   */
+  findBatchIds(userId: string): Promise<string[]>;
+
+  /** All snapshots for one batch. */
+  findByBatch(userId: string, sessionId: string): Promise<MasterySnapshot[]>;
 }
 
 export interface IUserConceptMasteryRepository {

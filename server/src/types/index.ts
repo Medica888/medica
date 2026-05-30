@@ -220,6 +220,39 @@ export interface AdaptiveBlueprint {
   promptFocusText: string;   // injected into AI generation prompt (server-internal)
 }
 
+// ── Mastery progress tracking ─────────────────────────────────────────────────
+
+export interface MasterySnapshot {
+  id:            string;
+  user_id:       string;
+  concept_id:    string;
+  session_id:    string;
+  mastery_score: number;
+  confidence:    number;
+  attempt_count: number;
+  created_at:    Date;
+}
+
+export interface MasteryProgress {
+  currentMastery:   number;
+  previousMastery:  number | null;
+  improvement:      number | null;
+  priorityConcepts: { current: number; previous: number | null };
+  weakConcepts:     { current: number; previous: number | null };
+  sessionCount:     number;
+}
+
+export interface MasteryTrendPoint {
+  sessionId:       string;
+  date:            string;    // ISO timestamp
+  avgMastery:      number;
+  totalConcepts:   number;
+  priorityCount:   number;    // mastery < 0.65
+  focusCount:      number;    // 0.65 ≤ mastery < 0.75
+  reinforcedCount: number;    // 0.75 ≤ mastery < 0.85
+  ontrkCount:      number;    // mastery ≥ 0.85
+}
+
 // ── Study prescription ───────────────────────────────────────────────────────
 
 export interface PrescriptionConcept {

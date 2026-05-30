@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import MasteryPanel from './MasteryPanel'
 import StudyPrescriptionPanel from './StudyPrescriptionPanel'
+import ProgressPanel from './ProgressPanel'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -265,6 +266,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
           </div>
         </div>
+
+        {/* ── Progress tracking (backend-powered; needs ≥1 snapshot to show) */}
+        <ProgressPanel />
 
         {/* ── Concept Mastery (backend-powered, gracefully hidden when offline) */}
         <MasteryPanel />

@@ -5,6 +5,7 @@ import { ConceptHierarchyService } from '../services/ConceptHierarchyService.js'
 import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
 import { StudyPrescriptionService } from '../services/StudyPrescriptionService.js';
+import { ProgressTrackingService } from '../services/ProgressTrackingService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRepositories } from '../repositories/index.js';
 
@@ -93,6 +94,41 @@ router.get('/prescription', async (req: AuthRequest, res: Response) => {
     const rx = await new StudyPrescriptionService(userConceptMastery, concepts)
       .getPrescription(req.userId!);
     res.json(rx);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/progress', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, masterySnapshots } = getRepositories();
+    const svc = new ProgressTrackingService(userConceptMastery, masterySnapshots);
+    const [progress, trend] = await Promise.all([
+      svc.getProgress(req.userId!),
+      svc.getMasteryTrend(req.userId!),
+    ]);
+    res.json({
+      ...progress,
+      improvementRate:   svc.getImprovementRate(trend),
+      learningVelocity:  svc.getLearningVelocity(trend),
+    });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/timeline', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, masterySnapshots } = getRepositories();
+    const svc   = new ProgressTrackingService(userConceptMastery, masterySnapshots);
+    const trend = await svc.getMasteryTrend(req.userId!);
+    const weak  = await svc.getWeakConceptTrend(req.userId!);
+    res.json({
+      trend,
+      weakConceptTrend: weak,
+      improvementRate:  svc.getImprovementRate(trend),
+      learningVelocity: svc.getLearningVelocity(trend),
+    });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

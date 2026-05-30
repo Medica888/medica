@@ -9,6 +9,7 @@ import { InMemoryQuestionsRepository } from './memory/QuestionsRepository.js';
 import { InMemoryConceptsRepository } from './memory/ConceptsRepository.js';
 import { InMemoryQuestionConceptsRepository } from './memory/QuestionConceptsRepository.js';
 import { InMemoryUserConceptMasteryRepository } from './memory/UserConceptMasteryRepository.js';
+import { InMemoryMasterySnapshotsRepository } from './memory/MasterySnapshotsRepository.js';
 
 import { PgUsersRepository } from './pg/UsersRepository.js';
 import { PgExamSessionsRepository } from './pg/ExamSessionsRepository.js';
@@ -19,6 +20,7 @@ import { PgQuestionsRepository } from './pg/QuestionsRepository.js';
 import { PgConceptsRepository } from './pg/ConceptsRepository.js';
 import { PgQuestionConceptsRepository } from './pg/QuestionConceptsRepository.js';
 import { PgUserConceptMasteryRepository } from './pg/UserConceptMasteryRepository.js';
+import { PgMasterySnapshotsRepository } from './pg/MasterySnapshotsRepository.js';
 
 import type { IUsersRepository } from './interfaces.js';
 import type { IExamSessionsRepository } from './interfaces.js';
@@ -29,6 +31,7 @@ import type { IQuestionsRepository } from './interfaces.js';
 import type { IConceptsRepository } from './interfaces.js';
 import type { IQuestionConceptsRepository } from './interfaces.js';
 import type { IUserConceptMasteryRepository } from './interfaces.js';
+import type { IMasterySnapshotsRepository } from './interfaces.js';
 
 import { config } from '../config.js';
 
@@ -42,6 +45,7 @@ export interface Repositories {
   concepts: IConceptsRepository;
   questionConcepts: IQuestionConceptsRepository;
   userConceptMastery: IUserConceptMasteryRepository;
+  masterySnapshots:   IMasterySnapshotsRepository;
 }
 
 let _repos: Repositories | null = null;
@@ -66,6 +70,7 @@ export function createInMemoryRepositories(): Repositories {
     concepts:           new InMemoryConceptsRepository(),
     questionConcepts:   new InMemoryQuestionConceptsRepository(),
     userConceptMastery: new InMemoryUserConceptMasteryRepository(),
+    masterySnapshots:   new InMemoryMasterySnapshotsRepository(),
   };
 }
 
@@ -82,6 +87,7 @@ export function createPgRepositories(): Repositories {
     concepts:           new PgConceptsRepository(pool),
     questionConcepts:   new PgQuestionConceptsRepository(pool),
     userConceptMastery: new PgUserConceptMasteryRepository(pool),
+    masterySnapshots:   new PgMasterySnapshotsRepository(pool),
   };
 }
 
