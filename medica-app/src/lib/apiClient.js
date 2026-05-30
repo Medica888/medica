@@ -89,6 +89,8 @@ export const mastery = {
     request('GET', '/api/mastery/adaptive-preview'),
   adaptiveFlashcardsPreview: () =>
     request('GET', '/api/mastery/adaptive-flashcards-preview'),
+  prescription: () =>
+    request('GET', '/api/mastery/prescription'),
 };
 
 // ── Generate ──────────────────────────────────────────────────────────────

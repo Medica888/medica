@@ -7082,3 +7082,76 @@ html, body, #root {
   border: 1px solid var(--blue-20);
 }
 .qb-adaptive-chip--dim { background: var(--bg); color: var(--t4); border-color: var(--border-s); }
+
+/* ── STUDY PRESCRIPTION PANEL (Phase 3.5) ──────────────────── */
+
+.spp-panel { display: flex; flex-direction: column; gap: 16px; }
+
+.spp-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.spp-strategy-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--blue-10); color: var(--blue); border: 1px solid var(--blue-20);
+  flex-shrink: 0;
+}
+
+/* Summary stats row */
+.spp-stats {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.spp-stat {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; background: var(--bg);
+  border: 1px solid var(--border-s); border-radius: 8px;
+  flex: 1; min-width: 100px;
+}
+.spp-stat-icon  { font-size: 13px; color: var(--t4); }
+.spp-stat-val   { font-size: 15px; font-weight: 700; color: var(--t1); }
+.spp-stat-label { font-size: 10.5px; color: var(--t3); }
+
+/* Tier sections */
+.spp-tiers { display: flex; flex-direction: column; gap: 14px; }
+
+.spp-tier      { display: flex; flex-direction: column; gap: 0; }
+.spp-tier-hdr  {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.spp-tier-sub   { font-size: 11.5px; color: var(--t3); flex: 1; min-width: 0; }
+.spp-tier-count { font-size: 11px; color: var(--t4); flex-shrink: 0; }
+
+.spp-tier-body {
+  border-left: 3px solid transparent;
+  padding-left: 12px;
+  display: flex; flex-direction: column; gap: 0;
+}
+
+/* Concept rows */
+.spp-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border-s);
+}
+.spp-row:last-child { border-bottom: none; }
+
+.spp-row-main { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.spp-name { font-size: 12.5px; font-weight: 500; color: var(--t1); }
+.spp-rec  { font-size: 11px; color: var(--t3); line-height: 1.5; }
+
+.spp-row-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.spp-pct { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+.spp-conf-dots { display: flex; gap: 3px; }
+.spp-conf-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border); transition: background .14s;
+}
+.spp-conf-dot.filled { background: var(--blue); }
+
+.spp-attempts { font-size: 10.5px; color: var(--t4); white-space: nowrap; }
+
+/* Footnote */
+.spp-footnote {
+  font-size: 10.5px; color: var(--t4); margin: 0;
+  padding-top: 8px; border-top: 1px solid var(--border-s);
+}

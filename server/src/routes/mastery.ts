@@ -4,6 +4,7 @@ import { MasteryQueryService } from '../services/MasteryQueryService.js';
 import { ConceptHierarchyService } from '../services/ConceptHierarchyService.js';
 import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
+import { StudyPrescriptionService } from '../services/StudyPrescriptionService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRepositories } from '../repositories/index.js';
 
@@ -81,6 +82,17 @@ router.get('/adaptive-preview', async (req: AuthRequest, res: Response) => {
       mediumConcepts: bp.mediumConcepts,
       targetConcepts: bp.targetConcepts,
     });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/prescription', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, concepts } = getRepositories();
+    const rx = await new StudyPrescriptionService(userConceptMastery, concepts)
+      .getPrescription(req.userId!);
+    res.json(rx);
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

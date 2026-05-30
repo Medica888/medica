@@ -5,6 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from 'recharts'
 import MasteryPanel from './MasteryPanel'
+import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -267,6 +268,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
         {/* ── Concept Mastery (backend-powered, gracefully hidden when offline) */}
         <MasteryPanel />
+
+        {/* ── Study Prescription (backend-powered, derived from mastery data) */}
+        <StudyPrescriptionPanel />
 
         <p className="an-footer-disclaimer">
           Medica Score is an internal readiness estimate, not an official USMLE prediction.

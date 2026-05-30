@@ -220,6 +220,29 @@ export interface AdaptiveBlueprint {
   promptFocusText: string;   // injected into AI generation prompt (server-internal)
 }
 
+// ── Study prescription ───────────────────────────────────────────────────────
+
+export interface PrescriptionConcept {
+  name:            string;
+  masteryScore:    number;  // 0–1
+  confidence:      number;  // 0–1; saturates at 5 attempts
+  attempts:        number;
+  recentIncorrect: number;
+  recommendation:  string;
+}
+
+export interface StudyPrescription {
+  strategy:              'adaptive' | 'random';
+  enabled:               boolean;
+  reason?:               string;
+  priority:              PrescriptionConcept[]; // mastery < 0.65
+  focus:                 PrescriptionConcept[]; // 0.65 ≤ mastery < 0.75
+  reinforced:            PrescriptionConcept[]; // 0.75 ≤ mastery < 0.85  (≥0.85 excluded)
+  estimatedStudyTime:    number;                // minutes; coefficients: 5/3/2 per concept
+  recommendedQuestions:  number;                // capped at 40
+  recommendedFlashcards: number;                // capped at 30
+}
+
 export interface AdaptiveFlashcardPlan {
   strategy:             AdaptiveStrategy;
   enabled:              boolean;

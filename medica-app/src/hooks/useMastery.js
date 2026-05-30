@@ -41,6 +41,10 @@ export function useAdaptiveFlashcardsPreview() {
   return useApiCall(() => masteryApi.adaptiveFlashcardsPreview())
 }
 
+export function useStudyPrescription() {
+  return useApiCall(() => masteryApi.prescription())
+}
+
 export function useMasteryConcept(conceptId) {
   return useApiCall(
     () => (conceptId ? masteryApi.concept(conceptId) : Promise.resolve(null)),
