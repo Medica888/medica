@@ -40,15 +40,24 @@ export async function saveSession(results, sessionWithAnswers) {
     const answers   = sessionWithAnswers?.answers   ?? {};
 
     const mapQuestion = (q) => ({
-      id:             q.id,
-      text:           q.stem ?? '',
-      options:        (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
-      correct_answer: q.correct ?? '',
-      explanation:    q.explanation  ?? '',
-      subject:        q.subject      ?? '',
-      system:         q.system       ?? '',
-      difficulty:     q.difficulty   ?? '',
-      pearl:          q.pearl        ?? '',
+      id:               q.id,
+      text:             q.stem ?? '',
+      options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
+      correct_answer:   q.correct ?? '',
+      explanation:      q.explanation      ?? '',
+      subject:          q.subject          ?? '',
+      system:           q.system           ?? '',
+      difficulty:       q.difficulty       ?? '',
+      pearl:            q.pearl            ?? '',
+      testedConcept:    q.testedConcept    ?? '',
+      weakSpotCategory: q.weakSpotCategory ?? '',
+      topic:            q.topic            ?? '',
+      canonicalTopic:   q.canonicalTopic   ?? '',
+      topicSlug:        q.topicSlug        ?? '',
+      topicSource:      q.topicSource      ?? '',
+      questionAngle:    q.questionAngle    ?? '',
+      commonTrap:       q.commonTrap       ?? '',
+      memoryAnchor:     q.memoryAnchor     ?? '',
     });
 
     const payload = {

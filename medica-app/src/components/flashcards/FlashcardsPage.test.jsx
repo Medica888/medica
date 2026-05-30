@@ -74,20 +74,20 @@ describe('FlashcardsPage — deck view labels', () => {
     expect(screen.getByText('Start Reinforcement')).toBeInTheDocument()
   })
 
-  it('shows empty state "No Reinforcement Cards Yet" when deck is empty', () => {
+  it('shows empty state "No Reinforcement Items Yet" when deck is empty', () => {
     render(<FlashcardsPage />)
-    expect(screen.getByText('No Reinforcement Cards Yet')).toBeInTheDocument()
+    expect(screen.getByText('No Reinforcement Items Yet')).toBeInTheDocument()
   })
 })
 
 // ── Active review ─────────────────────────────────────────────────────────────
 
 describe('FlashcardsPage — review mode', () => {
-  it('shows a board-recall label on the card front', () => {
+  it('shows a high-yield recall label on the card front', () => {
     seedCards()
     render(<FlashcardsPage />)
     fireEvent.click(screen.getByText('Reinforce Now'))
-    expect(screen.getByText('Board Recall')).toBeInTheDocument()
+    expect(screen.getByText('High-Yield Recall')).toBeInTheDocument()
   })
 
   it('displays the card front text (clinicalPrompt) in review', () => {
@@ -241,5 +241,65 @@ describe('FlashcardsPage — session done screen', () => {
   it('shows "Back to Library" button', () => {
     completeSession()
     expect(screen.getByText('Back to Library')).toBeInTheDocument()
+  })
+})
+
+// ── Terminology — no legacy flashcard/deck/anki copy ──────────────────────────
+
+describe('FlashcardsPage — no legacy terminology in deck view', () => {
+  it('does not render "Anki" anywhere in the deck view', () => {
+    seedCards()
+    render(<FlashcardsPage />)
+    expect(screen.queryByText(/anki/i)).not.toBeInTheDocument()
+  })
+
+  it('does not render "Board Recall" as a label (renamed to High-Yield Recall)', () => {
+    seedCards()
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    expect(screen.queryByText('Board Recall')).not.toBeInTheDocument()
+    expect(screen.getByText('High-Yield Recall')).toBeInTheDocument()
+  })
+
+  it('does not render "Clear Deck" button (renamed to Clear Reinforcement)', () => {
+    seedCards()
+    render(<FlashcardsPage />)
+    expect(screen.queryByText('Clear Deck')).not.toBeInTheDocument()
+    expect(screen.getByText('Clear Reinforcement')).toBeInTheDocument()
+  })
+})
+
+// ── Backward compatibility — old front/back-only cards ────────────────────────
+
+describe('FlashcardsPage — backward compat: front/back-only cards', () => {
+  it('renders front text for a card that has only front/back (no clinicalPrompt)', () => {
+    const legacyCard = {
+      ...sampleCard,
+      id: 'fc_legacy_1',
+      clinicalPrompt: undefined,
+      coreMechanism: undefined,
+      front: 'What is the mechanism of beta-blocker action?',
+      back: 'Beta-1 blockade reduces heart rate and contractility.',
+    }
+    seedCards([legacyCard])
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    expect(screen.getByText('What is the mechanism of beta-blocker action?')).toBeInTheDocument()
+  })
+
+  it('renders back text via coreMechanism fallback to back field after reveal', () => {
+    const legacyCard = {
+      ...sampleCard,
+      id: 'fc_legacy_2',
+      clinicalPrompt: undefined,
+      coreMechanism: undefined,
+      front: 'What is the mechanism of beta-blocker action?',
+      back: 'Beta-1 blockade reduces heart rate and contractility.',
+    }
+    seedCards([legacyCard])
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    expect(screen.getByText('Beta-1 blockade reduces heart rate and contractility.')).toBeInTheDocument()
   })
 })

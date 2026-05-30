@@ -34,13 +34,16 @@ export default function PracticeReview({ session, onBack, onNewQuiz }) {
         </div>
 
         <div className="prv-hdr-center">
-          <span className="prv-hdr-title">Answer Review</span>
-          <span className="prv-hdr-sub">{questions.length} questions</span>
+          <span className="prv-hdr-title">Clinical Debrief</span>
+          <span className="prv-hdr-badge">Block Complete</span>
         </div>
 
         <div className="prv-hdr-right">
+          <span className="prv-hdr-score">
+            {questions.length - incorrectCount}/{questions.length}
+          </span>
           <button type="button" className="prv-new-btn" onClick={onNewQuiz}>
-            New Quiz
+            New Session
           </button>
         </div>
       </div>

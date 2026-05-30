@@ -1,5 +1,17 @@
 import { isQuestionAnswered, isQuestionCorrect } from '../../lib/examReviewHelpers'
 
+const READINESS_COLOR = {
+  'Strong':           'var(--status-stable)',
+  'Ready':            '#2E64C8',
+  'Borderline':       'var(--status-warn)',
+  'Building':         'var(--status-warn)',
+  'Needs Foundation': 'var(--status-critical)',
+}
+
+function barColor(pct) {
+  return pct < 50 ? 'var(--status-critical)' : pct < 70 ? 'var(--status-warn)' : 'var(--status-stable)'
+}
+
 /**
  * @param {{
  *   results: import('../../lib/practiceScoring').PracticeResults
@@ -29,212 +41,195 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
     ? Math.max(0, Math.round((new Date(results.completedAt) - new Date(session.startedAt)) / 1000))
     : null
 
-  const readinessColor = {
-    'Strong':           'var(--green)',
-    'Ready':            'var(--blue)',
-    'Borderline':       'var(--orange)',
-    'Building':         'var(--orange)',
-    'Needs Foundation': 'var(--red)',
-  }[readinessLabel] ?? 'var(--t3)'
+  const rdColor = READINESS_COLOR[readinessLabel] ?? 'var(--t3)'
+
+  const durationStr = duration !== null
+    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
+    : null
 
   return (
-    <div className="er-page">
-      <div className="er-scroll">
-        <div className="er-content">
+    <div className="cr-page">
+      <div className="cr-scroll">
 
-          {/* Hero card */}
-          <div className="er-hero-card">
-            <div className="er-hero-top">
-              <div className="er-mode-badge">
-                Exam Mode · Complete
-                {duration !== null && (
-                  <span className="er-duration">
-                    {' · '}{Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
-                  </span>
+        {/* ── Hero header ── */}
+        <div className="cr-hero">
+          <div className="cr-hero-left">
+            <div className="cr-hero-eyebrow">
+              EXAM MODE · SESSION COMPLETE{durationStr ? ` · ${durationStr}` : ''}
+            </div>
+            <h1 className="cr-hero-title">
+              {session?.config?.subject && session.config.subject !== 'All Subjects'
+                ? session.config.subject
+                : session?.config?.system && session.config.system !== 'All Systems'
+                  ? session.config.system
+                  : 'Exam Session'}
+            </h1>
+            <p className="cr-hero-meta">
+              {correct}/{total} correct · {wrongCount} wrong{skippedCount > 0 ? ` · ${skippedCount} unanswered` : ''}
+            </p>
+          </div>
+          <div className="cr-hero-kpis">
+            <div className="cr-kpi cr-kpi--accuracy">
+              <span className="cr-kpi-num">{percentage}%</span>
+              <span className="cr-kpi-lbl">ACCURACY</span>
+            </div>
+            <div className="cr-kpi-sep" />
+            <div className="cr-kpi cr-kpi--score">
+              <span className="cr-kpi-num">{medicaScore}</span>
+              <span className="cr-kpi-lbl">MEDICA SCORE</span>
+            </div>
+            <div className="cr-kpi-sep" />
+            <div className="cr-kpi">
+              <span className="cr-kpi-num" style={{ color: rdColor }}>{readinessLabel}</span>
+              <span className="cr-kpi-lbl">READINESS</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Two-column body ── */}
+        <div className="cr-body-grid">
+
+          {/* Left column */}
+          <div className="cr-left">
+
+            {/* Recommendation */}
+            <div className="cr-panel cr-panel--rec">
+              <div className="cr-panel-label">RECOMMENDATION</div>
+              <p className="cr-rec-text">{recommendation}</p>
+            </div>
+
+            {/* Instability signals */}
+            {weakAreas.length > 0 && (
+              <div className="cr-panel">
+                <div className="cr-panel-label">INSTABILITY SIGNALS</div>
+                <div className="cr-wsd">
+                  {weakAreas.map((w, i) => {
+                    const sev = w.percentage < 50 ? 'priority' : w.percentage < 70 ? 'focus' : 'reinforced'
+                    const lbl = w.percentage < 50 ? 'PRIORITY' : w.percentage < 70 ? 'FOCUS' : 'REINFORCED'
+                    return (
+                      <div key={i} className={`cr-wsd-row cr-wsd-row--${sev}`}>
+                        <div className="cr-wsd-top">
+                          <div className="cr-wsd-left">
+                            <span className="cr-wsd-cat">{w.name}</span>
+                            <span className="cr-wsd-detail">{w.type}</span>
+                          </div>
+                          <span className={`cr-wsd-badge cr-wsd-badge--${sev}`}>{lbl}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Subject + System breakdowns */}
+            {(subjectBreakdown.length > 0 || systemBreakdown.length > 0) && (
+              <div className="cr-panel cr-panel--breakdown">
+                <div className="cr-bd-cols">
+                  {subjectBreakdown.length > 0 && (
+                    <div className="cr-bd-col">
+                      <div className="cr-panel-label">BY SUBJECT</div>
+                      {subjectBreakdown.map((s, i) => (
+                        <div key={i} className="cr-bd-row">
+                          <span className="cr-bd-name">{s.name}</span>
+                          <div className="cr-bd-bar-wrap">
+                            <div className="cr-bd-bar" style={{ width: `${s.percentage}%`, background: barColor(s.percentage) }} />
+                          </div>
+                          <span className="cr-bd-pct" style={{ color: barColor(s.percentage) }}>{s.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {systemBreakdown.length > 0 && (
+                    <div className="cr-bd-col">
+                      <div className="cr-panel-label">BY SYSTEM</div>
+                      {systemBreakdown.map((s, i) => (
+                        <div key={i} className="cr-bd-row">
+                          <span className="cr-bd-name">{s.name}</span>
+                          <div className="cr-bd-bar-wrap">
+                            <div className="cr-bd-bar" style={{ width: `${s.percentage}%`, background: barColor(s.percentage) }} />
+                          </div>
+                          <span className="cr-bd-pct" style={{ color: barColor(s.percentage) }}>{s.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* Right column */}
+          <div className="cr-right">
+
+            {/* Review shortcuts */}
+            <div className="cr-panel cr-panel--fc">
+              <div className="cr-panel-label">REVIEW ANSWERS</div>
+              <div className="er-review-grid">
+                <button type="button" className="er-review-tile" onClick={() => onReview('all')}>
+                  <span className="er-review-tile-num">{total}</span>
+                  <span className="er-review-tile-lbl">All Questions</span>
+                </button>
+                <button type="button" className="er-review-tile er-review-tile--wrong" onClick={() => onReview('incorrect')}>
+                  <span className="er-review-tile-num">{wrongCount}</span>
+                  <span className="er-review-tile-lbl">Incorrect</span>
+                </button>
+                {markedCount > 0 && (
+                  <button type="button" className="er-review-tile er-review-tile--marked" onClick={() => onReview('marked')}>
+                    <span className="er-review-tile-num">{markedCount}</span>
+                    <span className="er-review-tile-lbl">Marked</span>
+                  </button>
+                )}
+                {skippedCount > 0 && (
+                  <button type="button" className="er-review-tile er-review-tile--skip" onClick={() => onReview('unanswered')}>
+                    <span className="er-review-tile-num">{skippedCount}</span>
+                    <span className="er-review-tile-lbl">Unanswered</span>
+                  </button>
                 )}
               </div>
+            </div>
 
-              <div className="er-score-wrap">
-                {/* Score circle */}
-                <div className="er-score-circle">
-                  <svg width="120" height="120" viewBox="0 0 120 120" aria-hidden="true">
-                    <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border)" strokeWidth="8" />
-                    <circle
-                      cx="60" cy="60" r="52" fill="none"
-                      stroke={percentage >= 60 ? 'var(--blue)' : 'var(--orange)'}
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      strokeDasharray={`${2 * Math.PI * 52}`}
-                      strokeDashoffset={`${2 * Math.PI * 52 * (1 - percentage / 100)}`}
-                      style={{ transform: 'rotate(-90deg)', transformOrigin: '60px 60px', transition: 'stroke-dashoffset .6s ease' }}
-                    />
+            {/* Next actions */}
+            <div className="cr-panel cr-panel--actions">
+              <div className="cr-panel-label">NEXT ACTIONS</div>
+              <div className="cr-actions-list">
+                <button type="button" className="cr-action-btn cr-action-btn--primary" onClick={() => onReview('all')}>
+                  Review All Answers
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  <div className="er-score-inner">
-                    <span className="er-score-pct">{percentage}%</span>
-                    <span className="er-score-sub">{correct}/{total}</span>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div className="er-stats">
-                  <div className="er-stat">
-                    <span className="er-stat-val correct">{correct}</span>
-                    <span className="er-stat-lbl">Correct</span>
-                  </div>
-                  <div className="er-stat-div" />
-                  <div className="er-stat">
-                    <span className="er-stat-val wrong">{wrongCount}</span>
-                    <span className="er-stat-lbl">Wrong</span>
-                  </div>
-                  <div className="er-stat-div" />
-                  <div className="er-stat">
-                    <span className="er-stat-val skipped">{skippedCount}</span>
-                    <span className="er-stat-lbl">Skipped</span>
-                  </div>
-                  <div className="er-stat-div" />
-                  <div className="er-stat">
-                    <span className="er-stat-val">{total}</span>
-                    <span className="er-stat-lbl">Total</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Medica Score */}
-            <div className="er-medica-row">
-              <div className="er-medica-label-row">
-                <span className="er-medica-lbl">Medica Score</span>
-                <span className="er-medica-hint">Internal readiness estimate — not an official USMLE prediction</span>
-              </div>
-              <div className="er-medica-bar-row">
-                <div className="er-medica-bar-wrap">
-                  <div className="er-medica-bar" style={{ width: `${medicaScore}%`, background: readinessColor }} />
-                </div>
-                <span className="er-medica-num" style={{ color: readinessColor }}>{medicaScore}</span>
-              </div>
-              <div className="er-readiness-badge" style={{ color: readinessColor, borderColor: readinessColor }}>
-                {readinessLabel}
-              </div>
-            </div>
-          </div>
-
-          {/* Recommendation */}
-          <div className="er-recommendation">
-            <div className="er-rec-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2L9.4 5.3L13 5.5L10.3 7.9L11.1 11.5L8 9.8L4.9 11.5L5.7 7.9L3 5.5L6.6 5.3L8 2Z" stroke="var(--blue)" strokeWidth="1.4" strokeLinejoin="round" fill="var(--blue-10)" />
-              </svg>
-            </div>
-            <p>{recommendation}</p>
-          </div>
-
-          {/* Weak areas */}
-          {weakAreas.length > 0 && (
-            <div className="er-section">
-              <div className="er-section-title">Instability Signals</div>
-              <div className="er-weak-list">
-                {weakAreas.map((w, i) => (
-                  <div key={i} className="er-weak-item">
-                    <span className="er-weak-type">{w.type}</span>
-                    <span className="er-weak-name">{w.name}</span>
-                    <div className="er-weak-bar-wrap">
-                      <div className="er-weak-bar" style={{ width: `${w.percentage}%` }} />
-                    </div>
-                    <span className="er-weak-pct">{w.percentage}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Subject breakdown */}
-          {subjectBreakdown.length > 0 && (
-            <div className="er-section">
-              <div className="er-section-title">By Subject</div>
-              <div className="er-breakdown-list">
-                {subjectBreakdown.map((s, i) => (
-                  <BreakdownRow key={i} item={s} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* System breakdown */}
-          {systemBreakdown.length > 0 && (
-            <div className="er-section">
-              <div className="er-section-title">By System</div>
-              <div className="er-breakdown-list">
-                {systemBreakdown.map((s, i) => (
-                  <BreakdownRow key={i} item={s} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Review shortcuts */}
-          <div className="er-section">
-            <div className="er-section-title">Review Answers</div>
-            <div className="er-review-btns">
-              <button type="button" className="er-review-btn" onClick={() => onReview('all')}>
-                <span className="er-review-btn-label">All Questions</span>
-                <span className="er-review-btn-count">{total}</span>
-              </button>
-              <button type="button" className="er-review-btn wrong" onClick={() => onReview('incorrect')}>
-                <span className="er-review-btn-label">Incorrect</span>
-                <span className="er-review-btn-count">{wrongCount}</span>
-              </button>
-              {markedCount > 0 && (
-                <button type="button" className="er-review-btn marked" onClick={() => onReview('marked')}>
-                  <span className="er-review-btn-label">Marked</span>
-                  <span className="er-review-btn-count">{markedCount}</span>
                 </button>
-              )}
-              {skippedCount > 0 && (
-                <button type="button" className="er-review-btn skipped" onClick={() => onReview('unanswered')}>
-                  <span className="er-review-btn-label">Unanswered</span>
-                  <span className="er-review-btn-count">{skippedCount}</span>
+                {onViewAnalytics && (
+                  <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onViewAnalytics}>
+                    View Analytics
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                )}
+                <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onNewQuiz}>
+                  New Session
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
                 </button>
-              )}
+                <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onBackToBuilder}>
+                  Return to Mission Control
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="er-actions">
-            {onViewAnalytics && (
-              <button type="button" className="er-btn secondary" onClick={onViewAnalytics}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M2 10V7M5 10V4M8 10V6M11 10V2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-                View Analytics
-              </button>
-            )}
-            <button type="button" className="er-btn primary" onClick={onNewQuiz}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M7 2v2m0 6v2M2 7h2m6 0h2M4.22 4.22l1.42 1.42m2.72 2.72l1.42 1.42M4.22 9.78l1.42-1.42m2.72-2.72l1.42-1.42" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              New Quiz
-            </button>
-            <button type="button" className="er-btn ghost" onClick={onBackToBuilder}>
-              Back to Builder
-            </button>
+            <p className="cr-disclaimer">
+              Medica Score is an internal learning estimate and is not an official USMLE score prediction.
+            </p>
           </div>
 
         </div>
       </div>
-    </div>
-  )
-}
-
-function BreakdownRow({ item }) {
-  const barColor = item.percentage >= 70 ? 'var(--green)' : item.percentage >= 50 ? 'var(--orange)' : 'var(--red)'
-  return (
-    <div className="er-breakdown-row">
-      <span className="er-bd-name">{item.name}</span>
-      <div className="er-bd-bar-wrap">
-        <div className="er-bd-bar" style={{ width: `${item.percentage}%`, background: barColor }} />
-      </div>
-      <span className="er-bd-stat">{item.correct}/{item.total}</span>
-      <span className="er-bd-pct" style={{ color: barColor }}>{item.percentage}%</span>
     </div>
   )
 }

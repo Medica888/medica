@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { scoreQuestion, buildRepairPrompt, type QuestionQuality } from '../lib/questionValidator.js';
+import { scoreQuestion, buildRepairPrompt, isSuspectStem, type QuestionQuality } from '../lib/questionValidator.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -495,8 +495,9 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   const parsed = JSON.parse(s);
   if (!Array.isArray(parsed.questions)) throw new Error('AI response missing questions array');
 
-  const normalized = parsed.questions.map(
-    (q: Record<string, any>, i: number) => normalizeQuestion(q, offset + i, scope),
+  const rawQuestions: Record<string, any>[] = parsed.questions;
+  const normalized = rawQuestions.map(
+    (q, i) => normalizeQuestion(q, offset + i, scope),
   );
 
   const results: Array<Record<string, any>> = [];
@@ -504,11 +505,15 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
 
   for (let i = 0; i < normalized.length; i++) {
     const q = normalized[i];
+    const rawQ = rawQuestions[i];
     const quality = scoreQuestion(q, config.mode, config.difficulty || 'Balanced');
+
+    let disposition: string;
 
     if (quality.validationStatus === 'pass') {
       results.push({ ...q, ...quality, id: randomUUID() });
       passCount++;
+      disposition = 'pass';
     } else {
       const repairedRaw = await attemptRepair(q, quality, config);
       if (repairedRaw) {
@@ -517,14 +522,26 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
         if (repairedQuality.validationStatus === 'pass') {
           results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
           repairCount++;
+          disposition = 'repair-passed';
         } else {
           rejectCount++;
           console.warn('[quality] repair failed — rejecting:', repairedQuality.rejectionReasons);
+          disposition = 'repair-failed';
         }
       } else {
         rejectCount++;
         console.warn('[quality] rejected (no actionable repair):', quality.rejectionReasons, '| score:', quality.qualityScore);
+        disposition = 'rejected';
       }
+    }
+
+    if (isSuspectStem(q.stem)) {
+      console.warn('[stem-guard]', JSON.stringify({
+        rawKeys:       Object.keys(rawQ),
+        raw:           rawQ,
+        normalizedStem: q.stem,
+        disposition,
+      }));
     }
   }
   console.log(`[quality] batch result: ${normalized.length} generated → ${passCount} pass, ${repairCount} repaired, ${rejectCount} rejected`);

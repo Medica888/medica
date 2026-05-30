@@ -22,4 +22,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     const entry = this.store.get(externalId);
     return entry ? { id: entry.id } : null;
   }
+
+  _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown> } | undefined {
+    return this.store.get(externalId);
+  }
 }

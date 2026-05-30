@@ -1,5 +1,27 @@
 // Pure rule-based question quality scoring — no Anthropic import, fully testable.
 
+// ── Suspect stem detection ────────────────────────────────────────────────────
+
+const SUSPECT_STEM_PREFIXES = [
+  'a patient with',
+  'a patient presents',
+  'a patient who',
+  'a patient is',
+  'a man presents',
+  'a woman presents',
+];
+
+/**
+ * Returns true when a normalized stem looks too thin to be a valid vignette:
+ * either shorter than 100 characters (bare question) or starting with a generic
+ * phrase that omits the age/labs/findings required for NBME-style questions.
+ */
+export function isSuspectStem(stem: string): boolean {
+  if (stem.length < 100) return true;
+  const lower = stem.toLowerCase().trimStart();
+  return SUSPECT_STEM_PREFIXES.some(p => lower.startsWith(p));
+}
+
 export interface QuestionQuality {
   qualityScore: number;
   nbmeStyleScore: number;

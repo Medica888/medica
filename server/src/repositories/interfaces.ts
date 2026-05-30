@@ -5,6 +5,9 @@ import type {
   QuestionAttempt,
   Flashcard,
   AnalyticsSnapshot,
+  Concept,
+  QuestionConcept,
+  UserConceptMastery,
   PaginationParams,
   PaginatedResult,
 } from '../types/index.js';
@@ -22,6 +25,12 @@ export interface IExamSessionsRepository {
   findByUserId(userId: string, params?: PaginationParams): Promise<PaginatedResult<ExamSession>>;
   create(session: Omit<ExamSession, 'id'>, tx?: unknown): Promise<ExamSession>;
   delete(id: string): Promise<boolean>;
+  /** Write rows into exam_session_questions preserving question order. No-op when links is empty. */
+  createQuestionLinks(
+    sessionId: string,
+    links: { questionId: string; position: number }[],
+    tx?: unknown,
+  ): Promise<void>;
 }
 
 export interface IQuestionAttemptsRepository {
@@ -54,4 +63,71 @@ export interface IQuestionsRepository {
     tx?: unknown,
   ): Promise<{ id: string }>;
   findByExternalId(externalId: string): Promise<{ id: string } | null>;
+}
+
+// ── Concept graph ─────────────────────────────────────────────────────────────
+
+export interface IConceptsRepository {
+  /**
+   * Insert or update a concept by slug.
+   * On conflict:
+   *   - name and updated_at are always updated
+   *   - subject/system are preserved (first-wins)
+   *   - parent_concept_id is set when EXCLUDED value is non-null; otherwise kept
+   */
+  upsertBySlug(
+    slug: string,
+    data: {
+      name: string;
+      subject: string;
+      system: string;
+      description?: string;
+      parent_concept_id?: string;
+    },
+    tx?: unknown,
+  ): Promise<Concept>;
+
+  findBySlug(slug: string): Promise<Concept | null>;
+  findById(id: string): Promise<Concept | null>;
+
+  /**
+   * Returns the ancestor chain for a concept, ordered from immediate parent to root.
+   * Does not include the concept itself.
+   */
+  findAncestors(conceptId: string): Promise<Concept[]>;
+
+  /**
+   * Returns all descendants (children, grandchildren, …) in breadth-first order.
+   */
+  findDescendants(conceptId: string): Promise<Concept[]>;
+}
+
+export interface IQuestionConceptsRepository {
+  /**
+   * Upsert weighted question→concept links.
+   * On conflict (same question_id + concept_id): updates weight.
+   */
+  linkMany(
+    links: { questionId: string; conceptId: string; weight: number }[],
+    tx?: unknown,
+  ): Promise<void>;
+  /** tx must be passed when called inside a transaction so uncommitted writes are visible. */
+  findByQuestionId(questionId: string, tx?: unknown): Promise<QuestionConcept[]>;
+  findByConceptId(conceptId: string): Promise<QuestionConcept[]>;
+}
+
+export interface IUserConceptMasteryRepository {
+  /**
+   * Increment attempt/correct counters and recompute mastery_score for each
+   * (userId, conceptId) pair. Rows are created on first encounter.
+   * Records for the same (userId, conceptId) within one call are pre-aggregated
+   * by the caller; the DB upsert accumulates on top of existing totals.
+   */
+  upsertMany(
+    records: { userId: string; conceptId: string; attempted: number; correct: number }[],
+    tx?: unknown,
+  ): Promise<void>;
+
+  findByUserId(userId: string): Promise<UserConceptMastery[]>;
+  findByUserAndConcept(userId: string, conceptId: string): Promise<UserConceptMastery | null>;
 }

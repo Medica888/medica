@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreQuestion, buildRepairPrompt, REPAIR_GUIDANCE, type QuestionQuality } from './questionValidator.js';
+import { scoreQuestion, buildRepairPrompt, isSuspectStem, REPAIR_GUIDANCE, type QuestionQuality } from './questionValidator.js';
 
 function makeOptions(texts: string[]) {
   return texts.map((text, i) => ({ letter: 'ABCD'[i] as string, text }));
@@ -123,6 +123,34 @@ describe('questionValidator', () => {
     expect(prompt).not.toBe('');
     expect(prompt).toContain(REPAIR_GUIDANCE['no_clinical_vignette']);
     expect(prompt).toContain(REPAIR_GUIDANCE['shallow_explanation']);
+  });
+
+  describe('isSuspectStem', () => {
+    it('flags the exact AKI bare question that triggered this guard', () => {
+      expect(isSuspectStem('What is the most likely cause of his acute kidney injury?')).toBe(true);
+    });
+
+    it('flags stems shorter than 100 characters', () => {
+      expect(isSuspectStem('A 30-year-old man presents with foot drop after trauma.')).toBe(true);
+    });
+
+    it('flags generic phrases without age or findings', () => {
+      expect(isSuspectStem('A patient with chest pain comes to the emergency department for evaluation of an acute episode.')).toBe(true);
+      expect(isSuspectStem('A man presents to the clinic complaining of fatigue and shortness of breath on exertion for weeks.')).toBe(true);
+      expect(isSuspectStem('A patient presents to the hospital for an evaluation of a new onset of symptoms that have been ongoing.')).toBe(true);
+    });
+
+    it('does not flag a full NBME-style vignette', () => {
+      expect(isSuspectStem(
+        'A 67-year-old man with a 10-year history of type 2 diabetes mellitus and hypertension presents to the emergency department with 3 days of decreased urine output. His creatinine is 3.2 mg/dL from a baseline of 1.0 mg/dL.',
+      )).toBe(false);
+    });
+
+    it('does not flag a vignette that starts with age and sex', () => {
+      expect(isSuspectStem(
+        'A 45-year-old woman presents to her cardiologist with 3 months of progressive exertional dyspnea and two syncopal episodes. Echo shows a valve area of 0.8 cm2 and a mean gradient of 42 mmHg.',
+      )).toBe(false);
+    });
   });
 
   it('buildRepairPrompt returns empty string when no rejection reason has guidance', () => {

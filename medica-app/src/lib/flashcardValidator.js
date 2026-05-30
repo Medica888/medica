@@ -13,14 +13,22 @@ const MECHANISM_RE = /[→↑↓]|\bcause[sd]?\b|\bleads? to\b|\bresults? in\b|\
 // Educational-narration fronts that are never acceptable on board-style cards
 const META_FRONT_RE = /\bwhat mistake\b|\bwhat aspect\b|\bwhat issue\b|\bwhat confusion\b|\bhow do you remember\b|\bhigh.yield pearl for\b|\bwhat concept\b|\bstudent\w*\s+(?:make|often|confuse)\b/i
 
+// Unresolved-pronoun fronts: "this adverse effect", "this condition", etc.
+// A card front MUST be answerable in isolation — the drug, disease, and concept
+// must appear explicitly. Any "this/these/it/they + noun" that requires an
+// external referent is a hard failure.
+const DANGLING_REFERENCE_RE = /\b(this|these|it|they)\s+(adverse\s+effect|mechanism|condition|presentation|disease|drug|medication|finding|symptom|patient)\b|\bthis\s+(?:happen|occur|work)\b/i
+
 /**
  * Validates a clinical reinforcement card against educational quality rules.
  *
  * Rejection reasons:
- *   'front_too_short'     — front is blank or fewer than 8 characters
- *   'pure_definition'     — "What is X?" with no mechanism/aspect qualifier
- *   'back_too_short'      — back has fewer than 2 words
- *   'back_buzzword_only'  — back is 1–3 words with no mechanism language
+ *   'front_too_short'      — front is blank or fewer than 8 characters
+ *   'dangling_reference'   — front contains an unresolved pronoun ("this adverse effect", etc.)
+ *   'meta_learning_prompt' — educational-narration front ("what mistake…", "how do you remember…")
+ *   'pure_definition'      — "What is X?" with no mechanism/aspect qualifier
+ *   'back_too_short'       — back has fewer than 2 words
+ *   'back_buzzword_only'   — back is 1–3 words with no mechanism language
  *
  * @param {{ clinicalPrompt?: string, front?: string, coreMechanism?: string, back?: string }} card
  * @returns {{ valid: boolean, reasons: string[] }}
@@ -33,6 +41,8 @@ export function validateClinicalCard(card) {
   // ── Front ──────────────────────────────────────────────────────────
   if (front.length < 8) {
     reasons.push('front_too_short')
+  } else if (DANGLING_REFERENCE_RE.test(front)) {
+    reasons.push('dangling_reference')
   } else if (META_FRONT_RE.test(front)) {
     reasons.push('meta_learning_prompt')
   } else if (BARE_DEF_RE.test(front) && !ASPECT_RE.test(front)) {

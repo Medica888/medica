@@ -117,4 +117,23 @@ export class PgExamSessionsRepository implements IExamSessionsRepository {
     const res = await this.pool.query('DELETE FROM exam_sessions WHERE id = $1', [id]);
     return (res.rowCount ?? 0) > 0;
   }
+
+  async createQuestionLinks(
+    sessionId: string,
+    links: { questionId: string; position: number }[],
+    tx?: unknown,
+  ): Promise<void> {
+    if (!links.length) return;
+    const q = (tx as PoolClient | undefined) ?? this.pool;
+    await q.query(
+      `INSERT INTO exam_session_questions (session_id, question_id, position)
+       SELECT unnest($1::uuid[]), unnest($2::uuid[]), unnest($3::integer[])
+       ON CONFLICT (session_id, question_id) DO NOTHING`,
+      [
+        links.map(() => sessionId),
+        links.map((l) => l.questionId),
+        links.map((l) => l.position),
+      ],
+    );
+  }
 }

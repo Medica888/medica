@@ -1,52 +1,36 @@
 /**
- * @param {{
- *   weakSpotReport: import('../../lib/weakSpotAnalysis').WeakSpot[]
- * }} props
+ * @param {{ weakSpotReport: import('../../lib/weakSpotAnalysis').WeakSpot[] }} props
  */
 export default function WeakSpotDiagnosis({ weakSpotReport }) {
   const weak = (weakSpotReport || []).filter(ws => ws.percentage < 80)
 
+  const severity = (pct) => pct < 50 ? 'priority' : pct < 70 ? 'focus' : 'reinforced'
+  const label    = (pct) => pct < 50 ? 'PRIORITY' : pct < 70 ? 'FOCUS' : 'REINFORCED'
+
   return (
     <div className="cr-wsd">
-      <div className="cr-section-hdr">Instability Analysis</div>
+      <div className="cr-panel-label">WEAK SPOT DIAGNOSIS</div>
       {weak.length === 0 ? (
         <p className="cr-wsd-empty">No instability clusters detected — consistent performance across all categories.</p>
       ) : weak.map(ws => {
-        const missed       = ws.missedQuestions || []
-        const visible      = missed.slice(0, 4)
-        const extraCount   = missed.length - visible.length
+        const sev     = severity(ws.percentage)
+        const missed  = (ws.missedQuestions || []).slice(0, 3)
+        const extra   = (ws.missedQuestions || []).length - missed.length
         return (
-          <div key={ws.category} className="cr-wsd-row">
+          <div key={ws.category} className={`cr-wsd-row cr-wsd-row--${sev}`}>
             <div className="cr-wsd-top">
-              <span className="cr-wsd-cat">{ws.category}</span>
-              <span className="cr-wsd-fraction">{ws.correct}/{ws.total}</span>
-              <span
-                className="cr-wsd-pct"
-                style={{ color: ws.percentage < 50 ? 'var(--red)' : ws.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)' }}
-              >
-                {ws.percentage}%
-              </span>
-            </div>
-            <div className="cr-wsd-bar-wrap">
-              <div
-                className="cr-wsd-bar-fill"
-                style={{
-                  width: `${ws.percentage}%`,
-                  background: ws.percentage < 50 ? 'var(--red)' : ws.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)',
-                }}
-              />
-            </div>
-            {visible.length > 0 && (
-              <div className="cr-wsd-missed">
-                {visible.map(q => (
-                  <span key={q.id} className="cr-wsd-missed-concept">
-                    {q.testedConcept || q.id}
+              <div className="cr-wsd-left">
+                <span className="cr-wsd-cat">{ws.category}</span>
+                {missed.length > 0 && (
+                  <span className="cr-wsd-detail">
+                    {ws.total - ws.correct} of {ws.total} miss{ws.total - ws.correct !== 1 ? 'es' : ''} · {missed[0].testedConcept || 'Mechanism gap'}
                   </span>
-                ))}
-                {extraCount > 0 && (
-                  <span className="cr-wsd-more">+{extraCount} more</span>
                 )}
               </div>
+              <span className={`cr-wsd-badge cr-wsd-badge--${sev}`}>{label(ws.percentage)}</span>
+            </div>
+            {extra > 0 && (
+              <span className="cr-wsd-more">+{extra} more</span>
             )}
           </div>
         )

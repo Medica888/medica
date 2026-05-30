@@ -1,28 +1,22 @@
 import { useMemo, useState } from 'react'
 import { buildAnalyticsData } from '../../lib/analyticsEngine'
-import MedicaScoreCard from './MedicaScoreCard'
-import AccuracyOverview from './AccuracyOverview'
-import SubjectBreakdown from './SubjectBreakdown'
-import SystemBreakdown from './SystemBreakdown'
-import TopicBreakdown from './TopicBreakdown'
-import MistakeDiagnosis from './MistakeDiagnosis'
-import StudyPrescription from './StudyPrescription'
-import ProgressTrends from './ProgressTrends'
-import NextSessionRecommendation from './NextSessionRecommendation'
-import ProgressGainsChart from './ProgressGainsChart'
-import BenchmarkIntelligence from './BenchmarkIntelligence'
-import ClinicalReasoningPattern from './ClinicalReasoningPattern'
-import FlashcardRecommendationSummary from './FlashcardRecommendationSummary'
+import {
+  ResponsiveContainer, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+} from 'recharts'
 
-const TABS = [
-  { id: 'overview',   label: 'Overview' },
-  { id: 'breakdown',  label: 'Breakdown' },
-  { id: 'insights',   label: 'Insights' },
-]
+const TIME_FILTERS = ['Week', 'Month', 'All time']
+
+const SUBJECT_STATUS = (pct) => {
+  if (pct < 65) return { label: 'Priority',   variant: 'priority' }
+  if (pct < 75) return { label: 'Focus',       variant: 'focus' }
+  if (pct < 85) return { label: 'Reinforced',  variant: 'reinforced' }
+  return              { label: 'On track',     variant: 'ontrack' }
+}
 
 export default function AnalyticsDashboard({ onNavigate }) {
   const data = useMemo(() => buildAnalyticsData(), [])
-  const [activeTab, setActiveTab] = useState('overview')
+  const [timeFilter, setTimeFilter] = useState('All time')
 
   if (data.empty) {
     return (
@@ -41,378 +35,267 @@ export default function AnalyticsDashboard({ onNavigate }) {
   }
 
   const {
-    sessions, overview, subjectBreakdown, systemBreakdown, topicBreakdown,
-    weaknesses, mistakeDiagnosis, studyPrescription, trends, nextSession,
-    sessionComparison, repeatedMistakes, repeatedPatterns, improvingTopics,
-    flashcardSummary,
+    overview, subjectBreakdown,
+    mistakeDiagnosis, studyPrescription, trends,
+    repeatedMistakes,
   } = data
 
-  const allWeaknesses = [
-    ...weaknesses.critical,
-    ...weaknesses.moderate,
-    ...weaknesses.mild,
-  ]
-
-  const avgPerSession = overview.totalSessions > 0
-    ? Math.round(overview.totalQuestions / overview.totalSessions)
-    : 0
-
-  const qualifiedSubjects = subjectBreakdown.filter(s => s.total >= 3)
-  const strongestSubject = qualifiedSubjects.length > 0
-    ? qualifiedSubjects.reduce((a, b) => a.percentage >= b.percentage ? a : b)
-    : null
-  const weakestSubject = qualifiedSubjects.length > 1
-    ? qualifiedSubjects.reduce((a, b) => a.percentage <= b.percentage ? a : b)
-    : null
-
-  function accColor(pct) {
-    return pct >= 70 ? 'an-kpi-val--green' : pct >= 55 ? 'an-kpi-val--orange' : 'an-kpi-val--red'
-  }
-
-  const trajectoryLabel = sessionComparison?.available
-    ? sessionComparison.deltaAccuracy > 0 ? 'Improving'
-      : sessionComparison.deltaAccuracy < 0 ? 'Declining'
-      : 'Stable'
-    : null
-
-  const trajectoryClass = sessionComparison?.available
-    ? sessionComparison.deltaAccuracy > 0 ? 'an-delta-up'
-      : sessionComparison.deltaAccuracy < 0 ? 'an-delta-down'
-      : 'an-delta-neu'
-    : null
+  // Derived readiness metrics
+  const readinessPct = overview.overallAccuracy != null ? Math.round(overview.overallAccuracy) : 0
+  const testedSubjects = subjectBreakdown.filter(s => s.total >= 2).length
+  const knowledgeCoverage = Math.min(Math.round((testedSubjects / Math.max(subjectBreakdown.length, 1)) * 100), 100)
+  const accuracyConsistency = overview.overallAccuracy != null ? Math.round(overview.overallAccuracy) : 0
+  const retentionStability = overview.flashcardsDue != null && overview.flashcardsDue > 0
+    ? Math.max(40, Math.round(100 - (overview.flashcardsDue / 20) * 10))
+    : 70
 
   return (
     <div className="an-page">
       <div className="an-scroll">
 
-        {/* Header */}
-        <div className="an-header-modern">
+        {/* Page header */}
+        <div className="an-intel-hdr">
           <div>
-            <h2 className="an-title">Performance Analytics</h2>
-            <p className="an-subtitle">
-              {overview.totalSessions} session{overview.totalSessions !== 1 ? 's' : ''} · {overview.totalQuestions} questions
-            </p>
+            <h1 className="an-intel-title">Analytics</h1>
+            <p className="an-intel-sub">Performance Intelligence · Step 1</p>
           </div>
-          {overview.studyStreak > 0 && (
-            <div className="an-streak-badge">
-              <span className="an-streak-val">{overview.studyStreak}</span>
-              <span className="an-streak-lbl">day streak</span>
-            </div>
-          )}
-        </div>
-
-        {/* KPI bar */}
-        <div className="an-kpi-row">
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Sessions</span>
-            <span className="an-kpi-val">{overview.totalSessions}</span>
-          </div>
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Questions</span>
-            <span className="an-kpi-val">{overview.totalQuestions}</span>
-          </div>
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Accuracy</span>
-            <span className={`an-kpi-val ${accColor(overview.overallAccuracy)}`}>
-              {overview.overallAccuracy}%
-            </span>
-          </div>
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Medica Score</span>
-            <span className={`an-kpi-val ${accColor(overview.latestMedicaScore)}`}>
-              {overview.latestMedicaScore}
-            </span>
-          </div>
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Strongest</span>
-            {strongestSubject
-              ? <span className="an-kpi-val an-kpi-val--green an-kpi-val--small">{strongestSubject.name}</span>
-              : <span className="an-kpi-val an-kpi-val--small" style={{ color: 'var(--t4)' }}>—</span>
-            }
-          </div>
-          <div className="an-kpi-pill">
-            <span className="an-kpi-lbl">Weakest</span>
-            {weakestSubject
-              ? <span className="an-kpi-val an-kpi-val--red an-kpi-val--small">{weakestSubject.name}</span>
-              : <span className="an-kpi-val an-kpi-val--small" style={{ color: 'var(--t4)' }}>—</span>
-            }
+          <div className="an-time-filter" role="group" aria-label="Time filter">
+            {TIME_FILTERS.map(t => (
+              <button
+                key={t}
+                type="button"
+                className={`an-time-btn${timeFilter === t ? ' active' : ''}`}
+                onClick={() => setTimeFilter(t)}
+              >
+                {t}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Tab bar */}
-        <div className="an-tab-bar" role="tablist">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === t.id}
-              className={`an-tab-btn${activeTab === t.id ? ' an-tab-btn--active' : ''}`}
-              onClick={() => setActiveTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Two-column layout */}
+        <div className="an-intel-grid">
 
-        {/* ── Tab: Overview ── */}
-        {activeTab === 'overview' && (
-          <>
-            <div className="an-summary-grid">
-              <MedicaScoreCard overview={overview} />
-              <AccuracyOverview overview={overview} />
-              <NextSessionRecommendation nextSession={nextSession} />
+          {/* ── Left column ── */}
+          <div className="an-intel-left">
 
-              {/* Study Volume */}
-              <div className="an-card">
-                <div className="an-card-title">Study Volume</div>
-                <div className="an-vol-main">{overview.totalQuestions}</div>
-                <div className="an-vol-sub">total questions answered</div>
-                <div className="an-vol-row">
-                  <div className="an-vol-pair">
-                    <span className="an-vol-val" style={{ color: 'var(--status-stable)' }}>{overview.totalCorrect}</span>
-                    <span className="an-vol-lbl">Correct</span>
+            {/* Score Trajectory */}
+            <div className="an-intel-card">
+              <div className="an-traj-hdr">
+                <div>
+                  <div className="an-intel-card-title">Score Trajectory</div>
+                  <div className="an-intel-card-sub">Predicted score over {trends.length} session{trends.length !== 1 ? 's' : ''}</div>
+                </div>
+                {overview.latestMedicaScore != null && (
+                  <div className="an-traj-badge">
+                    <span className="an-traj-score">{overview.latestMedicaScore}</span>
+                    <span className="an-traj-badge-lbl">CURRENT</span>
                   </div>
-                  <div className="an-vol-pair">
-                    <span className="an-vol-val" style={{ color: 'var(--status-critical)' }}>{overview.totalQuestions - overview.totalCorrect}</span>
-                    <span className="an-vol-lbl">Incorrect</span>
-                  </div>
-                  <div className="an-vol-pair">
-                    <span className="an-vol-val">{avgPerSession}</span>
-                    <span className="an-vol-lbl">Avg / Session</span>
+                )}
+              </div>
+              {trends.length >= 2 ? (
+                <div className="an-traj-chart-wrap">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={trends} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#2E64C8" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#2E64C8" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-s)" vertical={false} />
+                      <XAxis
+                        dataKey="index"
+                        tick={{ fontSize: 10, fill: 'var(--t4)' }}
+                        axisLine={false} tickLine={false}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        ticks={[0, 25, 50, 75, 100]}
+                        tick={{ fontSize: 10, fill: 'var(--t4)' }}
+                        axisLine={false} tickLine={false}
+                      />
+                      <ReferenceLine
+                        y={80} stroke="var(--border)" strokeDasharray="4 3"
+                        label={{ value: 'Target', position: 'right', fontSize: 10, fill: 'var(--t4)' }}
+                      />
+                      <Tooltip
+                        contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                        labelFormatter={v => `Session ${v}`}
+                        formatter={(v, name) => [`${v}${name === 'accuracy' ? '%' : ''}`, name === 'medicaScore' ? 'Medica Score' : 'Accuracy']}
+                      />
+                      <Area
+                        type="monotone" dataKey="medicaScore"
+                        stroke="#2E64C8" strokeWidth={2}
+                        fill="url(#scoreGrad)"
+                        dot={{ r: 3, fill: '#2E64C8', strokeWidth: 0 }}
+                        activeDot={{ r: 5, fill: '#2E64C8', strokeWidth: 0 }}
+                      />
+                      <Area
+                        type="monotone" dataKey="accuracy"
+                        stroke="var(--status-warn)" strokeWidth={1.5}
+                        fill="none" strokeDasharray="5 3"
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div className="an-traj-legend">
+                    <span className="an-traj-leg-item"><span className="an-traj-leg-line" style={{ background: '#2E64C8' }} />Predicted score</span>
+                    <span className="an-traj-leg-item"><span className="an-traj-leg-dash" />Accuracy</span>
                   </div>
                 </div>
+              ) : (
+                <div className="an-traj-empty">Complete more sessions to see your trajectory.</div>
+              )}
+            </div>
+
+            {/* Subject Performance table */}
+            <div className="an-intel-card">
+              <div className="an-intel-card-title">Subject Performance</div>
+              {subjectBreakdown.length === 0 ? (
+                <p className="an-intel-muted">No subject data yet.</p>
+              ) : (
+                <table className="an-subj-table">
+                  <thead>
+                    <tr>
+                      <th className="an-subj-th">Subject</th>
+                      <th className="an-subj-th an-subj-th--num">Done</th>
+                      <th className="an-subj-th an-subj-th--num">Accuracy</th>
+                      <th className="an-subj-th an-subj-th--num">Trend</th>
+                      <th className="an-subj-th an-subj-th--right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjectBreakdown.slice(0, 6).map((s, i) => {
+                      const st = SUBJECT_STATUS(s.percentage)
+                      return (
+                        <tr key={i} className="an-subj-row">
+                          <td className="an-subj-name">{s.name}</td>
+                          <td className="an-subj-num">{s.total}</td>
+                          <td className={`an-subj-num an-subj-acc--${st.variant}`}>{Math.round(s.percentage)}%</td>
+                          <td className="an-subj-num">
+                            <TrendBars pct={s.percentage} variant={st.variant} />
+                          </td>
+                          <td className="an-subj-status">
+                            <span className={`an-subj-badge an-subj-badge--${st.variant}`}>{st.label}</span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+          </div>
+
+          {/* ── Right column ── */}
+          <div className="an-intel-right">
+
+            {/* Readiness Estimate — dark card */}
+            <div className="an-readiness-card">
+              <div className="an-readiness-label">READINESS ESTIMATE</div>
+              <div className="an-readiness-pct">
+                {readinessPct}<span className="an-readiness-pct-unit">%</span>
+                <span className="an-readiness-ready"> ready</span>
+              </div>
+              <div className="an-readiness-bars">
+                <ReadinessRow label="Knowledge coverage"    value={knowledgeCoverage} />
+                <ReadinessRow label="Accuracy consistency"  value={accuracyConsistency} />
+                <ReadinessRow label="Retention stability"   value={retentionStability} variant="warn" />
               </div>
             </div>
 
-            {/* Benchmark Intelligence — 40Q exam sessions only */}
-            <BenchmarkIntelligence sessions={sessions} />
+            {/* Mistake Intelligence */}
+            <div className="an-intel-card an-mistake-card">
+              <div className="an-intel-card-title">Mistake Intelligence</div>
 
-            {/* Focus Queue */}
-            {studyPrescription.length > 0 && (
-              <div className="an-section">
-                <div className="an-section-label">Focus Queue</div>
-                <div className="an-fq-list">
-                  {studyPrescription.slice(0, 3).map((item, i) => (
-                    <div key={i} className="an-fq-item">
-                      <span className={`an-fq-badge an-fq-badge--${item.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                        {item.label}
+              {/* Primary failure mode */}
+              {mistakeDiagnosis?.topCategory && (
+                <div className="an-mistake-primary">
+                  <div className="an-mistake-primary-label">PRIMARY FAILURE MODE</div>
+                  <div className="an-mistake-primary-name">{mistakeDiagnosis.topCategory}</div>
+                  {mistakeDiagnosis.topCategoryCount > 0 && (
+                    <p className="an-mistake-primary-desc">
+                      {mistakeDiagnosis.topCategoryCount} error{mistakeDiagnosis.topCategoryCount !== 1 ? 's' : ''} in this category — {Math.round((mistakeDiagnosis.topCategoryCount / (overview.totalQuestions - overview.totalCorrect || 1)) * 100)}% of wrong answers
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Mistake clusters */}
+              {repeatedMistakes.length > 0 && (
+                <div className="an-mistake-clusters">
+                  <div className="an-mistake-cluster-label">MISTAKE CLUSTERS</div>
+                  {repeatedMistakes.slice(0, 3).map((m, i) => (
+                    <div key={i} className="an-mistake-cluster-row">
+                      <span className="an-mistake-cluster-name">
+                        {[m.subject, m.system].filter(Boolean).join(' · ') || 'Mixed'}
                       </span>
-                      <span className="an-fq-action">{item.action}</span>
+                      <span className="an-mistake-cluster-count">{m.count} error{m.count !== 1 ? 's' : ''}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Retention Queue */}
-            {flashcardSummary.topics.length > 0 && (
-              <div className="an-section">
-                <div className="an-section-label">Retention Queue</div>
-                <FlashcardRecommendationSummary flashcardSummary={flashcardSummary} />
-              </div>
-            )}
-
-            {/* Session Trajectory */}
-            {sessionComparison.available && (
-              <div className="an-section">
-                <div className="an-section-label">Session Trajectory</div>
-                <div className="an-delta-row">
-                  <div className="an-delta-block">
-                    <span className="an-delta-lbl">Latest</span>
-                    <span className="an-delta-mode">{sessionComparison.latest.mode}</span>
-                    <span className="an-delta-pct">{sessionComparison.latest.accuracy}%</span>
-                  </div>
-                  <div className="an-delta-arrow">
-                    <span className={`an-traj-label ${trajectoryClass}`}>{trajectoryLabel}</span>
-                    <span className={`an-delta-num ${trajectoryClass}`}>
-                      {sessionComparison.deltaAccuracy > 0 ? '+' : ''}{sessionComparison.deltaAccuracy}%
-                    </span>
-                  </div>
-                  <div className="an-delta-block">
-                    <span className="an-delta-lbl">Previous</span>
-                    <span className="an-delta-mode">{sessionComparison.previous.mode}</span>
-                    <span className="an-delta-pct">{sessionComparison.previous.accuracy}%</span>
-                  </div>
+              {/* Recommended repair */}
+              {studyPrescription.length > 0 && (
+                <div className="an-mistake-repair">
+                  <div className="an-mistake-repair-label">RECOMMENDED REPAIR</div>
+                  <p className="an-mistake-repair-text">{studyPrescription[0].action}</p>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Progress trends */}
-            {trends.length >= 2 && (
-              <div className="an-section">
-                <div className="an-section-label">Score History</div>
-                <ProgressTrends trends={trends} />
-              </div>
-            )}
+              {!mistakeDiagnosis?.topCategory && repeatedMistakes.length === 0 && (
+                <p className="an-intel-muted">Complete more sessions to surface mistake patterns.</p>
+              )}
 
-            {/* Flashcards due callout */}
-            {overview.flashcardsDue > 0 && onNavigate && (
-              <div className="an-fc-callout">
-                <span className="an-fc-callout-text">
-                  {overview.flashcardsDue} flashcard{overview.flashcardsDue !== 1 ? 's' : ''} due for review
-                </span>
-                <button type="button" className="an-fc-callout-btn" onClick={() => onNavigate('flashcards')}>
-                  Review Now
-                </button>
-              </div>
-            )}
-
-            {/* Next session CTA */}
-            {onNavigate && nextSession.mode && (
-              <div className="an-next-cta">
+              {onNavigate && (
                 <button
                   type="button"
-                  className="an-next-cta-btn"
-                  onClick={() => onNavigate(nextSession.mode === 'coach' ? 'quiz' : nextSession.mode)}
+                  className="an-mistake-cta"
+                  onClick={() => onNavigate('create-quiz')}
                 >
-                  Start {nextSession.mode === 'coach' ? 'Coach' : 'Practice'} Session
+                  Start Targeted Session →
                 </button>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ── Tab: Breakdown ── */}
-        {activeTab === 'breakdown' && (
-          <>
-            {(subjectBreakdown.length > 0 || systemBreakdown.length > 0) && (
-              <div className="an-section">
-                <div className="an-section-label">By Subject &amp; System</div>
-                <div className="an-two-col">
-                  {subjectBreakdown.length > 0 && (
-                    <SubjectBreakdown
-                      subjectBreakdown={subjectBreakdown.slice(0, 5)}
-                      onViewAll={() => {}}
-                    />
-                  )}
-                  {systemBreakdown.length > 0 && (
-                    <SystemBreakdown
-                      systemBreakdown={systemBreakdown.slice(0, 5)}
-                      onViewAll={() => {}}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="an-section">
-              <div className="an-section-label">Topic Analysis</div>
-              <div className="an-two-col">
-                {topicBreakdown.length > 0 ? (
-                  <TopicBreakdown
-                    topicBreakdown={topicBreakdown.slice(0, 5)}
-                    onViewAll={() => {}}
-                  />
-                ) : (
-                  <div className="an-card an-soft-empty-inline">
-                    <span className="an-muted">No topic data yet — complete a Coach session.</span>
-                  </div>
-                )}
-
-                <div className="an-card">
-                  <div className="an-card-title">Primary Instability Areas</div>
-                  {allWeaknesses.length === 0 ? (
-                    <p className="an-wk-empty">No weak areas detected — great work!</p>
-                  ) : (
-                    <div className="an-weakest-list">
-                      {allWeaknesses.slice(0, 5).map((w, i) => {
-                        const severity = weaknesses.critical.includes(w) ? 'critical'
-                          : weaknesses.moderate.includes(w) ? 'moderate' : 'mild'
-                        return (
-                          <div key={i} className="an-weakest-row">
-                            <span className={`an-weakest-dot an-weakest-dot--${severity}`} />
-                            <span className="an-weakest-name">{w.name}</span>
-                            <span className="an-weakest-pct" style={{
-                              color: severity === 'critical' ? 'var(--status-critical)'
-                                : severity === 'moderate' ? 'var(--status-warn)' : 'var(--blue)',
-                            }}>{w.percentage}%</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ── Tab: Insights ── */}
-        {activeTab === 'insights' && (
-          <>
-            <div className="an-section">
-              <div className="an-section-label">Clinical Reasoning</div>
-              <ClinicalReasoningPattern
-                repeatedPatterns={repeatedPatterns}
-                repeatedMistakes={repeatedMistakes}
-                mistakeDiagnosis={mistakeDiagnosis}
-                studyPrescription={studyPrescription}
-              />
+              )}
             </div>
 
-            <div className="an-section">
-              <div className="an-section-label">Mistake Intelligence</div>
-              <div className="an-two-col">
-                <MistakeDiagnosis mistakeDiagnosis={mistakeDiagnosis} />
-                <StudyPrescription studyPrescription={studyPrescription} />
-              </div>
-            </div>
-
-            {(repeatedPatterns.length > 0 || repeatedMistakes.length > 0) && (
-              <div className="an-section">
-                <div className="an-section-label">Retrieval Failure Patterns</div>
-                <div className="an-two-col">
-                  {repeatedPatterns.length > 0 && (
-                    <div className="an-card">
-                      <div className="an-card-title">Recurring Miss Patterns</div>
-                      <div className="an-repeat-list">
-                        {repeatedPatterns.slice(0, 6).map((r, i) => (
-                          <div key={i} className="an-repeat-row">
-                            <div className="an-repeat-meta">
-                              <span className={`an-repeat-type an-repeat-type--${r.type}`}>{r.type}</span>
-                              <span className="an-repeat-name">{r.name}</span>
-                            </div>
-                            <span className="an-repeat-count">{r.count}×</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="an-repeat-hint">Recurring miss clusters across concepts, categories, and topics.</p>
-                    </div>
-                  )}
-
-                  {repeatedMistakes.length > 0 && (
-                    <div className="an-card">
-                      <div className="an-card-title">Retrieval Failures</div>
-                      <div className="an-repeat-list">
-                        {repeatedMistakes.slice(0, 6).map((r, i) => (
-                          <div key={i} className="an-repeat-row">
-                            <div className="an-repeat-meta">
-                              {r.subject && <span className="an-repeat-tag">{r.subject}</span>}
-                              {r.system  && <span className="an-repeat-tag">{r.system}</span>}
-                            </div>
-                            <span className="an-repeat-count">{r.count}×</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="an-repeat-hint">Questions missed on repeated attempts — priority for spaced review.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="an-section">
-              <div className="an-section-label">Stabilizing Domains</div>
-              <ProgressGainsChart items={improvingTopics} />
-            </div>
-          </>
-        )}
+          </div>
+        </div>
 
         <p className="an-footer-disclaimer">
           Medica Score is an internal readiness estimate, not an official USMLE prediction.
         </p>
 
+      </div>
+    </div>
+  )
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function TrendBars({ pct, variant }) {
+  const filled = pct >= 85 ? 4 : pct >= 75 ? 3 : pct >= 65 ? 2 : 1
+  const colors = { priority: '#6D2F3F', focus: '#7D6338', reinforced: '#355C68', ontrack: '#2E64C8' }
+  const color = colors[variant] || '#2E64C8'
+  return (
+    <span className="an-trend-bars" aria-hidden="true">
+      {[1, 2, 3, 4].map(n => (
+        <span key={n} className="an-trend-bar" style={{ background: n <= filled ? color : 'var(--border)' }} />
+      ))}
+    </span>
+  )
+}
+
+function ReadinessRow({ label, value, variant }) {
+  const color = variant === 'warn' ? '#D4A84B' : '#2E64C8'
+  return (
+    <div className="an-readiness-row">
+      <span className="an-readiness-row-label">{label}</span>
+      <span className="an-readiness-row-val">{value}%</span>
+      <div className="an-readiness-bar-wrap">
+        <div className="an-readiness-bar" style={{ width: `${value}%`, background: color }} />
       </div>
     </div>
   )

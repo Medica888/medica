@@ -144,6 +144,89 @@ describe('validateClinicalCard — rejected cards', () => {
   })
 })
 
+describe('validateClinicalCard — dangling reference (unresolved pronoun)', () => {
+  it('rejects "What is the mechanism of this adverse effect?" — unresolved "this"', () => {
+    const r = validateClinicalCard(card(
+      'What is the mechanism of this adverse effect?',
+      'Bradykinin accumulation causes cough reflex via ACE inhibition.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('rejects "What causes this condition?" — no explicit entity', () => {
+    const r = validateClinicalCard(card(
+      'What causes this condition?',
+      'Aldosterone excess drives sodium retention and hypokalemia.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('rejects "What is the treatment for this disease?" — dangling disease reference', () => {
+    const r = validateClinicalCard(card(
+      'What is the treatment for this disease?',
+      'Loop diuretics reduce preload through NKCC2 inhibition.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('rejects "What explains this presentation?" — dangling presentation reference', () => {
+    const r = validateClinicalCard(card(
+      'What explains this presentation?',
+      'Excess aldosterone leads to sodium retention and potassium loss.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('rejects "Why does this happen?" — unresolved pronoun with no entity', () => {
+    const r = validateClinicalCard(card(
+      'Why does this happen?',
+      'ADH excess causes water retention without sodium loss.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('accepts "What causes ACE inhibitor cough?" — explicit entity', () => {
+    const r = validateClinicalCard(card(
+      'What causes ACE inhibitor cough?',
+      'Bradykinin accumulation from ACE inhibition triggers the cough reflex.'
+    ))
+    expect(r.valid).toBe(true)
+    expect(r.reasons).toHaveLength(0)
+  })
+
+  it('accepts "What mechanism causes SIADH hyponatremia?" — explicit entity', () => {
+    const r = validateClinicalCard(card(
+      'What mechanism causes SIADH hyponatremia?',
+      'ADH excess → water retention without sodium loss → dilutional hyponatremia.'
+    ))
+    expect(r.valid).toBe(true)
+    expect(r.reasons).toHaveLength(0)
+  })
+
+  it('accepts "Why does spironolactone cause hyperkalemia?" — explicit drug + effect', () => {
+    const r = validateClinicalCard(card(
+      'Why does spironolactone cause hyperkalemia?',
+      'Aldosterone receptor block → reduced principal-cell K⁺ secretion → K⁺ retention.'
+    ))
+    expect(r.valid).toBe(true)
+    expect(r.reasons).toHaveLength(0)
+  })
+
+  it('accepts "What causes metformin-associated lactic acidosis?" — explicit entity', () => {
+    const r = validateClinicalCard(card(
+      'What causes metformin-associated lactic acidosis?',
+      'Metformin inhibits complex I → impairs oxidative phosphorylation → lactate accumulates.'
+    ))
+    expect(r.valid).toBe(true)
+    expect(r.reasons).toHaveLength(0)
+  })
+})
+
 describe('validateClinicalCard — backward compatibility', () => {
   it('reads clinicalPrompt and coreMechanism when present', () => {
     const r = validateClinicalCard({

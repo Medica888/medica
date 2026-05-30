@@ -7,6 +7,7 @@ export const createFlashcardSchema = z.object({
   back: z.string().min(1).max(500),
   tag: z.string().min(1),
   review_status: z.enum(['new', 'learning', 'review', 'mastered']).default('new'),
+  question_ref_id: z.string().uuid().optional(),
 });
 
 export const createFlashcardsSchema = z.object({

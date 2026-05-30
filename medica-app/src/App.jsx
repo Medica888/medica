@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
@@ -18,7 +18,7 @@ import AnalyticsDashboard from './components/analytics/AnalyticsDashboard'
 import FlashcardsPage from './components/flashcards/FlashcardsPage'
 import { createQuizSession } from './lib/mockQuestions'
 import { generateAIQuestions } from './lib/ai/generateAIQuestions'
-import { savePracticeResults, saveCoachResults, getSessionHistory } from './lib/storage'
+import { savePracticeResults, saveCoachResults, getSessionHistory, getFlashcards } from './lib/storage'
 import { saveSession as persistSession } from './lib/dataProvider'
 import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
@@ -54,6 +54,38 @@ function buildAISession(config, questions, seenState) {
 export default function App() {
   const [selectedSkill, setSelectedSkill] = useState(null)
   const [activeNav, setActiveNav]         = useState('dashboard')
+
+  const pageTitle = useMemo(() => {
+    const map = {
+      dashboard:    'Mission Control',
+      'create-quiz': 'New Session',
+      qbank:        'QBank',
+      flashcards:   'Flashcards',
+      analytics:    'Analytics',
+      'ai-tutor':   'AI Coach',
+      settings:     'Settings',
+    }
+    return map[activeNav] || 'Medica'
+  }, [activeNav])
+
+  const readinessStatus = useMemo(() => {
+    const sessions = getSessionHistory()
+    if (sessions.length === 0) return { label: 'Getting Started', active: false }
+    if (sessions.length < 3)  return { label: 'Active',           active: true }
+    return                           { label: 'Improving',         active: true }
+  }, [])
+
+  const flashcardsDue = useMemo(() => {
+    const cards = getFlashcards()
+    return cards.filter(c => {
+      if (c.reviewStatus === 'mastered') {
+        if (!c.nextReview) return false
+        const d = new Date(c.nextReview)
+        return !isNaN(d.getTime()) && d <= new Date()
+      }
+      return true
+    }).length
+  }, [])
   // 'builder' | 'loading' | 'session' | 'practice-results' | 'practice-review' | 'coach-results' | 'exam-results' | 'exam-review'
   const [quizPhase, setQuizPhase]         = useState('builder')
   const [quizConfig, setQuizConfig]       = useState(null)
@@ -358,11 +390,16 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header onHome={handleHome} />
+      <Header
+        onHome={handleHome}
+        pageTitle={pageTitle}
+        readinessStatus={readinessStatus}
+      />
       <Sidebar
         activeNav={selectedSkill ? null : activeNav}
         onNav={handleNav}
         onHome={handleHome}
+        flashcardsDue={flashcardsDue}
       />
       <main className="main" id="main-content">
         {renderMain()}

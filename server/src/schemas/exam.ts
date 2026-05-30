@@ -13,6 +13,14 @@ const questionSchema = z.object({
   commonTrap: z.string().optional(),
   wrongAnswerExplanations: z.record(z.string(), z.string()).optional(),
   memoryAnchor: z.string().optional(),
+  // Concept-signal metadata from AI generation
+  testedConcept: z.string().optional(),
+  weakSpotCategory: z.string().optional(),
+  topic: z.string().optional(),
+  canonicalTopic: z.string().optional(),
+  topicSlug: z.string().optional(),
+  topicSource: z.string().optional(),
+  questionAngle: z.string().optional(),
 });
 
 const subjectStatsSchema = z.object({

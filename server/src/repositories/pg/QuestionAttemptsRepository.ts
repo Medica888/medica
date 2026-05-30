@@ -28,10 +28,11 @@ export class PgQuestionAttemptsRepository implements IQuestionAttemptsRepository
     const ids = attempts.map(() => randomUUID());
     const q = (tx as PoolClient | undefined) ?? null;
 
+    // question_ref_id requires migration 001 to be applied (additive nullable column)
     const sql = `
       INSERT INTO question_attempts
         (id, user_id, session_id, question_id, selected_answer,
-         is_correct, time_spent_seconds, attempted_at)
+         is_correct, time_spent_seconds, attempted_at, question_ref_id)
       SELECT
         unnest($1::uuid[]),
         unnest($2::uuid[]),
@@ -40,7 +41,8 @@ export class PgQuestionAttemptsRepository implements IQuestionAttemptsRepository
         unnest($5::text[]),
         unnest($6::boolean[]),
         unnest($7::integer[]),
-        unnest($8::timestamptz[])
+        unnest($8::timestamptz[]),
+        unnest($9::uuid[])
       RETURNING *`;
 
     const params = [
@@ -52,6 +54,7 @@ export class PgQuestionAttemptsRepository implements IQuestionAttemptsRepository
       attempts.map((a) => a.is_correct),
       attempts.map((a) => a.time_spent_seconds),
       attempts.map((a) => a.attempted_at),
+      attempts.map((a) => a.question_ref_id ?? null),
     ];
 
     if (q) {

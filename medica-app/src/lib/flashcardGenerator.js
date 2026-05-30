@@ -130,7 +130,7 @@ export function sanitizeFlashcardText(text) {
 // ─── Stem question extraction ─────────────────────────────────────────────────
 
 // Phrases that make a stem question context-dependent (requires the vignette)
-const STEM_VAGUE_RE = /\b(this patient|this individual|this person|this child|this man|this woman|the patient|in this case|in this scenario|best next step|next best step|next step in management|most appropriate next|initial management of this|what should be done)\b/i
+const STEM_VAGUE_RE = /\b(this patient|this individual|this person|this child|this man|this woman|the patient|in this case|in this scenario|best next step|next best step|next step in management|most appropriate next|initial management of this|what should be done|this adverse effect|this mechanism|this condition|this presentation|this disease|this medication|this drug|this finding|this symptom)\b|\bthis\s+(?:happen|occur)\b/i
 
 /**
  * Extracts the actual test question from a USMLE-style stem.
@@ -191,14 +191,23 @@ function extractMechanismSentence(explanation) {
 // Caught in tryAdd before the card is stored — these are never acceptable.
 const META_FRONT_RE = /\bwhat mistake\b|\bwhat aspect\b|\bwhat issue\b|\bwhat confusion\b|\bhow do you remember\b|\bhigh.yield pearl for\b|\bwhat concept\b|\bstudent\w*\s+(?:make|often|confuse)\b/i
 
+// Unresolved-pronoun fronts — card must be answerable without external context
+const DANGLING_FRONT_RE = /\b(this|these|it|they)\s+(adverse\s+effect|mechanism|condition|presentation|disease|drug|medication|finding|symptom|patient)\b|\bthis\s+(?:happen|occur|work)\b/i
+
+function sanitizeFront(front) {
+  if (!front) return ''
+  if (DANGLING_FRONT_RE.test(front)) return ''
+  return front
+}
+
 // ─── Front-text builders ──────────────────────────────────────────────────────
 
 // Each rule maps a concept keyword to a concrete board-style question + card category.
 const FRONT_KEYWORD_RULES = [
   { re: /\b(mechanism|moa|mode of action|mechanism of action)\b/i, fn: (c) => `What is the mechanism of ${c}?`,          category: 'Mechanism' },
-  { re: /\b(side effect|adverse|toxicity|tox)\b/i,                 fn: (c) => `What is a key side effect of ${c}?`,      category: 'Side effect mechanism' },
+  { re: /\b(side effects?|adverse|toxicity|tox)\b/i,               fn: (c) => `What is a key side effect of ${c}?`,      category: 'Side effect mechanism' },
   { re: /\b(complication)\b/i,                                      fn: (c) => `What is a complication of ${c}?`,        category: 'Clinical consequence' },
-  { re: /\b(dose|dosing|dosage)\b/i,                                fn: (c) => `What is the standard dose of ${c}?`,     category: 'Treatment trigger' },
+  { re: /\b(dosing|dosage)\b/i,                                     fn: (c) => `What is the standard dose of ${c}?`,     category: 'Treatment trigger' },
   { re: /\b(treat|treatment|management|therapy)\b/i,               fn: (c) => `How is ${c} treated?`,                   category: 'Treatment trigger' },
   { re: /\b(diagnos|presentation|presents)\b/i,                    fn: (c) => `How does ${c} present?`,                 category: 'Diagnostic clue' },
   { re: /\b(cause|etiology|pathophysiology)\b/i,                   fn: (c) => `What causes ${c}?`,                      category: 'Mechanism' },
@@ -223,7 +232,7 @@ const DASH_ASPECT_RE = /\b(mechanism|moa|mode of action|treatment|therapy|manage
 // REVERSED template — "What does X cause?" — to match "Statins cause myopathy" correctly.
 const TRAP_KEYWORD_RULES = [
   { re: /\bcontraindic\w*\b|\bavoid\b/i,                              fn: (c) => `When is ${c} contraindicated?`,      category: 'Contraindication' },
-  { re: /\b(side effect|adverse|toxicity|tox)\b/i,                   fn: (c) => `What is a key side effect of ${c}?`, category: 'Side effect mechanism' },
+  { re: /\b(side effects?|adverse|toxicity|tox)\b/i,                 fn: (c) => `What is a key side effect of ${c}?`, category: 'Side effect mechanism' },
   { re: /\b(complication)\b/i,                                        fn: (c) => `What is a complication of ${c}?`,    category: 'Clinical consequence' },
   { re: /\b(treat|treatment|management|therapy)\b/i,                 fn: (c) => `How is ${c} treated?`,               category: 'Treatment trigger' },
   { re: /\b(diagnos|presentation|presents)\b/i,                      fn: (c) => `How does ${c} present?`,             category: 'Diagnostic clue' },
@@ -234,7 +243,7 @@ const TRAP_KEYWORD_RULES = [
 // Strips trailing keyword nouns from testedConcept so "Furosemide mechanism"
 // becomes "Furosemide" in the generated question, and uses only the left side
 // of dash-format concepts (e.g. "HMG-CoA reductase — statin mechanism" → "HMG-CoA reductase").
-const CONCEPT_SUFFIX_RE = /\s*\b(mechanism|moa|mode of action|treatment|therapy|management|pathophysiology|etiology|diagnosis|pharmacology|physiology)\s*$/i
+const CONCEPT_SUFFIX_RE = /\s*\b(mechanism|moa|mode of action|treatment|therapy|management|pathophysiology|etiology|diagnosis|pharmacology|physiology|side effects?|adverse effects?|toxicity|contraindication|complication|deficiency)\s*$/i
 
 function getQueryConcept(concept) {
   const dashIdx = concept.indexOf(' — ')
@@ -395,7 +404,9 @@ export function generateFlashcardsFromWrongQuestions(session, sourceMode) {
     // method and category are internal metadata — never placed inside front/back text
     function tryAdd(id, tag, questionAngle, front, back, method, category) {
       if (!front || !back) return
-      const cleanFront = sanitizeFlashcardText(capWords(front, 16))
+      const safeFront = sanitizeFront(front)
+      if (!safeFront) return
+      const cleanFront = sanitizeFlashcardText(capWords(safeFront, 16))
       const cleanBack  = sanitizeFlashcardText(oneSentence(back, 15))
       if (!cleanFront || !cleanBack) return
       if (META_FRONT_RE.test(cleanFront)) return

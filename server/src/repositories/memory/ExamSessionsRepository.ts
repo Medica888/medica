@@ -4,6 +4,7 @@ import type { IExamSessionsRepository } from '../interfaces.js';
 
 export class InMemoryExamSessionsRepository implements IExamSessionsRepository {
   private store = new Map<string, ExamSession>();
+  private linkStore = new Map<string, { questionId: string; position: number }[]>();
 
   async findById(id: string): Promise<ExamSession | null> {
     return this.store.get(id) ?? null;
@@ -41,7 +42,21 @@ export class InMemoryExamSessionsRepository implements IExamSessionsRepository {
     return this.store.delete(id);
   }
 
+  async createQuestionLinks(
+    sessionId: string,
+    links: { questionId: string; position: number }[],
+    _tx?: unknown,
+  ): Promise<void> {
+    if (!links.length) return;
+    this.linkStore.set(sessionId, [...links]);
+  }
+
+  _getQuestionLinks(sessionId: string): { questionId: string; position: number }[] {
+    return this.linkStore.get(sessionId) ?? [];
+  }
+
   _clear(): void {
     this.store.clear();
+    this.linkStore.clear();
   }
 }

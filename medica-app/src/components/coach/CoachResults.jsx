@@ -15,177 +15,202 @@ import { appendFlashcards } from '../../lib/storage'
  */
 export default function CoachResults({ results, session, onNewQuiz, onBackToBuilder, onViewAnalytics, onNavigateToFlashcards }) {
   const {
-    total, correct, wrong, percentage,
+    total, wrong, percentage,
     medicaScore, readinessLabel, recommendation,
     weakSpotReport,
     subjectBreakdown, systemBreakdown,
   } = results
 
-  const [generatedCount, setGeneratedCount] = useState(null)
+  const [fcState, setFcState] = useState(null) // null | { added, skipped, total }
 
   const handleGenerateFlashcards = () => {
     if (!session) return
     const cards = generateFlashcardsFromCoachSession(session)
     const added = appendFlashcards(cards)
-    setGeneratedCount(added)
+    setFcState({ added, skipped: cards.length - added, total: cards.length })
   }
 
-  const hasFlashcardsAdded = generatedCount !== null && generatedCount > 0
-  const showReviewFirst    = hasFlashcardsAdded && onNavigateToFlashcards
+  const sessionTopic = session?.config?.coachSpecificTopic
+    || session?.config?.topic
+    || session?.config?.subject
+    || 'Coach Session'
+
+  const sessionMeta = [
+    total && `${total} question${total !== 1 ? 's' : ''}`,
+    session?.config?.system && session.config.system !== 'All Systems' ? session.config.system : null,
+    session?.config?.subject && session.config.subject !== 'All Subjects' ? session.config.subject : null,
+  ].filter(Boolean).join(' · ')
+
+  const barColor = (pct) =>
+    pct < 50 ? 'var(--status-critical)' : pct < 70 ? 'var(--status-warn)' : 'var(--status-stable)'
+
+  const pctColor = (pct) =>
+    pct < 50 ? 'var(--status-critical)' : pct < 70 ? 'var(--status-warn)' : 'var(--status-stable)'
 
   return (
     <div className="cr-page">
       <div className="cr-scroll">
-      <div className="cr-card">
-        {/* Header */}
-        <div className="cr-hdr">
-          <div className="cr-badge">Coach Mode · Session Complete</div>
-          <h2 className="cr-title">Performance Diagnosis</h2>
-        </div>
 
-        {/* Score row */}
-        <div className="cr-score-row">
-          <div className="cr-score-block">
-            <span className="cr-score-num">{percentage}%</span>
-            <span className="cr-score-lbl">Accuracy</span>
+        {/* ── Hero header ── */}
+        <div className="cr-hero">
+          <div className="cr-hero-left">
+            <div className="cr-hero-eyebrow">COACH MODE · SESSION COMPLETE</div>
+            <h1 className="cr-hero-title">{sessionTopic}</h1>
+            {sessionMeta && <p className="cr-hero-meta">{sessionMeta}</p>}
           </div>
-          <div className="cr-score-block">
-            <span className="cr-score-num">{correct}/{total}</span>
-            <span className="cr-score-lbl">Correct</span>
-          </div>
-          <div className="cr-score-block">
-            <span className="cr-score-num medica">{medicaScore}</span>
-            <span className="cr-score-lbl">Medica Score</span>
-          </div>
-          <div className="cr-score-block">
-            <span className="cr-score-num readiness">{readinessLabel}</span>
-            <span className="cr-score-lbl">Readiness</span>
-          </div>
-        </div>
-
-        {/* Recommendation */}
-        <div className="cr-recommendation">{recommendation}</div>
-
-        {/* Weak spot diagnosis */}
-        <WeakSpotDiagnosis weakSpotReport={weakSpotReport} />
-
-        {/* Subject breakdown */}
-        {subjectBreakdown && subjectBreakdown.length > 1 && (
-          <div className="cr-breakdown">
-            <div className="cr-section-hdr">By Subject</div>
-            <div className="cr-bd-list">
-              {subjectBreakdown.map(item => (
-                <div key={item.name} className="cr-bd-row">
-                  <span className="cr-bd-name">{item.name}</span>
-                  <div className="cr-bd-bar-wrap">
-                    <div
-                      className="cr-bd-bar"
-                      style={{
-                        width: `${item.percentage}%`,
-                        background: item.percentage < 50 ? 'var(--red)' : item.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)',
-                      }}
-                    />
-                  </div>
-                  <span className="cr-bd-stat">{item.correct}/{item.total}</span>
-                  <span
-                    className="cr-bd-pct"
-                    style={{ color: item.percentage < 50 ? 'var(--red)' : item.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)' }}
-                  >
-                    {item.percentage}%
-                  </span>
-                </div>
-              ))}
+          <div className="cr-hero-kpis">
+            <div className="cr-kpi cr-kpi--accuracy">
+              <span className="cr-kpi-num">{percentage}%</span>
+              <span className="cr-kpi-lbl">ACCURACY</span>
+            </div>
+            <div className="cr-kpi-sep" />
+            <div className="cr-kpi cr-kpi--score">
+              <span className="cr-kpi-num">{medicaScore}</span>
+              <span className="cr-kpi-lbl">MEDICA SCORE</span>
+            </div>
+            <div className="cr-kpi-sep" />
+            <div className="cr-kpi cr-kpi--readiness">
+              <span className="cr-kpi-num">{readinessLabel}</span>
+              <span className="cr-kpi-lbl">READINESS</span>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* System breakdown */}
-        {systemBreakdown && systemBreakdown.length > 1 && (
-          <div className="cr-breakdown">
-            <div className="cr-section-hdr">By System</div>
-            <div className="cr-bd-list">
-              {systemBreakdown.map(item => (
-                <div key={item.name} className="cr-bd-row">
-                  <span className="cr-bd-name">{item.name}</span>
-                  <div className="cr-bd-bar-wrap">
-                    <div
-                      className="cr-bd-bar"
-                      style={{
-                        width: `${item.percentage}%`,
-                        background: item.percentage < 50 ? 'var(--red)' : item.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)',
-                      }}
-                    />
-                  </div>
-                  <span className="cr-bd-stat">{item.correct}/{item.total}</span>
-                  <span
-                    className="cr-bd-pct"
-                    style={{ color: item.percentage < 50 ? 'var(--red)' : item.percentage < 70 ? 'var(--yellow, #f59e0b)' : 'var(--green)' }}
-                  >
-                    {item.percentage}%
-                  </span>
-                </div>
-              ))}
+        {/* ── Two-column body ── */}
+        <div className="cr-body-grid">
+
+          {/* Left column */}
+          <div className="cr-left">
+
+            {/* Main recommendation */}
+            <div className="cr-panel cr-panel--rec">
+              <div className="cr-panel-label">MAIN RECOMMENDATION</div>
+              <p className="cr-rec-text">{recommendation}</p>
             </div>
-          </div>
-        )}
 
-        {/* Flashcard generation */}
-        {wrong > 0 && session && (
-          <div className="cr-flashcards">
-            <div className="cr-section-hdr">Reinforcement Queue</div>
-            {generatedCount === null ? (
-              <>
-                <p className="cr-fc-desc">
-                  {wrong} missed question{wrong !== 1 ? 's' : ''} · 1–3 high-yield cards per missed question
-                </p>
-                <button type="button" className="cr-btn primary" onClick={handleGenerateFlashcards}>
-                  Generate Reinforcement Cards
-                </button>
-              </>
-            ) : generatedCount === 0 ? (
-              <p className="cr-fc-result--none">
-                No new cards — these concepts already exist in your deck.
-              </p>
-            ) : (
-              <>
-                <p className="cr-fc-result--added">
-                  {generatedCount} reinforcement card{generatedCount !== 1 ? 's' : ''} added.
-                </p>
-                {onNavigateToFlashcards && (
-                  <button type="button" className="cr-btn secondary" onClick={onNavigateToFlashcards}>
-                    Review Cards
+            {/* Weak spot diagnosis */}
+            <div className="cr-panel">
+              <WeakSpotDiagnosis weakSpotReport={weakSpotReport} />
+            </div>
+
+            {/* Subject + System breakdowns */}
+            {subjectBreakdown && subjectBreakdown.length > 1 && (
+              <div className="cr-panel cr-panel--breakdown">
+                <div className="cr-bd-cols">
+                  <div className="cr-bd-col">
+                    <div className="cr-panel-label">SUBJECT BREAKDOWN</div>
+                    {subjectBreakdown.map(item => (
+                      <div key={item.name} className="cr-bd-row">
+                        <span className="cr-bd-name">{item.name}</span>
+                        <div className="cr-bd-bar-wrap">
+                          <div className="cr-bd-bar" style={{ width: `${item.percentage}%`, background: barColor(item.percentage) }} />
+                        </div>
+                        <span className="cr-bd-pct" style={{ color: pctColor(item.percentage) }}>{item.percentage}%</span>
+                      </div>
+                    ))}
+                  </div>
+                  {systemBreakdown && systemBreakdown.length > 1 && (
+                    <div className="cr-bd-col">
+                      <div className="cr-panel-label">SYSTEM BREAKDOWN</div>
+                      {systemBreakdown.map(item => (
+                        <div key={item.name} className="cr-bd-row">
+                          <span className="cr-bd-name">{item.name}</span>
+                          <div className="cr-bd-bar-wrap">
+                            <div className="cr-bd-bar" style={{ width: `${item.percentage}%`, background: barColor(item.percentage) }} />
+                          </div>
+                          <span className="cr-bd-pct" style={{ color: pctColor(item.percentage) }}>{item.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* Right column */}
+          <div className="cr-right">
+
+            {/* Flashcard generation */}
+            {wrong > 0 && session && (
+              <div className="cr-panel cr-panel--fc">
+                <div className="cr-panel-label">FLASHCARD GENERATION</div>
+                {fcState === null ? (
+                  <>
+                    <p className="cr-fc-hint">
+                      {wrong} missed question{wrong !== 1 ? 's' : ''} · 1–3 high-yield cards per miss
+                    </p>
+                    <button type="button" className="cr-fc-gen-btn" onClick={handleGenerateFlashcards}>
+                      Generate Reinforcement Items
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="cr-fc-stats">
+                      <div className="cr-fc-stat-row">
+                        <span className="cr-fc-stat-lbl">New cards created</span>
+                        <span className="cr-fc-stat-val cr-fc-stat-val--new">{fcState.added}</span>
+                      </div>
+                      <div className="cr-fc-stat-row">
+                        <span className="cr-fc-stat-lbl">Duplicates skipped</span>
+                        <span className="cr-fc-stat-val">{fcState.skipped}</span>
+                      </div>
+                    </div>
+                    {fcState.added > 0 && (
+                      <div className="cr-fc-confirm">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {fcState.added} card{fcState.added !== 1 ? 's' : ''} added to your deck
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Next actions */}
+            <div className="cr-panel cr-panel--actions">
+              <div className="cr-panel-label">NEXT ACTIONS</div>
+              <div className="cr-actions-list">
+                {(fcState?.added > 0 && onNavigateToFlashcards) && (
+                  <button type="button" className="cr-action-btn cr-action-btn--primary" onClick={onNavigateToFlashcards}>
+                    Start Flashcard Review
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </button>
                 )}
-              </>
-            )}
+                <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onNewQuiz}>
+                  New Coach Session
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {onViewAnalytics && (
+                  <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onViewAnalytics}>
+                    View Analytics
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                )}
+                <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onBackToBuilder}>
+                  Return to Mission Control
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <p className="cr-disclaimer">
+              Medica Score is an internal learning estimate and is not an official USMLE score prediction.
+            </p>
           </div>
-        )}
 
-        {/* Disclaimer */}
-        <p className="cr-disclaimer">
-          Medica Score is an internal learning estimate and is not an official USMLE score prediction.
-        </p>
-
-        {/* Actions — Review Flashcards first when cards were just added */}
-        <div className="cr-actions">
-          {showReviewFirst && (
-            <button type="button" className="cr-btn primary" onClick={onNavigateToFlashcards}>
-              Review Flashcards
-            </button>
-          )}
-          <button type="button" className={`cr-btn ${showReviewFirst ? 'secondary' : 'primary'}`} onClick={onNewQuiz}>
-            New Quiz
-          </button>
-          {onViewAnalytics && (
-            <button type="button" className="cr-btn secondary" onClick={onViewAnalytics}>
-              View Analytics
-            </button>
-          )}
-          <button type="button" className="cr-btn secondary" onClick={onBackToBuilder}>
-            Back to Builder
-          </button>
         </div>
-      </div>
       </div>
     </div>
   )

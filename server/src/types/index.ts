@@ -40,6 +40,14 @@ export interface Question {
   commonTrap?: string;
   wrongAnswerExplanations?: Record<string, string>;
   memoryAnchor?: string;
+  // Concept-signal metadata forwarded from AI generation
+  testedConcept?: string;
+  weakSpotCategory?: string;
+  topic?: string;
+  canonicalTopic?: string;
+  topicSlug?: string;
+  topicSource?: string;
+  questionAngle?: string;
 }
 
 export interface SubjectStats {
@@ -63,6 +71,7 @@ export interface QuestionAttempt {
   is_correct: boolean;
   time_spent_seconds: number;
   attempted_at: Date;
+  question_ref_id?: string; // FK → questions(id); populated when question bank is active
 }
 
 export interface Flashcard {
@@ -76,6 +85,41 @@ export interface Flashcard {
   review_status: 'new' | 'learning' | 'review' | 'mastered';
   created_at: Date;
   reviewed_at?: Date;
+  question_ref_id?: string; // nullable FK → questions(id); populated when source question is known
+}
+
+// ── Concept graph ─────────────────────────────────────────────────────────────
+
+export interface Concept {
+  id: string;
+  name: string;
+  slug: string;
+  subject: string;
+  system: string;
+  parent_concept_id?: string;
+  difficulty: string;
+  description: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface QuestionConcept {
+  question_id: string;
+  concept_id: string;
+  weight: number;
+}
+
+export interface UserConceptMastery {
+  user_id:                string;
+  concept_id:             string;
+  attempts:               number;
+  correct:                number;
+  mastery_score:          number;
+  confidence_score:       number;
+  recent_incorrect_count: number;
+  last_seen_at:           Date;
+  created_at:             Date;
+  updated_at:             Date;
 }
 
 export interface AnalyticsSnapshot {

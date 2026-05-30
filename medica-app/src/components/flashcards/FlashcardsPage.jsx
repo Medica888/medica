@@ -17,13 +17,13 @@ const TAG_COLORS = {
 }
 
 const STATUS_COLOR = {
-  new:      'var(--blue)',
-  learning: 'var(--orange)',
-  mastered: 'var(--green)',
+  new:      '#2E64C8',
+  learning: 'var(--status-warn)',
+  mastered: 'var(--status-stable)',
 }
 
 const CARD_PROMPT_LABEL = {
-  Recall:   'Board Recall',
+  Recall:   'High-Yield Recall',
   Pearl:    'High-Yield Pearl',
   Trap:     'Critical Distinction',
   Mnemonic: 'Memory Anchor',
@@ -35,10 +35,10 @@ const CARD_ANSWER_LABEL = {
 }
 
 const EASE_META = [
-  { ease: 'again', label: 'Relearn',    hint: 'Forgot it',  cls: 'again', color: 'var(--red)'    },
-  { ease: 'hard',  label: 'Unstable',   hint: 'Struggled',  cls: 'hard',  color: 'var(--orange)' },
-  { ease: 'good',  label: 'Reinforced', hint: 'Got it',     cls: 'good',  color: 'var(--green)'  },
-  { ease: 'easy',  label: 'Mastered',   hint: 'Nailed it',  cls: 'easy',  color: 'var(--blue)'   },
+  { ease: 'again', label: 'Relearn',    hint: 'Forgot it',  cls: 'again', color: 'var(--status-critical)' },
+  { ease: 'hard',  label: 'Unstable',   hint: 'Struggled',  cls: 'hard',  color: 'var(--status-warn)'     },
+  { ease: 'good',  label: 'Reinforced', hint: 'Got it',     cls: 'good',  color: 'var(--status-stable)'   },
+  { ease: 'easy',  label: 'Mastered',   hint: 'Nailed it',  cls: 'easy',  color: '#2E64C8'                },
 ]
 
 const getCardStatus = (card) => card.reviewStatus || 'new'
@@ -353,12 +353,7 @@ export default function FlashcardsPage({ onNavigate }) {
       else if (flipped) {
         const EASE_KEYS = { '1': 'again', '2': 'hard', '3': 'good', '4': 'easy' }
         const ease = EASE_KEYS[e.key]
-        if (ease) {
-          setReviewSummary(prev => ({ ...prev, [ease]: prev[ease] + 1 }))
-          markFlashcardReviewed(reviewCards[reviewIndex].id, ease)
-          if (reviewIndex < reviewCards.length - 1) { setReviewIndex(i => i + 1); setFlipped(false) }
-          else { setSessionDone(true); setCards(getFlashcards()) }
-        }
+        if (ease) handleEase(ease)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -413,12 +408,12 @@ export default function FlashcardsPage({ onNavigate }) {
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'medica_flashcards.csv'; a.click()
+    a.href = url; a.download = 'medica_clinical_reinforcement.csv'; a.click()
     URL.revokeObjectURL(url)
   }
 
   const handleClearDeck = () => {
-    if (!window.confirm('Clear all flashcards and custom groups? This cannot be undone.')) return
+    if (!window.confirm('Clear all reinforcement items and custom groups? This cannot be undone.')) return
     clearFlashcards(); clearAllFlashcardGroups()
     setCards([]); setGroups([]); setActiveGroupId('all')
     setSelectMode(false); setSelectedCardIds(new Set())
@@ -431,7 +426,7 @@ export default function FlashcardsPage({ onNavigate }) {
     if (selectedCardIds.size > 0) {
       addCardsToGroup(group.id, [...selectedCardIds])
       const count = selectedCardIds.size
-      setAddConfirmMsg(`${count} card${count !== 1 ? 's' : ''} added to "${newGroupName.trim()}"`)
+      setAddConfirmMsg(`${count} item${count !== 1 ? 's' : ''} added to "${newGroupName.trim()}"`)
       setTimeout(() => setAddConfirmMsg(null), 2500)
       setSelectMode(false); setSelectedCardIds(new Set())
     }
@@ -456,7 +451,7 @@ export default function FlashcardsPage({ onNavigate }) {
     addCardsToGroup(groupId, [...selectedCardIds])
     const group = groups.find(g => g.id === groupId)
     const count = selectedCardIds.size
-    setAddConfirmMsg(`${count} card${count !== 1 ? 's' : ''} added to "${group?.name || 'group'}"`)
+    setAddConfirmMsg(`${count} item${count !== 1 ? 's' : ''} added to "${group?.name || 'group'}"`)
     setTimeout(() => setAddConfirmMsg(null), 2500)
     setGroupPickerOpen(false); setSelectMode(false); setSelectedCardIds(new Set()); refreshGroups()
   }
@@ -490,7 +485,7 @@ export default function FlashcardsPage({ onNavigate }) {
               </svg>
             </div>
             <h2 className="fc-done-title">Reinforcement Complete</h2>
-            <p className="fc-done-sub">You reinforced {reviewCards.length} card{reviewCards.length !== 1 ? 's' : ''}.</p>
+            <p className="fc-done-sub">You reinforced {reviewCards.length} item{reviewCards.length !== 1 ? 's' : ''}.</p>
             <div className="fc-summary-grid">
               {EASE_META.map(({ ease, label, color }) => (
                 <div key={ease} className="fc-summary-cell">
@@ -552,7 +547,7 @@ export default function FlashcardsPage({ onNavigate }) {
                     <span key={i} className="fc-rev-subject">{m}</span>
                   ))}
                 </div>
-                <span className="fc-rev-card-prompt-label">{card.cardCategory || CARD_PROMPT_LABEL[card.tag] || 'Board Recall'}</span>
+                <span className="fc-rev-card-prompt-label">{card.cardCategory || CARD_PROMPT_LABEL[card.tag] || 'High-Yield Recall'}</span>
                 <p className="fc-rev-question">{getClinicalPrompt(card)}</p>
                 {!flipped ? (
                   <>
@@ -620,7 +615,7 @@ export default function FlashcardsPage({ onNavigate }) {
               <path d="M18 28h16M18 33h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".45"/>
             </svg>
           </div>
-          <h2 className="fc-empty-title">No Reinforcement Cards Yet</h2>
+          <h2 className="fc-empty-title">No Reinforcement Items Yet</h2>
           <p className="fc-empty-body">
             Finish a Practice or Coach session to automatically generate clinical reinforcement cards from your missed questions.
           </p>
@@ -658,7 +653,7 @@ export default function FlashcardsPage({ onNavigate }) {
               <div>
                 <h1 className="fc-command-title">Clinical Reinforcement</h1>
                 <p className="fc-command-subtitle">
-                  {cards.length} card{cards.length !== 1 ? 's' : ''} · {dueCount} due today
+                  {cards.length} item{cards.length !== 1 ? 's' : ''} · {dueCount} due today
                 </p>
                 <span className="fc-command-kicker">Reinforcement Library</span>
               </div>
@@ -667,7 +662,7 @@ export default function FlashcardsPage({ onNavigate }) {
               <button type="button"
                 className={`fc-action-btn sm${copyMsg === 'copied' ? ' copied' : copyMsg === 'failed' ? ' failed' : ''}`}
                 onClick={handleCopyAll} disabled={processedCards.length === 0}
-                title="Copy visible cards as text" aria-label="Copy visible cards to clipboard"
+                title="Copy visible items as text" aria-label="Copy visible items to clipboard"
               >
                 {copyMsg === 'copied' ? 'Copied ✓' : copyMsg === 'failed' ? 'Failed' : (
                   <><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -678,7 +673,7 @@ export default function FlashcardsPage({ onNavigate }) {
               </button>
               <button type="button" className="fc-action-btn sm"
                 onClick={handleExportCSV} disabled={processedCards.length === 0}
-                title="Export as CSV" aria-label="Export visible cards as CSV"
+                title="Export as CSV" aria-label="Export visible items as CSV"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M6 1v7.5M3.5 6L6 8.5 8.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -688,7 +683,7 @@ export default function FlashcardsPage({ onNavigate }) {
               </button>
               <button type="button" className="fc-action-btn primary sm"
                 onClick={() => doStartReview(processedCards, true)} disabled={processedCards.length === 0}
-                aria-label={`Start reinforcement of ${processedCards.length} cards`}
+                aria-label={`Start reinforcement of ${processedCards.length} items`}
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M2 6.5L5 9.5L10 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -696,8 +691,8 @@ export default function FlashcardsPage({ onNavigate }) {
                 Start Reinforcement
               </button>
               <button type="button" className="fc-clear-deck-btn" onClick={handleClearDeck}
-                title="Delete all flashcards and groups" aria-label="Clear all flashcards"
-              >Clear Deck</button>
+                title="Delete all reinforcement items and groups" aria-label="Clear all reinforcement items"
+              >Clear Reinforcement</button>
             </div>
           </header>
 
@@ -707,20 +702,20 @@ export default function FlashcardsPage({ onNavigate }) {
               <div className="fc-review-queue-text">
                 <div className="fc-review-queue-eyebrow">
                   <IconClock/>
-                  Today's Review
+                  Today's Reinforcement
                 </div>
                 <div className="fc-review-queue-count">
-                  {dueCount > 0 ? `${dueCount} due card${dueCount !== 1 ? 's' : ''}` : 'All caught up!'}
+                  {dueCount > 0 ? `${dueCount} item${dueCount !== 1 ? 's' : ''} due` : 'All caught up!'}
                 </div>
                 <p className="fc-review-queue-sub">
                   {dueCount > 0
-                    ? 'Review due cards first to protect retention.'
-                    : 'All cards are up-to-date. Great work!'}
+                    ? 'Review due items first to protect retention.'
+                    : 'All items are up-to-date. Great work!'}
                 </p>
                 {dueCount > 0 && (
                   <button type="button" className="fc-review-now-btn"
                     onClick={() => doStartReview(sortFlashcards(cards.filter(isFlashcardDue), 'due'), true)}
-                    aria-label={`Reinforce ${dueCount} due cards`}
+                    aria-label={`Reinforce ${dueCount} due items`}
                   >
                     Reinforce Now
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -731,10 +726,10 @@ export default function FlashcardsPage({ onNavigate }) {
               </div>
               <div className="fc-review-queue-stats">
                 {[
-                  { num: newCount,      lbl: 'New',      color: 'var(--blue)'   },
-                  { num: learningCount, lbl: 'Unstable',  color: 'var(--orange)' },
-                  { num: masteredCount, lbl: 'Mastered',  color: 'var(--green)'  },
-                  { num: cards.length,  lbl: 'Total',     color: 'var(--t1)'     },
+                  { num: newCount,      lbl: 'New',      color: '#2E64C8'                },
+                  { num: learningCount, lbl: 'Unstable',  color: 'var(--status-warn)'    },
+                  { num: masteredCount, lbl: 'Mastered',  color: 'var(--status-stable)'  },
+                  { num: cards.length,  lbl: 'Total',     color: 'rgba(244,246,250,.85)' },
                 ].map(({ num, lbl, color }) => (
                   <div key={lbl} className="fc-review-queue-stat">
                     <span className="fc-rqs-num" style={{ color }}>{num}</span>
@@ -907,7 +902,7 @@ export default function FlashcardsPage({ onNavigate }) {
                   <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
                 <input type="text" className="fc-search-input"
-                  placeholder="Search cards — clinical prompt, mechanism, topic, concept…"
+                  placeholder="Search items — clinical prompt, mechanism, topic, concept…"
                   value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                   aria-label="Search flashcards"
                 />
@@ -1008,7 +1003,7 @@ export default function FlashcardsPage({ onNavigate }) {
             <div className="fc-library-header">
               <div className="fc-library-header-left">
                 <span className="fc-library-title">Reinforcement Library</span>
-                <span className="fc-library-count">{processedCards.length} card{processedCards.length !== 1 ? 's' : ''}</span>
+                <span className="fc-library-count">{processedCards.length} item{processedCards.length !== 1 ? 's' : ''}</span>
               </div>
               {hasActiveFilters && (
                 <button type="button" className="fc-clear-filters" onClick={clearFilters}>Clear filters</button>
@@ -1042,7 +1037,7 @@ export default function FlashcardsPage({ onNavigate }) {
                     <button type="button"
                       className={`fc-card-select${isSelected ? ' checked' : ''}`}
                       onClick={() => toggleCardSelect(card.id)}
-                      aria-label={isSelected ? 'Deselect card' : 'Select card'}
+                      aria-label={isSelected ? 'Deselect item' : 'Select item'}
                       aria-pressed={isSelected}
                     >
                       {isSelected && (
@@ -1122,7 +1117,7 @@ export default function FlashcardsPage({ onNavigate }) {
             />
             {selectedCardIds.size > 0 && (
               <p style={{ fontSize: 12, color: 'var(--t3)', margin: '0 0 2px' }}>
-                {selectedCardIds.size} selected card{selectedCardIds.size !== 1 ? 's' : ''} will be added to this group.
+                {selectedCardIds.size} selected item{selectedCardIds.size !== 1 ? 's' : ''} will be added to this group.
               </p>
             )}
             <div className="fc-group-modal-actions">
@@ -1161,12 +1156,12 @@ export default function FlashcardsPage({ onNavigate }) {
       {groupPickerOpen && (
         <div className="fc-modal-overlay" onClick={() => setGroupPickerOpen(false)}>
           <div className="fc-group-modal" onClick={e => e.stopPropagation()}>
-            <h3 className="fc-group-modal-title">Add {selectedCardIds.size} Card{selectedCardIds.size !== 1 ? 's' : ''} to Group</h3>
+            <h3 className="fc-group-modal-title">Add {selectedCardIds.size} Item{selectedCardIds.size !== 1 ? 's' : ''} to Group</h3>
             <div className="fc-group-picker-list">
               {groups.map(g => (
                 <button key={g.id} type="button" className="fc-group-picker-item" onClick={() => handleAddToGroup(g.id)}>
                   <span>{g.name}</span>
-                  <span className="fc-group-picker-count">{g.cardIds.length} card{g.cardIds.length !== 1 ? 's' : ''}</span>
+                  <span className="fc-group-picker-count">{g.cardIds.length} item{g.cardIds.length !== 1 ? 's' : ''}</span>
                 </button>
               ))}
             </div>

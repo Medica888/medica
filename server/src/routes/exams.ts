@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { Response } from 'express';
 import { ExamService } from '../services/ExamService.js';
 import { AnalyticsService } from '../services/AnalyticsService.js';
+import { ConceptMappingService } from '../services/ConceptMappingService.js';
+import { ConceptMasteryService } from '../services/ConceptMasteryService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { createSessionSchema } from '../schemas/exam.js';
@@ -12,8 +14,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const router = Router();
 
 function getService(): ExamService {
-  const { examSessions, questionAttempts, questions } = getRepositories();
-  return new ExamService(examSessions, questionAttempts, questions);
+  const { examSessions, questionAttempts, questions, concepts, questionConcepts, userConceptMastery } = getRepositories();
+  const conceptMapping = new ConceptMappingService(concepts, questionConcepts);
+  const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts);
+  return new ExamService(examSessions, questionAttempts, questions, conceptMapping, conceptMastery);
 }
 
 router.use(requireAuth);

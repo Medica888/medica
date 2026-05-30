@@ -1,41 +1,20 @@
-const NAV_GROUPS = [
-  {
-    label: 'Main',
-    items: [
-      { id: 'dashboard', label: 'Dashboard', emoji: '⊞' },
-    ],
-  },
-  {
-    label: 'USMLE Step 1',
-    items: [
-      { id: 'create-quiz', label: 'Create Quiz',  emoji: '📝' },
-      { id: 'qbank',       label: 'QBank',        emoji: '🗃️' },
-      { id: 'flashcards',  label: 'Reinforcement', emoji: '🃏' },
-      { id: 'ai-tutor',   label: 'AI Tutor',     emoji: '🤖' },
-      { id: 'analytics',  label: 'Analytics',    emoji: '📊' },
-    ],
-  },
-  {
-    label: 'Tools',
-    items: [
-      { id: 'notes',        label: 'Notes',        emoji: '📓' },
-      { id: 'bookmarks',    label: 'Bookmarks',    emoji: '🔖' },
-      { id: 'performance',  label: 'Performance',  emoji: '📈' },
-      { id: 'exam-history', label: 'Exam History', emoji: '📋' },
-    ],
-  },
-  {
-    label: 'Account',
-    items: [
-      { id: 'settings', label: 'Settings', emoji: '⚙️' },
-    ],
-  },
+const NAV_ITEMS = [
+  { id: 'dashboard',  label: 'Dashboard',  Icon: IconDashboard },
+  { id: 'qbank',      label: 'QBank',      Icon: IconQBank },
+  { id: 'flashcards', label: 'Flashcards', Icon: IconCards, hasBadge: true },
+  { id: 'analytics',  label: 'Analytics',  Icon: IconChart },
+  { id: 'ai-tutor',   label: 'AI Coach',   Icon: IconCoach },
+  { id: 'settings',   label: 'Settings',   Icon: IconSettings },
 ]
 
-export default function Sidebar({ activeNav, onNav, onHome }) {
+export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue }) {
   return (
-    <aside className="sidebar" aria-label="Skills navigation">
-      <div className="sb-brand" onClick={onHome} role="button" tabIndex={0} aria-label="Medica home">
+    <aside className="sidebar" aria-label="Main navigation">
+
+      {/* Brand */}
+      <div className="sb-brand" onClick={onHome} role="button" tabIndex={0}
+        aria-label="Medica home"
+        onKeyDown={e => e.key === 'Enter' && onHome()}>
         <svg className="sb-brand-icon" width="22" height="25" viewBox="0 0 28 32" fill="none" aria-hidden="true">
           <defs>
             <linearGradient id="sb-lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse">
@@ -56,35 +35,97 @@ export default function Sidebar({ activeNav, onNav, onHome }) {
         </div>
       </div>
 
-      <div className="sb-body">
-        <div className="sb-section">
-          <span className="sb-section-txt">Navigation</span>
-          <div className="sb-section-line" />
-        </div>
+      {/* Nav */}
+      <nav className="sb-body" aria-label="Navigation">
+        {NAV_ITEMS.map(({ id, label, Icon, hasBadge }) => {
+          const due = hasBadge && flashcardsDue > 0 ? flashcardsDue : 0
+          return (
+            <button
+              key={id}
+              className={`sb-item${activeNav === id ? ' active' : ''}`}
+              onClick={() => onNav(id)}
+              aria-current={activeNav === id ? 'page' : undefined}
+            >
+              <span className="sb-item-icon" aria-hidden="true"><Icon /></span>
+              <span className="sb-item-label">{label}</span>
+              {due > 0 && (
+                <span className="sb-item-badge">{due > 99 ? '99+' : due}</span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
 
-        {NAV_GROUPS.map(group => (
-          <div className="cat-grp" key={group.label}>
-            <div className="cat-lbl">{group.label}</div>
-            {group.items.map(item => (
-              <div
-                key={item.id}
-                className={`sb-item${activeNav === item.id ? ' active' : ''}`}
-                onClick={() => onNav(item.id)}
-              >
-                <span className="sb-item-emoji">{item.emoji}</span>
-                <span>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-
+      {/* Footer CTA */}
       <div className="sb-footer">
-        <button className="btn-new" onClick={() => onNav('skills')}>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>⊞</span>
-          Browse Skills
+        <button className="btn-new" onClick={() => onNav('create-quiz')}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          New Session
         </button>
       </div>
+
     </aside>
+  )
+}
+
+// ── SVG Icons ─────────────────────────────────────────────────────────────────
+
+function IconDashboard() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    </svg>
+  )
+}
+
+function IconQBank() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.5" y="4" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M4 4V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <path d="M5 8h6M5 10.5h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconCards() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2.5" y="5" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M4.5 5V4a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 11.5 4v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity=".5"/>
+      <path d="M6 9.5h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconChart() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2 12L5.5 7.5L8 10L11 5.5L14 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M2 14h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity=".35"/>
+    </svg>
+  )
+}
+
+function IconCoach() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="5.5" r="2.8" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M2.5 13.5c0-2.76 2.46-5 5.5-5s5.5 2.24 5.5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconSettings() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.85.85M11.75 11.75l.85.85M3.4 12.6l.85-.85M11.75 4.25l.85-.85" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
   )
 }
