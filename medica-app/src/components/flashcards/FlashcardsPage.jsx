@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
-import { getFlashcards, markFlashcardReviewed, clearFlashcards, getClinicalPrompt, getCoreMechanism } from '../../lib/storage'
+import { getFlashcards, markFlashcardReviewed, clearFlashcards, getClinicalPrompt, getCoreMechanism, appendFlashcards } from '../../lib/storage'
+import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
+import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
 import {
   getTopicGroup, getConceptFromTopic, getQuestionAngle, getTopicGroupOptions, matchesTopicGroup,
 } from '../../lib/flashcardTopicHelpers.js'
@@ -193,6 +195,33 @@ export default function FlashcardsPage({ onNavigate }) {
   const [renameGroupId, setRenameGroupId]     = useState(null)
   const [renameGroupName, setRenameGroupName] = useState('')
   const [addConfirmMsg, setAddConfirmMsg]     = useState(null)
+
+  // ── Adaptive AI flashcard generation ──────────────────────────────
+  const [aiGenState, setAiGenState] = useState('idle') // 'idle' | 'loading' | 'done' | 'error'
+  const [aiGenMsg,   setAiGenMsg]   = useState(null)
+  const adaptivePlan = useAdaptiveFlashcardsPreview()
+
+  const handleGenerateAI = async () => {
+    if (aiGenState === 'loading') return
+    setAiGenState('loading'); setAiGenMsg(null)
+    try {
+      const count = adaptivePlan.data?.recommendedCardCount || 10
+      const data  = await generateApi.flashcards(Math.min(count, 20))
+      if (data?.flashcards?.length) {
+        const added = appendFlashcards(data.flashcards)
+        setCards(getFlashcards())
+        setAiGenState('done')
+        setAiGenMsg(`${added} reinforcement card${added !== 1 ? 's' : ''} added`)
+      } else {
+        setAiGenState('error'); setAiGenMsg('No cards returned — try again')
+      }
+    } catch (err) {
+      setAiGenState('error')
+      setAiGenMsg(err.message?.includes('API key') ? 'AI unavailable' : 'Generation failed')
+    }
+  }
+
+  const showAdaptiveCTA = getAuthToken() && import.meta.env.VITE_USE_BACKEND === 'true'
 
   // ── Derived counts ────────────────────────────────────────────────
   const newCount      = cards.filter(c => getCardStatus(c) === 'new').length
@@ -619,6 +648,14 @@ export default function FlashcardsPage({ onNavigate }) {
           <p className="fc-empty-body">
             Finish a Practice or Coach session to automatically generate clinical reinforcement cards from your missed questions.
           </p>
+          {showAdaptiveCTA && (
+            <AdaptiveGenerateCTA
+              plan={adaptivePlan}
+              state={aiGenState}
+              msg={aiGenMsg}
+              onGenerate={handleGenerateAI}
+            />
+          )}
           {onNavigate && (
             <button type="button" className="fc-action-btn primary" onClick={() => onNavigate('create-quiz')}>
               Start a Practice Session
@@ -695,6 +732,17 @@ export default function FlashcardsPage({ onNavigate }) {
               >Clear Reinforcement</button>
             </div>
           </header>
+
+          {/* ── Adaptive AI generation strip ─────────────────────── */}
+          {showAdaptiveCTA && (
+            <AdaptiveGenerateCTA
+              plan={adaptivePlan}
+              state={aiGenState}
+              msg={aiGenMsg}
+              onGenerate={handleGenerateAI}
+              compact
+            />
+          )}
 
           {/* ── 2. Today's Review card ───────────────────────────── */}
           <div className={`fc-review-queue${dueCount === 0 ? ' fc-review-queue--done' : ''}`}>
@@ -1171,6 +1219,73 @@ export default function FlashcardsPage({ onNavigate }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Adaptive Generate CTA sub-component ───────────────────────────────────────
+
+function AdaptiveGenerateCTA({ plan, state, msg, onGenerate, compact = false }) {
+  const enabled   = plan.data?.enabled
+  const targets   = plan.data?.targetConcepts ?? []
+  const recCount  = plan.data?.recommendedCardCount ?? 10
+  const isLoading = state === 'loading'
+
+  if (plan.loading) return null
+
+  if (compact) {
+    return (
+      <div className="fc-ai-strip">
+        <div className="fc-ai-strip-left">
+          <span className="fc-ai-strip-label">AI Reinforcement</span>
+          {enabled && targets.length > 0 && (
+            <span className="fc-ai-strip-sub">{targets.length} weak concept{targets.length !== 1 ? 's' : ''} targeted</span>
+          )}
+          {!enabled && <span className="fc-ai-strip-sub">Complete more sessions to enable adaptive mode</span>}
+        </div>
+        <div className="fc-ai-strip-right">
+          {msg && <span className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</span>}
+          <button
+            type="button"
+            className={`fc-action-btn primary sm${isLoading ? ' loading' : ''}`}
+            onClick={onGenerate}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Generating…' : `Generate ${recCount} Cards`}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fc-ai-cta">
+      <div className="fc-ai-cta-icon" aria-hidden="true">✦</div>
+      <div className="fc-ai-cta-body">
+        <div className="fc-ai-cta-title">AI Reinforcement Flashcards</div>
+        <p className="fc-ai-cta-desc">
+          {enabled && targets.length > 0
+            ? `Adaptive mode active — generate cards targeting your ${targets.length} weakest concept${targets.length !== 1 ? 's' : ''}.`
+            : 'Generate clinical reinforcement cards. Complete more sessions to unlock adaptive targeting.'}
+        </p>
+        {enabled && targets.length > 0 && (
+          <div className="fc-ai-concepts">
+            {targets.slice(0, 5).map(c => (
+              <span key={c} className="fc-ai-concept-chip">{c}</span>
+            ))}
+            {targets.length > 5 && <span className="fc-ai-concept-chip dim">+{targets.length - 5} more</span>}
+          </div>
+        )}
+      </div>
+      {msg && <p className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</p>}
+      <button
+        type="button"
+        className={`fc-action-btn primary${isLoading ? ' loading' : ''}`}
+        onClick={onGenerate}
+        disabled={isLoading}
+      >
+        {isLoading ? 'Generating…' : `Generate ${recCount} Cards`}
+      </button>
     </div>
   )
 }

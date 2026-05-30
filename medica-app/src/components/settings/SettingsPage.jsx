@@ -1,0 +1,161 @@
+import { useState } from 'react'
+import { auth } from '../../lib/apiClient'
+
+export default function SettingsPage({ authUser, onLogin, onLogout }) {
+  const [tab,      setTab]      = useState('login')
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [name,     setName]     = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState(null)
+  const [success,  setSuccess]  = useState(null)
+
+  const isConnected = !!authUser
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError(null); setSuccess(null); setLoading(true)
+    try {
+      let result
+      if (tab === 'login') {
+        result = await auth.login(email.trim(), password)
+      } else {
+        result = await auth.register(email.trim(), name.trim(), password)
+      }
+      if (result?.token) {
+        onLogin(result.token, result.user)
+        setSuccess(`Connected as ${result.user?.email || email}`)
+        setEmail(''); setPassword(''); setName('')
+      }
+    } catch (err) {
+      setError(err.message || 'Authentication failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="stg-page">
+      <div className="stg-scroll">
+        <div className="stg-hdr">
+          <h1 className="stg-title">Settings</h1>
+          <p className="stg-sub">Account &amp; backend connection</p>
+        </div>
+
+        {/* ── Backend account ───────────────────────────────────────────── */}
+        <div className="stg-card">
+          <div className="stg-card-title">Backend Account</div>
+          <p className="stg-card-desc">
+            Connect your account to enable mastery tracking, adaptive learning, and cloud sync across sessions.
+          </p>
+
+          {isConnected ? (
+            <div className="stg-connected">
+              <div className="stg-connected-badge">
+                <span className="stg-connected-dot" />
+                Connected
+              </div>
+              <p className="stg-connected-info">
+                Adaptive learning and mastery tracking are active.
+              </p>
+              <button
+                type="button"
+                className="stg-logout-btn"
+                onClick={onLogout}
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div className="stg-auth-wrap">
+              <div className="stg-tabs" role="tablist">
+                {['login', 'register'].map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    className={`stg-tab${tab === t ? ' active' : ''}`}
+                    onClick={() => { setTab(t); setError(null); setSuccess(null) }}
+                  >
+                    {t === 'login' ? 'Log In' : 'Register'}
+                  </button>
+                ))}
+              </div>
+
+              <form className="stg-form" onSubmit={handleSubmit} noValidate>
+                {tab === 'register' && (
+                  <div className="stg-field">
+                    <label className="stg-label" htmlFor="stg-name">Name</label>
+                    <input
+                      id="stg-name"
+                      className="stg-input"
+                      type="text"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      placeholder="Your name"
+                      required
+                    />
+                  </div>
+                )}
+                <div className="stg-field">
+                  <label className="stg-label" htmlFor="stg-email">Email</label>
+                  <input
+                    id="stg-email"
+                    className="stg-input"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    required
+                  />
+                </div>
+                <div className="stg-field">
+                  <label className="stg-label" htmlFor="stg-password">Password</label>
+                  <input
+                    id="stg-password"
+                    className="stg-input"
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Password"
+                    required
+                    minLength={8}
+                  />
+                </div>
+
+                {error   && <p className="stg-error">{error}</p>}
+                {success && <p className="stg-success">{success}</p>}
+
+                <button
+                  type="submit"
+                  className="stg-submit-btn"
+                  disabled={loading}
+                >
+                  {loading ? 'Connecting…' : tab === 'login' ? 'Log In' : 'Create Account'}
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+
+        {/* ── App info ─────────────────────────────────────────────────── */}
+        <div className="stg-card">
+          <div className="stg-card-title">About</div>
+          <div className="stg-info-rows">
+            <div className="stg-info-row">
+              <span className="stg-info-label">Version</span>
+              <span className="stg-info-val">Phase 3.4</span>
+            </div>
+            <div className="stg-info-row">
+              <span className="stg-info-label">Adaptive learning</span>
+              <span className={`stg-info-val ${isConnected ? 'stg-info-val--on' : ''}`}>
+                {isConnected ? 'Active' : 'Requires account'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

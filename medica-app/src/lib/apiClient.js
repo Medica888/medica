@@ -74,3 +74,46 @@ export const flashcards = {
 export const health = {
   check: () => request('GET', '/api/health'),
 };
+
+// ── Mastery ───────────────────────────────────────────────────────────────
+export const mastery = {
+  overview: () =>
+    request('GET', '/api/mastery/overview'),
+  weakest: (limit = 10, minAttempts = 1) =>
+    request('GET', `/api/mastery/weakest?limit=${limit}&min_attempts=${minAttempts}`),
+  strongest: (limit = 10, minAttempts = 1) =>
+    request('GET', `/api/mastery/strongest?limit=${limit}&min_attempts=${minAttempts}`),
+  concept: (id) =>
+    request('GET', `/api/mastery/concept/${id}`),
+  adaptivePreview: () =>
+    request('GET', '/api/mastery/adaptive-preview'),
+  adaptiveFlashcardsPreview: () =>
+    request('GET', '/api/mastery/adaptive-flashcards-preview'),
+};
+
+// ── Generate ──────────────────────────────────────────────────────────────
+export const generate = {
+  flashcards: (count = 10, config = {}) =>
+    request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
+};
+
+// ── Token persistence helpers ─────────────────────────────────────────────
+const TOKEN_KEY = 'medica_jwt';
+
+export function persistToken(token) {
+  _token = token;
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+
+export function clearToken() {
+  _token = null;
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+}
+
+export function restoreToken() {
+  try {
+    const saved = localStorage.getItem(TOKEN_KEY);
+    if (saved) { _token = saved; return saved; }
+  } catch { /* ignore */ }
+  return null;
+}

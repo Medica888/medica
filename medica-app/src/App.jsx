@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
@@ -24,6 +24,8 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
+import { restoreToken, setAuthToken, clearToken } from './lib/apiClient'
+import SettingsPage from './components/settings/SettingsPage'
 
 const MOCK_FALLBACK_ALLOWED = import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
 
@@ -54,6 +56,24 @@ function buildAISession(config, questions, seenState) {
 export default function App() {
   const [selectedSkill, setSelectedSkill] = useState(null)
   const [activeNav, setActiveNav]         = useState('dashboard')
+  const [authUser, setAuthUser]           = useState(null)
+
+  // Restore saved JWT on mount
+  useEffect(() => {
+    const token = restoreToken()
+    if (token) setAuthUser({ restored: true })
+  }, [])
+
+  const handleLogin = useCallback((token, user) => {
+    setAuthToken(token)
+    try { localStorage.setItem('medica_jwt', token) } catch { /* ignore */ }
+    setAuthUser(user)
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    clearToken()
+    setAuthUser(null)
+  }, [])
 
   const pageTitle = useMemo(() => {
     const map = {
@@ -278,6 +298,10 @@ export default function App() {
 
     if (activeNav === 'flashcards') {
       return <FlashcardsPage onNavigate={handleNav} />
+    }
+
+    if (activeNav === 'settings') {
+      return <SettingsPage authUser={authUser} onLogin={handleLogin} onLogout={handleLogout} />
     }
 
     if (showQuizBuilder) {

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { getAuthToken } from '../../lib/apiClient'
+import { useMasteryAdaptivePreview } from '../../hooks/useMastery'
 import { DEFAULT_CONFIG } from '../../lib/quizTypes'
 import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
 import { buildTopicMetadata } from '../../lib/topicIntelligence'
@@ -38,6 +40,11 @@ export default function QuizBuilder({ onStart, generationError = null }) {
   const [error, setError]               = useState(generationError)
 
   const isStandardized = config.blockType === STANDARDIZED_BLOCK
+
+  // Adaptive preview — shown only when backend+auth, non-standardized, global scope
+  const isGlobalScope = !config.topic && !config.clinicalFocus && !config.coachSpecificTopic
+  const showAdaptive  = getAuthToken() && !isStandardized && isGlobalScope
+  const adaptive      = useMasteryAdaptivePreview()
 
   const update = (key, val) => {
     if (isStandardized) return
@@ -170,6 +177,11 @@ export default function QuizBuilder({ onStart, generationError = null }) {
               </>
             )}
 
+            {/* Adaptive exam preview */}
+            {showAdaptive && !adaptive.loading && adaptive.data && (
+              <AdaptiveExamPreview data={adaptive.data} />
+            )}
+
             {/* Generate */}
             <div className="qb-gen-area">
               <button
@@ -235,6 +247,40 @@ export default function QuizBuilder({ onStart, generationError = null }) {
           <LivePreview config={config} />
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Adaptive Exam Preview sub-component ───────────────────────────────────────
+
+function AdaptiveExamPreview({ data }) {
+  if (!data) return null
+  const { enabled, strategy, weakConcepts = [], targetConcepts = [] } = data
+
+  return (
+    <div className={`qb-adaptive${enabled ? ' qb-adaptive--on' : ' qb-adaptive--off'}`}>
+      <div className="qb-adaptive-hdr">
+        <span className="qb-adaptive-badge">
+          {strategy === 'adaptive' ? 'Adaptive' : 'Standard'}
+        </span>
+        <span className="qb-adaptive-label">
+          {enabled
+            ? `Targeting ${targetConcepts.length} weak concept${targetConcepts.length !== 1 ? 's' : ''}`
+            : 'Not enough session history for adaptive mode'}
+        </span>
+      </div>
+      {enabled && weakConcepts.length > 0 && (
+        <div className="qb-adaptive-chips">
+          {weakConcepts.slice(0, 6).map(c => (
+            <span key={c} className="qb-adaptive-chip">{c}</span>
+          ))}
+          {weakConcepts.length > 6 && (
+            <span className="qb-adaptive-chip qb-adaptive-chip--dim">
+              +{weakConcepts.length - 6} more
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
