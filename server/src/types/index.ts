@@ -171,3 +171,36 @@ export interface PaginatedResult<T> {
   limit: number;
   totalPages: number;
 }
+
+// ── Mastery read DTOs ─────────────────────────────────────────────────────────
+// Tier thresholds match AnalyticsDashboard.jsx SUBJECT_STATUS (mastery_score = pct/100)
+
+export type MasteryTier = 'priority' | 'focus' | 'reinforced' | 'ontrack';
+
+export interface MasteryTierDistribution {
+  priority:   number;
+  focus:      number;
+  reinforced: number;
+  ontrack:    number;
+}
+
+export interface MasteryOverview {
+  total_concepts:     number;
+  avg_mastery_score:  number;
+  avg_confidence:     number;
+  distribution:       MasteryTierDistribution;
+  confident_concepts: number; // concepts with attempts >= 5
+}
+
+export interface EnrichedConceptMastery {
+  concept: Concept;
+  mastery: UserConceptMastery;
+  tier:    MasteryTier;
+}
+
+export interface ConceptMasteryDetail {
+  concept:       Concept;
+  mastery:       UserConceptMastery | null;
+  tier:          MasteryTier | null;
+  ancestor_path: string[]; // slugs root-first → self
+}
