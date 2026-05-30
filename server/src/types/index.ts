@@ -204,3 +204,18 @@ export interface ConceptMasteryDetail {
   tier:          MasteryTier | null;
   ancestor_path: string[]; // slugs root-first → self
 }
+
+// ── Adaptive exam generation ──────────────────────────────────────────────────
+
+export type AdaptiveStrategy = 'random' | 'adaptive';
+
+export interface AdaptiveBlueprint {
+  strategy:        AdaptiveStrategy;
+  enabled:         boolean;
+  reason?:         string;
+  weakConcepts:    string[]; // concept names, mastery_score < 0.65
+  mediumConcepts:  string[]; // concept names, 0.65 ≤ mastery_score < 0.75
+  strongConcepts:  string[]; // concept names, mastery_score ≥ 0.75
+  targetConcepts:  string[]; // allocated for this session: 50% weak + 30% medium
+  promptFocusText: string;   // injected into AI generation prompt (server-internal)
+}

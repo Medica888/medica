@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Response } from 'express';
 import { MasteryQueryService } from '../services/MasteryQueryService.js';
 import { ConceptHierarchyService } from '../services/ConceptHierarchyService.js';
+import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRepositories } from '../repositories/index.js';
 
@@ -41,6 +42,25 @@ router.get('/strongest', async (req: AuthRequest, res: Response) => {
     const minAttempts = Math.max(1,              parseInt(String(req.query['min_attempts'] ?? '2'),  10) || 2);
     const data = await getService().getStrongest(req.userId!, limit, minAttempts);
     res.json({ concepts: data, count: data.length });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/adaptive-preview', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, concepts } = getRepositories();
+    const svc  = new AdaptiveExamService(userConceptMastery, concepts);
+    const bp   = await svc.buildAdaptivePreview(req.userId!);
+    // Return the client-facing subset — promptFocusText is server-internal
+    res.json({
+      enabled:        bp.enabled,
+      strategy:       bp.strategy,
+      reason:         bp.reason,
+      weakConcepts:   bp.weakConcepts,
+      mediumConcepts: bp.mediumConcepts,
+      targetConcepts: bp.targetConcepts,
+    });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

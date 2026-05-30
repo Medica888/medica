@@ -1,4 +1,5 @@
 import { normalizeQuestionStem, getQuestionFingerprint } from '../questionDedup.js'
+import { getAuthToken } from '../apiClient.js'
 
 /**
  * Calls the server-side AI question generation endpoint.
@@ -42,10 +43,14 @@ async function _attempt(config, exclude, signal) {
   const body = { config }
   if (exclude) body.exclude = exclude
 
+  const headers = { 'Content-Type': 'application/json' }
+  const token = getAuthToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
   const res = await fetch('/api/generate-questions', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+    method: 'POST',
+    headers,
+    body:   JSON.stringify(body),
     signal,
   })
 

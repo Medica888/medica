@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
+import { optionalAuth } from '../middleware/optionalAuth.js';
+import type { AuthRequest } from '../middleware/auth.js';
+import { getRepositories } from '../repositories/index.js';
+import type { AdaptiveBlueprint } from '../types/index.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -381,6 +386,11 @@ function buildPrompt(config: Record<string, any>, count: number, offset: number,
     lines.push('- questionAngle: mechanism, diagnosis, treatment, complication, pharmacology, pathophysiology, adverse-effect, lab-interpretation');
   }
 
+  // Adaptive focus — injected only when scope is global/mixed and user has weak concepts
+  if (config.adaptiveFocusText) {
+    lines.push('', String(config.adaptiveFocusText));
+  }
+
   lines.push('', 'DIVERSITY REQUIREMENTS — enforce strictly across every question in this batch:');
   lines.push('- Every question must test a DIFFERENT testedConcept — no repeated concepts whatsoever');
   lines.push('- Every question must feature a DIFFERENT primary diagnosis, drug class, or pathology');
@@ -548,7 +558,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   return results;
 }
 
-router.post('/generate-questions', async (req: Request, res: Response) => {
+router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
 
   if (!rawConfig?.mode || !rawConfig?.questionCount) {
@@ -581,6 +591,24 @@ router.post('/generate-questions', async (req: Request, res: Response) => {
     const targetCount = Math.min(Math.max(Number(config.questionCount) || 5, 1), 40);
     const scope = resolveScope(config);
     const specific = isSpecific(scope);
+
+    // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
+    // Requires an authenticated user (optionalAuth sets req.userId when token is present).
+    let adaptiveBlueprint: AdaptiveBlueprint | null = null;
+    if (!specific && req.userId) {
+      try {
+        const { userConceptMastery, concepts } = getRepositories();
+        const bp = await new AdaptiveExamService(userConceptMastery, concepts)
+          .buildAdaptiveBlueprint(req.userId, targetCount);
+        if (bp.enabled) adaptiveBlueprint = bp;
+      } catch (err) {
+        console.warn('[generate-questions] adaptive blueprint skipped:', (err as Error).message);
+      }
+    }
+    if (adaptiveBlueprint) {
+      config = { ...config, adaptiveFocusText: adaptiveBlueprint.promptFocusText };
+    }
+
     const bufferedCount = Math.min(Math.ceil(targetCount * 1.5), 40);
 
     let allQuestions: Record<string, any>[] = [];
@@ -633,7 +661,14 @@ router.post('/generate-questions', async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({ questions, source: 'ai', count: questions.length, telemetry });
+    res.json({
+      questions,
+      source: 'ai',
+      count:              questions.length,
+      telemetry,
+      generationStrategy: adaptiveBlueprint ? 'adaptive' : 'random',
+      adaptiveConcepts:   adaptiveBlueprint ? adaptiveBlueprint.targetConcepts : [],
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[generate-questions]', msg);
