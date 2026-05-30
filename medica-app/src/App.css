@@ -7083,6 +7083,54 @@ html, body, #root {
 }
 .qb-adaptive-chip--dim { background: var(--bg); color: var(--t4); border-color: var(--border-s); }
 
+/* ── MASTERY TIMELINE CHART (Phase 3.7) ────────────────────── */
+
+.mtc-empty {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--t4); text-align: center; padding: 0 16px;
+}
+
+/* ── PROGRESS TREND PANEL (Phase 3.7) ──────────────────────── */
+
+.ptp-panel { display: flex; flex-direction: column; gap: 16px; }
+
+.ptp-hdr   { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ptp-hint  { font-size: 11px; color: var(--t4); flex-shrink: 0; margin-top: 2px; }
+
+.ptp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* Individual trend card */
+.ptp-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px; background: var(--bg);
+  border: 1px solid var(--border-s); border-radius: 10px;
+}
+.ptp-card-hdr    { display: flex; flex-direction: column; gap: 2px; }
+.ptp-card-title  { font-size: 12px; font-weight: 700; color: var(--t1); }
+.ptp-card-sub    { font-size: 10px; color: var(--t4); }
+
+.ptp-card-current {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.ptp-card-val  { font-size: 24px; font-weight: 700; color: var(--t1); line-height: 1; }
+.ptp-card-prev { font-size: 11px; color: var(--t3); }
+
+/* Delta badge */
+.ptp-delta      { font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
+.ptp-delta--up  {
+  background: color-mix(in srgb, var(--status-stable)   12%, transparent);
+  color: var(--status-stable);
+}
+.ptp-delta--down {
+  background: color-mix(in srgb, var(--status-critical) 12%, transparent);
+  color: var(--status-critical);
+}
+.ptp-delta--flat { background: var(--border-s); color: var(--t4); }
+
 /* ── PROGRESS PANEL (Phase 3.6) ────────────────────────────── */
 
 .pp-panel { display: flex; flex-direction: column; gap: 16px; }

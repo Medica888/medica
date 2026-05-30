@@ -123,9 +123,12 @@ router.get('/timeline', async (req: AuthRequest, res: Response) => {
     const svc   = new ProgressTrackingService(userConceptMastery, masterySnapshots);
     const trend = await svc.getMasteryTrend(req.userId!);
     const weak  = await svc.getWeakConceptTrend(req.userId!);
+    // Add 1-based sessionNumber for frontend chart x-axis labelling
+    const trendWithNumbers = trend.map((p, i) => ({ ...p, sessionNumber: i + 1 }));
+    const weakWithNumbers  = weak.map((p, i) => ({ ...p, sessionNumber: i + 1 }));
     res.json({
-      trend,
-      weakConceptTrend: weak,
+      trend:            trendWithNumbers,
+      weakConceptTrend: weakWithNumbers,
       improvementRate:  svc.getImprovementRate(trend),
       learningVelocity: svc.getLearningVelocity(trend),
     });

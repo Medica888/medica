@@ -7,6 +7,7 @@ import {
 import MasteryPanel from './MasteryPanel'
 import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 import ProgressPanel from './ProgressPanel'
+import ProgressTrendPanel from './ProgressTrendPanel'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -275,6 +276,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
         {/* ── Study Prescription (backend-powered, derived from mastery data) */}
         <StudyPrescriptionPanel />
+
+        {/* ── Learning Timeline (backend-powered, 3-series trend charts) */}
+        <ProgressTrendPanel />
 
         <p className="an-footer-disclaimer">
           Medica Score is an internal readiness estimate, not an official USMLE prediction.
