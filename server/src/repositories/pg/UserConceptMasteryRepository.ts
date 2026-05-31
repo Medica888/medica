@@ -155,9 +155,11 @@ export class PgUserConceptMasteryRepository implements IUserConceptMasteryReposi
     userId: string,
     conceptId: string,
     ease: 'again' | 'hard' | 'good' | 'easy',
+    tx?: unknown,
   ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null> {
+    const q = (tx as PoolClient | undefined) ?? this.pool;
     // All CASE branches reference the OLD review_interval_days (pre-update) — correct behaviour.
-    const res = await this.pool.query<{ review_interval_days: number; next_review_at: Date | null }>(
+    const res = await q.query<{ review_interval_days: number; next_review_at: Date | null }>(
       `UPDATE user_concept_mastery
        SET
          review_interval_days = CASE $3

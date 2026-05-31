@@ -89,3 +89,7 @@ export function useMasterySubjectConcepts(subject) {
 export function useDueReviews() {
   return useApiCall(() => masteryApi.dueReviews())
 }
+
+export function useReviewStats() {
+  return useApiCall(() => masteryApi.reviewStats())
+}

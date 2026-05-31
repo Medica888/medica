@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { getAuthToken, mastery as masteryApi } from '../../lib/apiClient'
-import { useDailyStudyPlan, useDueReviews, useStudyPrescription } from '../../hooks/useMastery'
+import { useDailyStudyPlan, useDueReviews, useReviewStats, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
@@ -103,9 +103,10 @@ function StatPill({ icon, value, label }) {
 const TIER_RANK = { priority: 0, focus: 1, reinforced: 2, ontrack: 3 }
 
 function DailyPlanSummary({ plan, dueData }) {
-  const [dismissed, setDismissed] = useState(() => new Set())
-  const [pending,   setPending]   = useState(() => new Set())
-  const [errors,    setErrors]    = useState(() => new Map())
+  const [dismissed,        setDismissed]        = useState(() => new Set())
+  const [pending,          setPending]           = useState(() => new Set())
+  const [errors,           setErrors]            = useState(() => new Map())
+  const [sessionBreakdown, setSessionBreakdown]  = useState({ again: 0, hard: 0, good: 0, easy: 0 })
 
   if (!plan) return null
 
@@ -118,6 +119,7 @@ function DailyPlanSummary({ plan, dueData }) {
     try {
       await masteryApi.reviewConcept(conceptId, result)
       setDismissed(prev => new Set([...prev, conceptId]))
+      setSessionBreakdown(prev => ({ ...prev, [result]: prev[result] + 1 }))
     } catch {
       setErrors(prev => new Map([...prev, [conceptId, 'Review failed — try again']]))
     } finally {
@@ -170,6 +172,21 @@ function DailyPlanSummary({ plan, dueData }) {
           ))}
         </div>
       )}
+      {visibleQueue.length === 0 && Object.values(sessionBreakdown).some(c => c > 0) && (
+        <div className="spp-review-summary">
+          <span className="spp-review-summary-label">Session complete</span>
+          <div className="spp-review-summary-counts">
+            {EASE_META.map(({ result, label, color }) => (
+              sessionBreakdown[result] > 0 && (
+                <span key={result} className="spp-review-summary-pill">
+                  <span className="spp-review-summary-num" style={{ color }}>{sessionBreakdown[result]}</span>
+                  <span className="spp-review-summary-ease">{label}</span>
+                </span>
+              )
+            ))}
+          </div>
+        </div>
+      )}
       {visibleQueue.length > 0 && (
         <div className="spp-tier-body" style={{ borderLeftColor: 'var(--status-critical)' }}>
           {visibleQueue.map(item => {
@@ -220,13 +237,33 @@ function DailyPlanSummary({ plan, dueData }) {
   )
 }
 
+function ReviewStatsRow({ stats }) {
+  if (!stats) return null
+  const { reviewedToday, reviewedThisWeek, currentStreak } = stats
+  if (reviewedToday === 0 && currentStreak === 0) return null
+  return (
+    <div className="spp-stats spp-review-stats-row">
+      {reviewedToday > 0 && (
+        <StatPill icon="✓" value={reviewedToday} label="today" />
+      )}
+      {reviewedThisWeek > 0 && (
+        <StatPill icon="W" value={reviewedThisWeek} label="this week" />
+      )}
+      {currentStreak > 0 && (
+        <StatPill icon="↑" value={`${currentStreak}d`} label="streak" />
+      )}
+    </div>
+  )
+}
+
 export default function StudyPrescriptionPanel() {
-  const { data: rx,        loading,     error      } = useStudyPrescription()
-  const { data: dailyPlan, loading: planLoading, error: planError } = useDailyStudyPlan()
-  const { data: dueData,   loading: dueLoading   } = useDueReviews()
+  const { data: rx,          loading,       error      } = useStudyPrescription()
+  const { data: dailyPlan,   loading: planLoading,  error: planError  } = useDailyStudyPlan()
+  const { data: dueData,     loading: dueLoading                       } = useDueReviews()
+  const { data: reviewStats, loading: statsLoading                     } = useReviewStats()
 
   if (!getAuthToken()) return null
-  if (loading || planLoading || dueLoading) return (
+  if (loading || planLoading || dueLoading || statsLoading) return (
     <div className="an-intel-card spp-panel">
       <div className="an-intel-card-title">Study Prescription</div>
       <div className="mp-skeleton-rows">
@@ -244,6 +281,7 @@ export default function StudyPrescriptionPanel() {
     return (
       <div className="an-intel-card spp-panel">
         <div className="an-intel-card-title">Study Prescription</div>
+        <ReviewStatsRow stats={reviewStats} />
         <DailyPlanSummary plan={dailyPlan} dueData={dueData} />
         <p className="an-intel-muted">
           {rx.reason ?? 'Complete more sessions to generate a personalized study prescription.'}
@@ -264,6 +302,7 @@ export default function StudyPrescriptionPanel() {
         <span className="spp-strategy-badge">Adaptive</span>
       </div>
 
+      <ReviewStatsRow stats={reviewStats} />
       <DailyPlanSummary plan={dailyPlan} dueData={dueData} />
 
       {/* Summary stats */}

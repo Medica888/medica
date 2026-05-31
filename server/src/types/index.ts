@@ -343,6 +343,14 @@ export interface DailyStudyPlan {
   summary:               string;
 }
 
+export interface ReviewStats {
+  reviewedToday:    number;
+  reviewedThisWeek: number;
+  currentStreak:    number;
+  totalReviewed:    number; // distinct concepts reviewed via SRS
+  todayBreakdown:   { again: number; hard: number; good: number; easy: number };
+}
+
 export interface AdaptiveFlashcardPlan {
   strategy:             AdaptiveStrategy;
   enabled:              boolean;

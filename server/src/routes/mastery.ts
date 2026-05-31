@@ -9,6 +9,7 @@ import { ProgressTrackingService } from '../services/ProgressTrackingService.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { reviewConceptSchema } from '../schemas/mastery.js';
+import { withTransaction } from '../config/db.js';
 import { getRepositories } from '../repositories/index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -287,15 +288,42 @@ router.post('/concept/:id/review', validate(reviewConceptSchema), async (req: Au
   if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Concept not found' });
   try {
     const { result } = req.body as { result: 'again' | 'hard' | 'good' | 'easy' };
-    const { userConceptMastery } = getRepositories();
-    const updated = await userConceptMastery.scheduleReview(req.userId!, id, result);
+    const { userConceptMastery, reviewLog } = getRepositories();
+
+    // Pre-read interval_before outside the transaction (user-sequential; race is negligible)
+    const existing = await userConceptMastery.findByUserAndConcept(req.userId!, id);
+    if (!existing) return res.status(404).json({ error: 'No mastery record found for this concept' });
+
+    const updated = await withTransaction(async (tx) => {
+      const u = await userConceptMastery.scheduleReview(req.userId!, id, result, tx);
+      if (!u) return null;
+      await reviewLog.insert({
+        userId:         req.userId!,
+        conceptId:      id,
+        result,
+        intervalBefore: existing.review_interval_days,
+        intervalAfter:  u.reviewIntervalDays,
+      }, tx);
+      return u;
+    });
+
     if (!updated) return res.status(404).json({ error: 'No mastery record found for this concept' });
     res.json({
-      conceptId:         id,
+      conceptId:          id,
       result,
       reviewIntervalDays: updated.reviewIntervalDays,
-      nextReviewAt:      updated.nextReviewAt?.toISOString() ?? null,
+      nextReviewAt:       updated.nextReviewAt?.toISOString() ?? null,
     });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/review-stats', async (req: AuthRequest, res: Response) => {
+  try {
+    const { reviewLog } = getRepositories();
+    const stats = await reviewLog.getStats(req.userId!);
+    res.json(stats);
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

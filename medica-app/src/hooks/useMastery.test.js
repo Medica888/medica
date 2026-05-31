@@ -22,6 +22,7 @@ vi.mock('../lib/apiClient', () => ({
     subjectConcepts:           vi.fn(),
     dueReviews:                vi.fn(),
     reviewConcept:             vi.fn(),
+    reviewStats:               vi.fn(),
   },
 }))
 
@@ -398,6 +399,7 @@ describe('StudyPrescriptionPanel daily plan render', () => {
     apiClient.mastery.prescription.mockResolvedValue(PRESCRIPTION_DATA)
     apiClient.mastery.dailyPlan.mockResolvedValue(DAILY_PLAN_DATA)
     apiClient.mastery.dueReviews.mockResolvedValue({ reviews: [], total: 0, overdueCount: 0 })
+    apiClient.mastery.reviewStats.mockResolvedValue({ reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0, todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 } })
 
     render(createElement(StudyPrescriptionPanel))
 
@@ -411,6 +413,7 @@ describe('StudyPrescriptionPanel daily plan render', () => {
   it('renders the daily plan empty state alongside insufficient prescription data', async () => {
     apiClient.getAuthToken.mockReturnValue('tok')
     apiClient.mastery.dueReviews.mockResolvedValue({ reviews: [], total: 0, overdueCount: 0 })
+    apiClient.mastery.reviewStats.mockResolvedValue({ reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0, todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 } })
     apiClient.mastery.prescription.mockResolvedValue({
       strategy: 'random',
       enabled: false,

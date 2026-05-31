@@ -91,6 +91,7 @@ export class InMemoryUserConceptMasteryRepository implements IUserConceptMastery
     userId: string,
     conceptId: string,
     ease: 'again' | 'hard' | 'good' | 'easy',
+    _tx?: unknown,
   ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null> {
     const key = `${userId}:${conceptId}`;
     const existing = this.store.get(key);

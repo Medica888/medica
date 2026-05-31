@@ -9,6 +9,7 @@ import type {
   QuestionConcept,
   UserConceptMastery,
   MasterySnapshot,
+  ReviewStats,
   PaginationParams,
   PaginatedResult,
 } from '../types/index.js';
@@ -178,5 +179,18 @@ export interface IUserConceptMasteryRepository {
     userId: string,
     conceptId: string,
     ease: 'again' | 'hard' | 'good' | 'easy',
+    tx?: unknown,
   ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null>;
+}
+
+export interface IConceptReviewLogRepository {
+  insert(entry: {
+    userId:         string;
+    conceptId:      string;
+    result:         'again' | 'hard' | 'good' | 'easy';
+    intervalBefore: number;
+    intervalAfter:  number;
+  }, tx?: unknown): Promise<void>;
+
+  getStats(userId: string): Promise<ReviewStats>;
 }

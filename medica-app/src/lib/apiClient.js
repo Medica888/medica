@@ -111,6 +111,9 @@ export const mastery = {
 
   dueReviews: () =>
     request('GET', '/api/mastery/reviews/due'),
+
+  reviewStats: () =>
+    request('GET', '/api/mastery/review-stats'),
 };
 
 // ── Generate ──────────────────────────────────────────────────────────────

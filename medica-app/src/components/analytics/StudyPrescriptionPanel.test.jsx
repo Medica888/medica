@@ -15,6 +15,7 @@ vi.mock('../../hooks/useMastery', () => ({
   useStudyPrescription: vi.fn(),
   useDailyStudyPlan:    vi.fn(),
   useDueReviews:        vi.fn(),
+  useReviewStats:       vi.fn(),
 }))
 
 import * as apiClient        from '../../lib/apiClient'
@@ -85,6 +86,16 @@ const DUE_REVIEWS_EMPTY = {
   loading: false, error: null,
 }
 
+const REVIEW_STATS_EMPTY = {
+  data: { reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0, todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 } },
+  loading: false, error: null,
+}
+
+const REVIEW_STATS_WITH_DATA = {
+  data: { reviewedToday: 5, reviewedThisWeek: 23, currentStreak: 4, totalReviewed: 12, todayBreakdown: { again: 1, hard: 1, good: 2, easy: 1 } },
+  loading: false, error: null,
+}
+
 const DUE_REVIEWS_WITH_ITEM = {
   data: { reviews: [DUE_REVIEW_ITEM], total: 1, overdueCount: 1 },
   loading: false, error: null,
@@ -105,6 +116,7 @@ describe('StudyPrescriptionPanel — ease review buttons', () => {
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
   })
 
   it('renders Again / Hard / Good / Easy buttons for a concept review row', () => {
@@ -206,6 +218,7 @@ describe('StudyPrescriptionPanel — unified review queue (Phase 5.4)', () => {
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
   })
 
   it('renders due review items from useDueReviews', () => {
@@ -285,5 +298,69 @@ describe('StudyPrescriptionPanel — unified review queue (Phase 5.4)', () => {
     })
     // Prescribed item still visible
     expect(screen.getByText('Autonomic Pharmacology')).toBeTruthy()
+  })
+})
+
+describe('StudyPrescriptionPanel — review analytics (Phase 5.5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiClient.getAuthToken.mockReturnValue('test-token')
+    useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
+    useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
+  })
+
+  it('shows review stats row when reviewedToday > 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA)
+    setup()
+    // 'this week' label is unique to the stats row (daily plan uses 'today', 'questions', 'flashcards')
+    expect(screen.getByText('this week')).toBeTruthy()
+    expect(screen.getByText('23')).toBeTruthy() // reviewedThisWeek — unique value
+  })
+
+  it('shows streak pill when currentStreak > 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // streak: 4
+    setup()
+    expect(screen.getByText('4d')).toBeTruthy()
+    expect(screen.getByText('streak')).toBeTruthy()
+  })
+
+  it('does not render stats row when all counts are zero', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
+    setup()
+    // 'streak' and 'this week' only appear in the stats row — not in daily plan stats
+    expect(screen.queryByText('streak')).toBeNull()
+    expect(screen.queryByText('this week')).toBeNull()
+  })
+
+  it('shows session complete strip after all items are dismissed', async () => {
+    apiClient.mastery.reviewConcept.mockResolvedValue({
+      conceptId: CONCEPT_REVIEW.conceptId, result: 'good', reviewIntervalDays: 6, nextReviewAt: null,
+    })
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
+    setup()
+
+    fireEvent.click(screen.getByRole('button', { name: /good/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Session complete')).toBeTruthy()
+    })
+  })
+
+  it('session summary shows the rated ease counts', async () => {
+    apiClient.mastery.reviewConcept.mockResolvedValue({
+      conceptId: CONCEPT_REVIEW.conceptId, result: 'easy', reviewIntervalDays: 8, nextReviewAt: null,
+    })
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
+    setup()
+
+    fireEvent.click(screen.getByRole('button', { name: /easy/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Session complete')).toBeTruthy()
+      expect(screen.getByText('Easy')).toBeTruthy() // ease label in summary
+    })
   })
 })

@@ -7269,6 +7269,24 @@ html, body, #root {
   padding-top: 8px; border-top: 1px solid var(--border-s);
 }
 
+/* Review stats row (Phase 5.5) */
+.spp-review-stats-row { border-top: 1px solid var(--border-s); padding-top: 8px; }
+
+/* Session-complete summary strip (Phase 5.5) */
+.spp-review-summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border-s);
+}
+.spp-review-summary-label {
+  font-size: 10.5px; font-weight: 600; color: var(--status-stable);
+  text-transform: uppercase; letter-spacing: .08em; flex-shrink: 0;
+}
+.spp-review-summary-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+.spp-review-summary-pill   { display: flex; align-items: baseline; gap: 3px; }
+.spp-review-summary-num    { font-size: 14px; font-weight: 700; line-height: 1; }
+.spp-review-summary-ease   { font-size: 10px; color: var(--t3); }
+
 /* Ease review buttons (Phase 5.3) */
 .spp-ease-row {
   display: flex; gap: 5px; padding-top: 7px;

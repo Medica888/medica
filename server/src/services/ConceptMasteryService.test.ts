@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ConceptMasteryService } from './ConceptMasteryService.js';
 import { InMemoryUserConceptMasteryRepository } from '../repositories/memory/UserConceptMasteryRepository.js';
+import { InMemoryConceptReviewLogRepository } from '../repositories/memory/ConceptReviewLogRepository.js';
 import { InMemoryQuestionConceptsRepository } from '../repositories/memory/QuestionConceptsRepository.js';
 import { InMemoryConceptsRepository } from '../repositories/memory/ConceptsRepository.js';
 
@@ -434,5 +435,96 @@ describe('scheduleReview', () => {
     const rowB = await masteryRepo.findByUserAndConcept(USER_B, conceptId);
     expect(rowA!.review_interval_days).toBe(1);
     expect(rowB!.review_interval_days).toBe(7); // untouched
+  });
+});
+
+// ── ConceptReviewLogRepository ────────────────────────────────────────────────
+
+describe('ConceptReviewLogRepository', () => {
+  let log: InMemoryConceptReviewLogRepository;
+
+  beforeEach(() => {
+    log = new InMemoryConceptReviewLogRepository();
+  });
+
+  const C1 = 'concept-log-1';
+  const C2 = 'concept-log-2';
+
+  it('getStats returns zero counts when log is empty', async () => {
+    const stats = await log.getStats(USER_A);
+    expect(stats.reviewedToday).toBe(0);
+    expect(stats.reviewedThisWeek).toBe(0);
+    expect(stats.currentStreak).toBe(0);
+    expect(stats.totalReviewed).toBe(0);
+    expect(stats.todayBreakdown).toEqual({ again: 0, hard: 0, good: 0, easy: 0 });
+  });
+
+  it('reviewedToday counts all review events for a user today', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+    await log.insert({ userId: USER_B, conceptId: C1, result: 'easy',  intervalBefore: 4, intervalAfter: 8 });
+
+    const statsA = await log.getStats(USER_A);
+    expect(statsA.reviewedToday).toBe(2); // only USER_A's rows
+    const statsB = await log.getStats(USER_B);
+    expect(statsB.reviewedToday).toBe(1);
+  });
+
+  it('todayBreakdown counts each ease result correctly', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'hard',  intervalBefore: 1, intervalAfter: 1 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'good',  intervalBefore: 2, intervalAfter: 3 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'easy',  intervalBefore: 3, intervalAfter: 6 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.todayBreakdown).toEqual({ again: 2, hard: 1, good: 1, easy: 1 });
+  });
+
+  it('totalReviewed counts distinct concepts, not total events', async () => {
+    // C1 reviewed twice, C2 once — totalReviewed should be 2
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 2, intervalAfter: 3 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.totalReviewed).toBe(2);
+  });
+
+  it('currentStreak is 1 when reviews exist only today', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+    const stats = await log.getStats(USER_A);
+    expect(stats.currentStreak).toBe(1);
+  });
+
+  it('currentStreak is 0 when no reviews today', async () => {
+    // Insert a row with a past timestamp by manipulating _getAll
+    // We can't set reviewed_at directly via the public interface,
+    // so this tests the empty case only
+    const stats = await log.getStats(USER_A);
+    expect(stats.currentStreak).toBe(0);
+  });
+
+  it('isolates stats between users', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_B, conceptId: C1, result: 'again', intervalBefore: 2, intervalAfter: 1 });
+    await log.insert({ userId: USER_B, conceptId: C2, result: 'easy',  intervalBefore: 1, intervalAfter: 2 });
+
+    const statsA = await log.getStats(USER_A);
+    const statsB = await log.getStats(USER_B);
+
+    expect(statsA.reviewedToday).toBe(1);
+    expect(statsB.reviewedToday).toBe(2);
+    expect(statsA.totalReviewed).toBe(1);
+    expect(statsB.totalReviewed).toBe(2);
+  });
+
+  it('reviewedThisWeek includes all events in last 7 days', async () => {
+    // All inserts use now() so they all count as this week
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'hard', intervalBefore: 2, intervalAfter: 2 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.reviewedThisWeek).toBe(2);
   });
 });
