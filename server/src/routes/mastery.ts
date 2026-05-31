@@ -250,15 +250,20 @@ router.get('/reviews/due', async (req: AuthRequest, res: Response) => {
   try {
     const { userConceptMastery, concepts } = getRepositories();
     const rows = await userConceptMastery.findDueForReview(req.userId!);
-    if (!rows.length) return res.json({ reviews: [], total: 0 });
+    if (!rows.length) return res.json({ reviews: [], total: 0, overdueCount: 0 });
 
     const conceptMap = new Map(
       (await concepts.findManyById(rows.map((r) => r.concept_id))).map((c) => [c.id, c]),
     );
 
+    const now = Date.now();
     const reviews = rows.flatMap((row) => {
       const concept = conceptMap.get(row.concept_id);
       if (!concept) return [];
+      const daysOverdue = Math.max(
+        0,
+        Math.floor((now - (row.next_review_at?.getTime() ?? now)) / 86400000),
+      );
       return [{
         conceptId:          row.concept_id,
         name:               concept.name,
@@ -266,10 +271,12 @@ router.get('/reviews/due', async (req: AuthRequest, res: Response) => {
         priority:           masteryTier(row.mastery_score),
         reviewIntervalDays: row.review_interval_days,
         nextReviewAt:       row.next_review_at?.toISOString() ?? null,
+        daysOverdue,
       }];
     });
 
-    res.json({ reviews, total: reviews.length });
+    const overdueCount = reviews.filter((r) => r.daysOverdue > 0).length;
+    res.json({ reviews, total: reviews.length, overdueCount });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

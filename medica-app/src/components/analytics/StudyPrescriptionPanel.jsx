@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { getAuthToken, mastery as masteryApi } from '../../lib/apiClient'
-import { useDailyStudyPlan, useStudyPrescription } from '../../hooks/useMastery'
+import { useDailyStudyPlan, useDueReviews, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
@@ -100,7 +100,9 @@ function StatPill({ icon, value, label }) {
   )
 }
 
-function DailyPlanSummary({ plan }) {
+const TIER_RANK = { priority: 0, focus: 1, reinforced: 2, ontrack: 3 }
+
+function DailyPlanSummary({ plan, dueData }) {
   const [dismissed, setDismissed] = useState(() => new Set())
   const [pending,   setPending]   = useState(() => new Set())
   const [errors,    setErrors]    = useState(() => new Map())
@@ -123,14 +125,38 @@ function DailyPlanSummary({ plan }) {
     }
   }
 
-  const visibleReviews = plan.conceptReviews?.filter(item => !dismissed.has(item.conceptId)) ?? []
+  // ── Build merged queue: due (SRS-scheduled) + prescribed (daily plan only) ─
+  const dueReviews = dueData?.reviews ?? []
+  const dueIds     = new Set(dueReviews.map(r => r.conceptId))
+
+  // Prescribed items not already covered by the due queue
+  const prescribed = (plan.conceptReviews ?? []).filter(r => !dueIds.has(r.conceptId))
+
+  // Sort due items: most overdue first, then earliest nextReviewAt
+  const sortedDue = [...dueReviews].sort((a, b) => {
+    const diff = (b.daysOverdue ?? 0) - (a.daysOverdue ?? 0)
+    if (diff !== 0) return diff
+    return new Date(a.nextReviewAt ?? 0).getTime() - new Date(b.nextReviewAt ?? 0).getTime()
+  })
+
+  // Sort prescribed: weakest tier first
+  const sortedPrescribed = [...prescribed].sort(
+    (a, b) => (TIER_RANK[a.priority] ?? 3) - (TIER_RANK[b.priority] ?? 3)
+  )
+
+  const mergedQueue  = [...sortedDue, ...sortedPrescribed]
+  const overdueCount = dueData?.overdueCount ?? 0
+  const visibleQueue = mergedQueue.filter(item => !dismissed.has(item.conceptId))
 
   return (
     <div className="spp-tier">
       <div className="spp-tier-hdr">
         <span className="an-subj-badge an-subj-badge--priority">Today</span>
+        {overdueCount > 0 && (
+          <span className="an-subj-badge an-subj-badge--priority">{overdueCount} overdue</span>
+        )}
         <span className="spp-tier-sub">{plan.summary}</span>
-        <span className="spp-tier-count">{plan.readinessStatus}</span>
+        <span className="spp-tier-count">{visibleQueue.length} concept{visibleQueue.length !== 1 ? 's' : ''}</span>
       </div>
       <div className="spp-stats">
         <StatPill icon="?" value={plan.recommendedQuestions} label="questions" />
@@ -144,19 +170,25 @@ function DailyPlanSummary({ plan }) {
           ))}
         </div>
       )}
-      {visibleReviews.length > 0 && (
+      {visibleQueue.length > 0 && (
         <div className="spp-tier-body" style={{ borderLeftColor: 'var(--status-critical)' }}>
-          {visibleReviews.map(item => {
-            const isPending = pending.has(item.conceptId)
-            const errorMsg  = errors.get(item.conceptId)
+          {visibleQueue.map(item => {
+            const isPending   = pending.has(item.conceptId)
+            const errorMsg    = errors.get(item.conceptId)
+            const daysOverdue = item.daysOverdue ?? 0
+            const statusLabel =
+              daysOverdue > 0         ? `${daysOverdue}d overdue`                                  :
+              item.nextReviewAt?.slice(0, 10) <= today ? 'Due Today'                               :
+              item.nextReviewAt       ? `Next Review ${item.nextReviewAt.slice(0, 10)}`            :
+              'Prescribed'
             return (
               <div key={item.conceptId} className="spp-row">
                 <div className="spp-row-main">
                   {item.subject && <span className="spp-subject-chip">{item.subject}</span>}
                   <span className="spp-name">{item.name}</span>
-                  <span className="spp-rec">{item.reason}</span>
+                  {item.reason && <span className="spp-rec">{item.reason}</span>}
                   <span className="spp-rec">
-                    {item.nextReviewAt?.slice(0, 10) <= today ? 'Due Today' : `Next Review ${item.nextReviewAt?.slice(0, 10) || 'TBD'}`}
+                    {statusLabel}
                     {' '}· Interval {item.reviewIntervalDays} day{item.reviewIntervalDays !== 1 ? 's' : ''}
                   </span>
                   <div className="spp-ease-row" role="group" aria-label={`Rate review for ${item.name}`}>
@@ -189,11 +221,12 @@ function DailyPlanSummary({ plan }) {
 }
 
 export default function StudyPrescriptionPanel() {
-  const { data: rx, loading, error } = useStudyPrescription()
+  const { data: rx,        loading,     error      } = useStudyPrescription()
   const { data: dailyPlan, loading: planLoading, error: planError } = useDailyStudyPlan()
+  const { data: dueData,   loading: dueLoading   } = useDueReviews()
 
   if (!getAuthToken()) return null
-  if (loading || planLoading) return (
+  if (loading || planLoading || dueLoading) return (
     <div className="an-intel-card spp-panel">
       <div className="an-intel-card-title">Study Prescription</div>
       <div className="mp-skeleton-rows">
@@ -204,13 +237,14 @@ export default function StudyPrescriptionPanel() {
   // Silent on 401/403 — anonymous or expired session
   if (error?.status === 401 || error?.status === 403) return null
   if (planError?.status === 401 || planError?.status === 403) return null
+  // dueError: fall back to empty due list — do not block the panel
 
   if (!rx?.enabled) {
     if (!rx) return null
     return (
       <div className="an-intel-card spp-panel">
         <div className="an-intel-card-title">Study Prescription</div>
-        <DailyPlanSummary plan={dailyPlan} />
+        <DailyPlanSummary plan={dailyPlan} dueData={dueData} />
         <p className="an-intel-muted">
           {rx.reason ?? 'Complete more sessions to generate a personalized study prescription.'}
         </p>
@@ -230,7 +264,7 @@ export default function StudyPrescriptionPanel() {
         <span className="spp-strategy-badge">Adaptive</span>
       </div>
 
-      <DailyPlanSummary plan={dailyPlan} />
+      <DailyPlanSummary plan={dailyPlan} dueData={dueData} />
 
       {/* Summary stats */}
       <div className="spp-stats">
