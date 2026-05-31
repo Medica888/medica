@@ -527,4 +527,75 @@ describe('ConceptReviewLogRepository', () => {
     const stats = await log.getStats(USER_A);
     expect(stats.reviewedThisWeek).toBe(2);
   });
+
+  // ── Phase 5.6 fields ──────────────────────────────────────────────────────
+
+  it('dailyGoal is always 20', async () => {
+    const stats = await log.getStats(USER_A);
+    expect(stats.dailyGoal).toBe(20);
+  });
+
+  it('goalProgress matches reviewedToday', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.goalProgress).toBe(stats.reviewedToday);
+    expect(stats.goalProgress).toBe(2);
+  });
+
+  it('longestStreak is 1 when all reviews are today', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.longestStreak).toBe(1);
+  });
+
+  it('longestStreak is at least currentStreak', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.longestStreak).toBeGreaterThanOrEqual(stats.currentStreak);
+  });
+
+  it('longestStreak is 0 when no reviews exist', async () => {
+    const stats = await log.getStats(USER_A);
+    expect(stats.longestStreak).toBe(0);
+  });
+
+  it('activeDaysThisWeek is 1 when all reviews are today', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'hard', intervalBefore: 2, intervalAfter: 2 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.activeDaysThisWeek).toBe(1); // both reviews are today
+  });
+
+  it('activeDaysThisWeek is 0 when log is empty', async () => {
+    const stats = await log.getStats(USER_A);
+    expect(stats.activeDaysThisWeek).toBe(0);
+  });
+
+  it('activity30Days has one entry for today when reviews exist', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+    const stats = await log.getStats(USER_A);
+    expect(stats.activity30Days).toHaveLength(1);
+    expect(stats.activity30Days[0]!.reviews).toBe(2);
+    expect(stats.activity30Days[0]!.date).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it('activity30Days is empty when no reviews exist', async () => {
+    const stats = await log.getStats(USER_A);
+    expect(stats.activity30Days).toEqual([]);
+  });
+
+  it('activity30Days counts only this user\'s reviews', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_B, conceptId: C1, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+    const statsA = await log.getStats(USER_A);
+    expect(statsA.activity30Days[0]!.reviews).toBe(1); // only USER_A's row
+  });
 });

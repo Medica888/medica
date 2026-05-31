@@ -237,20 +237,105 @@ function DailyPlanSummary({ plan, dueData }) {
   )
 }
 
+function ActivityStrip({ activity }) {
+  const today   = new Date()
+  const actMap  = new Map(activity.map(({ date, reviews }) => [date, reviews]))
+  const maxRev  = Math.max(...activity.map(a => a.reviews), 1)
+  const cells   = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - i)
+    const dateStr = d.toISOString().slice(0, 10)
+    const count   = actMap.get(dateStr) ?? 0
+    const level   = count === 0 ? 0 : Math.min(3, Math.ceil((count / maxRev) * 3))
+    cells.push({ dateStr, count, level })
+  }
+  return (
+    <div className="spp-activity-strip" role="img" aria-label="30-day review activity">
+      {cells.map(({ dateStr, count, level }) => (
+        <div
+          key={dateStr}
+          className={`spp-activity-cell spp-activity-cell--${level}`}
+          title={count > 0 ? `${dateStr}: ${count} review${count !== 1 ? 's' : ''}` : dateStr}
+        />
+      ))}
+    </div>
+  )
+}
+
 function ReviewStatsRow({ stats }) {
   if (!stats) return null
-  const { reviewedToday, reviewedThisWeek, currentStreak } = stats
-  if (reviewedToday === 0 && currentStreak === 0) return null
+  const {
+    goalProgress = 0, dailyGoal = 20,
+    currentStreak = 0, longestStreak = 0,
+    activeDaysThisWeek = 0, activity30Days = [],
+    dueToday = 0, completionPercent = null,
+  } = stats
+
+  const goalPct  = dailyGoal > 0 ? Math.min(100, Math.round((goalProgress / dailyGoal) * 100)) : 0
+  const goalDone = goalProgress >= dailyGoal
+
+  const hasPills = currentStreak > 0 || (longestStreak > currentStreak && longestStreak > 0)
+    || activeDaysThisWeek > 0 || (completionPercent != null && dueToday > 0)
+
   return (
-    <div className="spp-stats spp-review-stats-row">
-      {reviewedToday > 0 && (
-        <StatPill icon="✓" value={reviewedToday} label="today" />
+    <div className="spp-retention">
+      {/* Daily goal */}
+      <div className="spp-goal-row">
+        <div className="spp-goal-header">
+          <span className="spp-goal-label">Daily Goal</span>
+          {goalDone
+            ? <span className="spp-goal-done">✓ Completed</span>
+            : <span className="spp-goal-count">{goalProgress} / {dailyGoal}</span>
+          }
+        </div>
+        {!goalDone && (
+          <div
+            className="spp-goal-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuenow={goalProgress}
+            aria-valuemax={dailyGoal}
+            aria-label="Daily review goal progress"
+          >
+            <div className="spp-goal-fill" style={{ width: `${goalPct}%` }} />
+          </div>
+        )}
+      </div>
+
+      {/* Stats pills */}
+      {hasPills && (
+        <div className="spp-retention-pills">
+          {currentStreak > 0 && (
+            <div className="spp-ret-pill">
+              <span className="spp-ret-val">{currentStreak}d</span>
+              <span className="spp-ret-lbl">streak</span>
+            </div>
+          )}
+          {longestStreak > currentStreak && longestStreak > 0 && (
+            <div className="spp-ret-pill">
+              <span className="spp-ret-val">{longestStreak}d</span>
+              <span className="spp-ret-lbl">best</span>
+            </div>
+          )}
+          {activeDaysThisWeek > 0 && (
+            <div className="spp-ret-pill">
+              <span className="spp-ret-val">{activeDaysThisWeek}/7</span>
+              <span className="spp-ret-lbl">days active</span>
+            </div>
+          )}
+          {completionPercent != null && dueToday > 0 && (
+            <div className="spp-ret-pill">
+              <span className="spp-ret-val">{completionPercent}%</span>
+              <span className="spp-ret-lbl">reviews / due</span>
+            </div>
+          )}
+        </div>
       )}
-      {reviewedThisWeek > 0 && (
-        <StatPill icon="W" value={reviewedThisWeek} label="this week" />
-      )}
-      {currentStreak > 0 && (
-        <StatPill icon="↑" value={`${currentStreak}d`} label="streak" />
+
+      {/* Activity strip */}
+      {activity30Days.length > 0 && (
+        <ActivityStrip activity={activity30Days} />
       )}
     </div>
   )

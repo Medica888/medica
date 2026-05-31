@@ -1,4 +1,4 @@
-import { normalizeQuestionStem, getQuestionFingerprint } from '../questionDedup.js'
+import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } from '../questionDedup.js'
 import { getAuthToken } from '../apiClient.js'
 
 /**
@@ -12,7 +12,7 @@ import { getAuthToken } from '../apiClient.js'
  */
 export async function generateAIQuestions(config, seenState = null) {
   if (import.meta.env.VITE_USE_BACKEND_API !== 'true') {
-    const err = new Error('Backend API disabled — using mock questions')
+    const err = new Error('Backend API disabled - using mock questions')
     err.code  = 'BACKEND_DISABLED'
     throw err
   }
@@ -30,10 +30,20 @@ export async function generateAIQuestions(config, seenState = null) {
 
     const { unique, filtered } = _dedupQuestions(raw)
     if (filtered > 0) {
-      console.warn(`[generateAIQuestions] filtered ${filtered} semantic duplicate(s) — server returned ${raw.length}, using ${unique.length}`)
+      console.warn(`[generateAIQuestions] filtered ${filtered} semantic duplicate(s) - server returned ${raw.length}, using ${unique.length}`)
     }
 
-    return _checkCount(unique, config)
+    const { questions: unseen, filtered: reused } = _filterPreviouslySeenQuestions(unique, seenState)
+    if (reused > 0) {
+      console.warn(`[generateAIQuestions] filtered ${reused} previously seen question(s)`)
+    }
+
+    const { valid, rejected, reasons } = _validateGeneratedQuestions(unseen, config)
+    if (rejected > 0) {
+      console.warn(`[generateAIQuestions] rejected ${rejected} invalid question(s): ${_formatRejectionReasons(reasons)}`)
+    }
+
+    return _checkCount(valid, config)
   } finally {
     clearTimeout(timeoutId)
   }
@@ -73,7 +83,7 @@ async function _attempt(config, exclude, signal) {
 
 /**
  * Removes duplicate questions by stem and fingerprint.
- * ID duplicates cannot occur — server assigns UUIDs.
+ * ID duplicates cannot occur - server assigns UUIDs.
  */
 function _dedupQuestions(questions) {
   const seenIds          = new Set()
@@ -100,6 +110,127 @@ function _dedupQuestions(questions) {
   return { unique, filtered }
 }
 
+function _filterPreviouslySeenQuestions(questions, seenState) {
+  if (!seenState) return { questions, filtered: 0 }
+  const unseen = filterUnseenQuestions(questions, seenState)
+  return { questions: unseen, filtered: questions.length - unseen.length }
+}
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'with', 'without', 'from', 'that', 'this', 'these', 'those',
+  'best', 'most', 'likely', 'primary', 'current', 'patient', 'presentation',
+  'mechanism', 'diagnosis', 'treatment', 'disease', 'disorder', 'syndrome',
+  'condition', 'effect', 'activity', 'function', 'process',
+])
+
+function _meaningfulTokens(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 4 && !STOP_WORDS.has(t))
+}
+
+function _getOptionText(question, letter) {
+  const opt = (question.options || []).find(o => o?.letter === letter)
+  return String(opt?.text || opt || '').trim()
+}
+
+function _validateStructure(question) {
+  const reasons = []
+  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+
+  if (!String(question.stem || '').trim()) reasons.push('missing_stem')
+  if (!['A', 'B', 'C', 'D'].includes(correct)) reasons.push('invalid_correct_answer')
+  if (!Array.isArray(question.options) || question.options.length !== 4) {
+    reasons.push('invalid_options')
+    return reasons
+  }
+  if (question.options.some((o, i) => o?.letter !== ['A', 'B', 'C', 'D'][i] || !String(o?.text || '').trim())) {
+    reasons.push('invalid_options')
+  }
+
+  return reasons
+}
+
+function _supportsCorrectAnswer(question) {
+  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+  const correctText = _getOptionText(question, correct)
+  if (!correctText) return false
+
+  const explanation = [
+    question.explanation,
+    question.optionExplanations?.[correct],
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  if (!explanation.trim()) return false
+  if (correctText.length >= 8 && explanation.includes(correctText.toLowerCase())) return true
+
+  const tokens = _meaningfulTokens(correctText)
+  if (tokens.length === 0) return false
+  const matches = tokens.filter(t => explanation.includes(t)).length
+  return matches >= Math.min(2, tokens.length)
+}
+
+function _contradictsCorrectAnswer(question) {
+  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+  const explanation = String(question.explanation || '').toLowerCase()
+
+  return (question.options || []).some(opt => {
+    if (!opt || opt.letter === correct) return false
+    const text = String(opt.text || opt).toLowerCase().trim()
+    if (text.length < 8) return false
+    return explanation.includes(`correct answer is ${text}`)
+      || explanation.includes(`${text} is the correct answer`)
+      || explanation.includes(`${text} is correct because`)
+      || explanation.includes(`answer is ${text}`)
+  })
+}
+
+function _hasCoachOptionExplanations(question, config) {
+  if (config.mode !== 'coach') return true
+  const exps = question.optionExplanations || {}
+  return ['A', 'B', 'C', 'D'].every(letter => String(exps[letter] || '').trim())
+}
+
+function _getQuestionRejectionReasons(question, config) {
+  const reasons = _validateStructure(question)
+  if (reasons.length > 0) return reasons
+
+  if (config.mode === 'exam') return []
+
+  if (!_supportsCorrectAnswer(question)) reasons.push('answer_not_supported')
+  if (_contradictsCorrectAnswer(question)) reasons.push('contradictory_explanation')
+  if (!_hasCoachOptionExplanations(question, config)) reasons.push('missing_option_explanations')
+
+  return reasons
+}
+
+function _validateGeneratedQuestions(questions, config) {
+  const reasonCounts = {}
+  const valid = []
+
+  for (const q of questions) {
+    const reasons = _getQuestionRejectionReasons(q, config)
+    if (reasons.length === 0) {
+      valid.push(q)
+    } else {
+      for (const reason of reasons) {
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + 1
+      }
+    }
+  }
+
+  return { valid, rejected: questions.length - valid.length, reasons: reasonCounts }
+}
+
+function _formatRejectionReasons(reasons) {
+  return Object.entries(reasons)
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(', ')
+}
+
 function _checkCount(questions, config) {
   if (questions.length === 0) {
     throw Object.assign(
@@ -111,12 +242,12 @@ function _checkCount(questions, config) {
     const is40QBlock = config.questionCount === 40 && config.mode === 'exam'
     if (is40QBlock) {
       throw Object.assign(
-        new Error(`40 Question Block requires exactly 40 questions — AI returned ${questions.length}`),
+        new Error(`40 Question Block requires exactly 40 questions - AI returned ${questions.length}`),
         { code: 'AI_INSUFFICIENT_COUNT', returned: questions.length, requested: 40 },
       )
     }
     console.warn(
-      `[generateAIQuestions] partial result: ${questions.length}/${config.questionCount} questions — proceeding`,
+      `[generateAIQuestions] partial result: ${questions.length}/${config.questionCount} questions - proceeding`,
     )
   }
   return questions

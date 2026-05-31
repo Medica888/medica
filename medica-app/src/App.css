@@ -7269,6 +7269,43 @@ html, body, #root {
   padding-top: 8px; border-top: 1px solid var(--border-s);
 }
 
+/* Retention & motivation layer (Phase 5.6) */
+.spp-retention { display: flex; flex-direction: column; gap: 10px; }
+
+/* Daily goal */
+.spp-goal-row    { display: flex; flex-direction: column; gap: 5px; }
+.spp-goal-header { display: flex; align-items: center; justify-content: space-between; }
+.spp-goal-label  { font-size: 11px; font-weight: 600; color: var(--t2); }
+.spp-goal-count  { font-size: 11px; font-weight: 700; color: var(--t1); font-variant-numeric: tabular-nums; }
+.spp-goal-done   { font-size: 11px; font-weight: 700; color: var(--status-stable); }
+.spp-goal-bar {
+  height: 5px; border-radius: 3px;
+  background: var(--border-s); overflow: hidden;
+}
+.spp-goal-fill {
+  height: 100%; border-radius: 3px;
+  background: var(--blue); transition: width .3s ease; min-width: 2px;
+}
+
+/* Stats pills */
+.spp-retention-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.spp-ret-pill {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 10px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border-s); min-width: 48px;
+}
+.spp-ret-val { font-size: 13px; font-weight: 700; color: var(--t1); line-height: 1.2; }
+.spp-ret-lbl { font-size: 9.5px; color: var(--t3); }
+
+/* 30-day activity strip */
+.spp-activity-strip {
+  display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; padding: 2px 0;
+}
+.spp-activity-cell           { aspect-ratio: 1; border-radius: 2px; background: var(--border-s); }
+.spp-activity-cell--1 { background: rgba(46,100,200,.25); }
+.spp-activity-cell--2 { background: rgba(46,100,200,.55); }
+.spp-activity-cell--3 { background: var(--blue); }
+
 /* Review stats row (Phase 5.5) */
 .spp-review-stats-row { border-top: 1px solid var(--border-s); padding-top: 8px; }
 

@@ -344,11 +344,16 @@ export interface DailyStudyPlan {
 }
 
 export interface ReviewStats {
-  reviewedToday:    number;
-  reviewedThisWeek: number;
-  currentStreak:    number;
-  totalReviewed:    number; // distinct concepts reviewed via SRS
-  todayBreakdown:   { again: number; hard: number; good: number; easy: number };
+  reviewedToday:      number;
+  reviewedThisWeek:   number;
+  currentStreak:      number;
+  totalReviewed:      number; // distinct concepts reviewed via SRS
+  todayBreakdown:     { again: number; hard: number; good: number; easy: number };
+  longestStreak:      number;
+  activeDaysThisWeek: number;
+  dailyGoal:          number;
+  goalProgress:       number; // alias for reviewedToday; kept separate for future custom goals
+  activity30Days:     { date: string; reviews: number }[];
 }
 
 export interface AdaptiveFlashcardPlan {

@@ -87,12 +87,37 @@ const DUE_REVIEWS_EMPTY = {
 }
 
 const REVIEW_STATS_EMPTY = {
-  data: { reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0, todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 } },
+  data: {
+    reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0,
+    todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 },
+    longestStreak: 0, activeDaysThisWeek: 0,
+    dailyGoal: 20, goalProgress: 0, activity30Days: [],
+    dueToday: 0, completionPercent: null,
+  },
   loading: false, error: null,
 }
 
 const REVIEW_STATS_WITH_DATA = {
-  data: { reviewedToday: 5, reviewedThisWeek: 23, currentStreak: 4, totalReviewed: 12, todayBreakdown: { again: 1, hard: 1, good: 2, easy: 1 } },
+  data: {
+    reviewedToday: 5, reviewedThisWeek: 23, currentStreak: 4, totalReviewed: 12,
+    todayBreakdown: { again: 1, hard: 1, good: 2, easy: 1 },
+    longestStreak: 14, activeDaysThisWeek: 5,
+    dailyGoal: 20, goalProgress: 5,
+    activity30Days: [{ date: '2026-05-25', reviews: 12 }, { date: '2026-06-01', reviews: 5 }],
+    dueToday: 18, completionPercent: 28,
+  },
+  loading: false, error: null,
+}
+
+const REVIEW_STATS_GOAL_DONE = {
+  data: {
+    reviewedToday: 20, reviewedThisWeek: 23, currentStreak: 4, totalReviewed: 20,
+    todayBreakdown: { again: 1, hard: 1, good: 10, easy: 8 },
+    longestStreak: 14, activeDaysThisWeek: 5,
+    dailyGoal: 20, goalProgress: 20,
+    activity30Days: [{ date: '2026-06-01', reviews: 20 }],
+    dueToday: 18, completionPercent: 100,
+  },
   loading: false, error: null,
 }
 
@@ -311,12 +336,11 @@ describe('StudyPrescriptionPanel — review analytics (Phase 5.5)', () => {
     useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
   })
 
-  it('shows review stats row when reviewedToday > 0', () => {
+  it('shows retention row with daily goal when stats are available', () => {
     useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA)
     setup()
-    // 'this week' label is unique to the stats row (daily plan uses 'today', 'questions', 'flashcards')
-    expect(screen.getByText('this week')).toBeTruthy()
-    expect(screen.getByText('23')).toBeTruthy() // reviewedThisWeek — unique value
+    expect(screen.getByText('Daily Goal')).toBeTruthy()
+    expect(screen.getByText('5 / 20')).toBeTruthy() // goalProgress / dailyGoal
   })
 
   it('shows streak pill when currentStreak > 0', () => {
@@ -362,5 +386,97 @@ describe('StudyPrescriptionPanel — review analytics (Phase 5.5)', () => {
       expect(screen.getByText('Session complete')).toBeTruthy()
       expect(screen.getByText('Easy')).toBeTruthy() // ease label in summary
     })
+  })
+})
+
+describe('StudyPrescriptionPanel — retention layer (Phase 5.6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiClient.getAuthToken.mockReturnValue('test-token')
+    useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
+    useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
+  })
+
+  it('always shows Daily Goal bar with label', () => {
+    setup()
+    expect(screen.getByText('Daily Goal')).toBeTruthy()
+  })
+
+  it('shows 0 / 20 when no reviews today', () => {
+    setup()
+    expect(screen.getByText('0 / 20')).toBeTruthy()
+  })
+
+  it('shows goalProgress / dailyGoal when reviews exist', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // goalProgress: 5
+    setup()
+    expect(screen.getByText('5 / 20')).toBeTruthy()
+  })
+
+  it('shows "✓ Completed" instead of progress when goal is reached', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_GOAL_DONE)
+    setup()
+    expect(screen.getByText('✓ Completed')).toBeTruthy()
+    expect(screen.queryByText('20 / 20')).toBeNull()
+  })
+
+  it('shows streak pill when currentStreak > 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // streak: 4
+    setup()
+    expect(screen.getByText('4d')).toBeTruthy()
+    expect(screen.getByText('streak')).toBeTruthy()
+  })
+
+  it('shows longest streak pill when longestStreak > currentStreak', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // longest: 14, current: 4
+    setup()
+    expect(screen.getByText('14d')).toBeTruthy()
+    expect(screen.getByText('best')).toBeTruthy()
+  })
+
+  it('does not show best pill when longestStreak equals currentStreak', () => {
+    useMasteryModule.useReviewStats.mockReturnValue({
+      data: { ...REVIEW_STATS_WITH_DATA.data, longestStreak: 4, currentStreak: 4 },
+      loading: false, error: null,
+    })
+    setup()
+    expect(screen.queryByText('best')).toBeNull()
+  })
+
+  it('shows activeDaysThisWeek / 7 pill when active days > 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // activeDays: 5
+    setup()
+    expect(screen.getByText('5/7')).toBeTruthy()
+    expect(screen.getByText('days active')).toBeTruthy()
+  })
+
+  it('shows completion percent pill when dueToday > 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA) // 28%, dueToday: 18
+    setup()
+    expect(screen.getByText('28%')).toBeTruthy()
+    expect(screen.getByText('reviews / due')).toBeTruthy()
+  })
+
+  it('does not show completion pill when dueToday is 0', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY) // dueToday: 0
+    setup()
+    expect(screen.queryByText('of due done')).toBeNull()
+  })
+
+  it('renders 30 activity cells when activity30Days has data', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_WITH_DATA)
+    setup()
+    // The strip renders 30 cells regardless of how many days have data
+    const strip = document.querySelector('.spp-activity-strip')
+    expect(strip).not.toBeNull()
+    expect(strip.children).toHaveLength(30)
+  })
+
+  it('does not render activity strip when activity30Days is empty', () => {
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
+    setup()
+    expect(document.querySelector('.spp-activity-strip')).toBeNull()
   })
 })

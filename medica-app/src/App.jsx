@@ -1,21 +1,10 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { lazy, Suspense, useState, useCallback, useMemo, useEffect } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import Dashboard from './components/Dashboard'
-import SkillsPlatform from './components/SkillsPlatform'
 import QuizBuilder from './components/quiz-builder/QuizBuilder'
 import ExamLoadingScreen from './components/loading/ExamLoadingScreen'
-import QuizSession from './components/session/QuizSession'
-import PracticeInterface from './components/practice/PracticeInterface'
-import PracticeResults from './components/practice/PracticeResults'
-import PracticeReview from './components/practice/PracticeReview'
-import CoachInterface from './components/coach/CoachInterface'
-import CoachResults from './components/coach/CoachResults'
-import ExamResults from './components/exam/ExamResults'
-import ExamReview from './components/exam/ExamReview'
-import AnalyticsDashboard from './components/analytics/AnalyticsDashboard'
-import FlashcardsPage from './components/flashcards/FlashcardsPage'
 import { createQuizSession } from './lib/mockQuestions'
 import { generateAIQuestions } from './lib/ai/generateAIQuestions'
 import { savePracticeResults, saveCoachResults, getSessionHistory, getFlashcards } from './lib/storage'
@@ -25,7 +14,19 @@ import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
 import { restoreToken, setAuthToken, clearToken } from './lib/apiClient'
-import SettingsPage from './components/settings/SettingsPage'
+
+const SkillsPlatform = lazy(() => import('./components/SkillsPlatform'))
+const QuizSession = lazy(() => import('./components/session/QuizSession'))
+const PracticeInterface = lazy(() => import('./components/practice/PracticeInterface'))
+const PracticeResults = lazy(() => import('./components/practice/PracticeResults'))
+const PracticeReview = lazy(() => import('./components/practice/PracticeReview'))
+const CoachInterface = lazy(() => import('./components/coach/CoachInterface'))
+const CoachResults = lazy(() => import('./components/coach/CoachResults'))
+const ExamResults = lazy(() => import('./components/exam/ExamResults'))
+const ExamReview = lazy(() => import('./components/exam/ExamReview'))
+const AnalyticsDashboard = lazy(() => import('./components/analytics/AnalyticsDashboard'))
+const FlashcardsPage = lazy(() => import('./components/flashcards/FlashcardsPage'))
+const SettingsPage = lazy(() => import('./components/settings/SettingsPage'))
 
 const MOCK_FALLBACK_ALLOWED = import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
 
@@ -153,7 +154,7 @@ export default function App() {
       setQuizSession(buildAISession(config, questions, seenState))
       return
     } catch (aiErr) {
-      // AI backend is configured — surface every error directly.
+      // AI backend is configured - surface every error directly.
       // The mock bank is not a valid fallback when AI is the primary source.
       if (aiErr.code !== 'BACKEND_DISABLED') {
         if (IS_40Q_BLOCK) {
@@ -164,10 +165,10 @@ export default function App() {
         setQuizPhase('builder')
         return
       }
-      // BACKEND_DISABLED only — fall through to mock questions below
+      // BACKEND_DISABLED only - fall through to mock questions below
     }
 
-    // Mock fallback — only reached when VITE_USE_BACKEND_API is not 'true'
+    // Mock fallback - only reached when VITE_USE_BACKEND_API is not 'true'
     if (MOCK_FALLBACK_ALLOWED) {
       try {
         const session = createQuizSession(config)
@@ -202,7 +203,7 @@ export default function App() {
     setExamResults(null)
   }, [])
 
-  // Called by QuizSession when exam is submitted — receives (results, sessionWithAnswers)
+  // Called by QuizSession when exam is submitted - receives (results, sessionWithAnswers)
   const handleExamComplete = useCallback((results, sessionWithAnswers) => {
     persistSession(results, sessionWithAnswers).catch(err => console.warn('[App] save failed:', err.message))
     setExamResults(results)
@@ -248,12 +249,12 @@ export default function App() {
     setExamResults(null)
   }, [])
 
-  // Results → Review
+  // Results to Review
   const handleGoToReview = useCallback(() => {
     setQuizPhase('practice-review')
   }, [])
 
-  // Review → Results
+  // Review to Results
   const handleBackToResults = useCallback(() => {
     setQuizPhase('practice-results')
   }, [])
@@ -267,7 +268,7 @@ export default function App() {
     setQuizPhase('exam-results')
   }, [])
 
-  // Any results/review → fresh builder
+  // Any results/review to fresh builder
   const handleNewQuiz = useCallback(() => {
     setQuizPhase('builder')
     setQuizConfig(null)
@@ -335,7 +336,7 @@ export default function App() {
             />
           )
         }
-        // Exam mode → QuizSession
+        // Exam mode to QuizSession
         return (
           <QuizSession
             session={quizSession}
@@ -426,8 +427,18 @@ export default function App() {
         flashcardsDue={flashcardsDue}
       />
       <main className="main" id="main-content">
-        {renderMain()}
+        <Suspense fallback={<MainLoading />}>
+          {renderMain()}
+        </Suspense>
       </main>
+    </div>
+  )
+}
+
+function MainLoading() {
+  return (
+    <div className="main-loading" role="status" aria-live="polite">
+      Loading...
     </div>
   )
 }
@@ -457,7 +468,7 @@ function Phase1Placeholder({ activeNav }) {
       textAlign: 'center',
       padding: '0 32px',
     }}>
-      <div style={{ fontSize: 40, marginBottom: 8, opacity: .3 }}>🔧</div>
+      <div style={{ fontSize: 40, marginBottom: 8, opacity: .3 }}>*</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', letterSpacing: '-.3px' }}>
         {label}
       </div>

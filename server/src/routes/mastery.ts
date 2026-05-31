@@ -321,9 +321,16 @@ router.post('/concept/:id/review', validate(reviewConceptSchema), async (req: Au
 
 router.get('/review-stats', async (req: AuthRequest, res: Response) => {
   try {
-    const { reviewLog } = getRepositories();
-    const stats = await reviewLog.getStats(req.userId!);
-    res.json(stats);
+    const { reviewLog, userConceptMastery } = getRepositories();
+    const [stats, dueRows] = await Promise.all([
+      reviewLog.getStats(req.userId!),
+      userConceptMastery.findDueForReview(req.userId!),
+    ]);
+    const dueToday = dueRows.length;
+    const completionPercent = dueToday > 0
+      ? Math.min(100, Math.round((stats.reviewedToday / dueToday) * 100))
+      : null;
+    res.json({ ...stats, dueToday, completionPercent });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }
