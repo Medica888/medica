@@ -8,7 +8,7 @@ import MasteryPanel from './MasteryPanel'
 import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 import ProgressPanel from './ProgressPanel'
 import ProgressTrendPanel from './ProgressTrendPanel'
-import { useReadiness } from '../../hooks/useMastery'
+import { useReadiness, useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -22,7 +22,9 @@ const SUBJECT_STATUS = (pct) => {
 export default function AnalyticsDashboard({ onNavigate }) {
   const data = useMemo(() => buildAnalyticsData(), [])
   const [timeFilter, setTimeFilter] = useState('All time')
-  const rdHook = useReadiness()
+  const rdHook       = useReadiness()
+  const progressHook = useMasteryProgress()
+  const timelineHook = useMasteryTimeline()
 
   if (data.empty) {
     return (
@@ -268,7 +270,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
         </div>
 
         {/* ── Progress tracking (backend-powered; needs ≥1 snapshot to show) */}
-        <ProgressPanel />
+        <ProgressPanel progressHook={progressHook} timelineHook={timelineHook} />
 
         {/* ── Concept Mastery (backend-powered, gracefully hidden when offline) */}
         <MasteryPanel />
@@ -277,7 +279,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
         <StudyPrescriptionPanel />
 
         {/* ── Learning Timeline (backend-powered, 3-series trend charts) */}
-        <ProgressTrendPanel />
+        <ProgressTrendPanel progressHook={progressHook} timelineHook={timelineHook} />
 
         <p className="an-footer-disclaimer">
           Medica Score is an internal readiness estimate, not an official USMLE prediction.

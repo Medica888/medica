@@ -6,13 +6,13 @@ vi.mock('../../lib/apiClient', () => ({
   getAuthToken: vi.fn(),
 }))
 
-vi.mock('../../hooks/useMastery', () => ({
-  useMasteryProgress: vi.fn(),
-  useMasteryTimeline: vi.fn(),
-}))
-
 import { getAuthToken } from '../../lib/apiClient'
-import { useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
+
+// Helper: build the hook-shaped objects ProgressTrendPanel now receives as props
+const makeHooks = (progressData, timelineData, opts = {}) => ({
+  progressHook: { data: progressData, loading: opts.pLoading ?? false, error: opts.pErr ?? null },
+  timelineHook: { data: timelineData, loading: opts.tLoading ?? false, error: null },
+})
 
 const PROGRESS_1_SESSION = {
   currentMastery:   0.53,
@@ -56,47 +56,33 @@ beforeEach(() => {
 describe('ProgressTrendPanel', () => {
   it('renders nothing when no auth token', () => {
     getAuthToken.mockReturnValue(null)
-    useMasteryProgress.mockReturnValue({ data: null, loading: false, error: null })
-    useMasteryTimeline.mockReturnValue({ data: null, loading: false, error: null })
-    const { container } = render(<ProgressTrendPanel />)
+    const { container } = render(<ProgressTrendPanel {...makeHooks(null, null)} />)
     expect(container.firstChild).toBeNull()
   })
 
   it('renders loading skeleton while fetching', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({ data: null, loading: true, error: null })
-    useMasteryTimeline.mockReturnValue({ data: null, loading: true, error: null })
-    render(<ProgressTrendPanel />)
+    render(<ProgressTrendPanel {...makeHooks(null, null, { pLoading: true, tLoading: true })} />)
     expect(screen.getByText('Learning Timeline')).toBeTruthy()
-    // Skeleton rows are rendered
     const skeletons = document.querySelectorAll('.mp-skeleton-row')
     expect(skeletons.length).toBeGreaterThan(0)
   })
 
   it('renders nothing on 401 error', () => {
     getAuthToken.mockReturnValue('expired')
-    useMasteryProgress.mockReturnValue({ data: null, loading: false, error: { status: 401 } })
-    useMasteryTimeline.mockReturnValue({ data: null, loading: false, error: null })
-    const { container } = render(<ProgressTrendPanel />)
+    const { container } = render(<ProgressTrendPanel {...makeHooks(null, null, { pErr: { status: 401 } })} />)
     expect(container.firstChild).toBeNull()
   })
 
   it('renders empty state when sessionCount is 0', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({
-      data: { ...PROGRESS_1_SESSION, sessionCount: 0 },
-      loading: false, error: null,
-    })
-    useMasteryTimeline.mockReturnValue({ data: null, loading: false, error: null })
-    render(<ProgressTrendPanel />)
+    render(<ProgressTrendPanel {...makeHooks({ ...PROGRESS_1_SESSION, sessionCount: 0 }, null)} />)
     expect(screen.getByText(/first session/i)).toBeTruthy()
   })
 
   it('renders all three trend cards with populated data', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({ data: PROGRESS_2_SESSIONS, loading: false, error: null })
-    useMasteryTimeline.mockReturnValue({ data: TIMELINE_2, loading: false, error: null })
-    render(<ProgressTrendPanel />)
+    render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     expect(screen.getByText('Overall Mastery')).toBeTruthy()
     expect(screen.getByText('Priority Concepts')).toBeTruthy()
     expect(screen.getByText('Weak Concepts')).toBeTruthy()
@@ -104,30 +90,25 @@ describe('ProgressTrendPanel', () => {
 
   it('shows current mastery value formatted as percentage', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({ data: PROGRESS_2_SESSIONS, loading: false, error: null })
-    useMasteryTimeline.mockReturnValue({ data: TIMELINE_2, loading: false, error: null })
-    render(<ProgressTrendPanel />)
+    render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     // 0.58 → 58%
     expect(screen.getByText('58%')).toBeTruthy()
   })
 
   it('shows session count in subtitle', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({ data: PROGRESS_2_SESSIONS, loading: false, error: null })
-    useMasteryTimeline.mockReturnValue({ data: TIMELINE_2, loading: false, error: null })
-    render(<ProgressTrendPanel />)
+    render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     expect(screen.getByText(/2 sessions/i)).toBeTruthy()
   })
 
   it('shows hint when only one session exists', () => {
     getAuthToken.mockReturnValue('tok')
-    useMasteryProgress.mockReturnValue({ data: PROGRESS_1_SESSION, loading: false, error: null })
-    useMasteryTimeline.mockReturnValue({ data: {
+    const singleTimeline = {
       trend: [TIMELINE_2.trend[0]],
       weakConceptTrend: [TIMELINE_2.weakConceptTrend[0]],
       improvementRate: 0, learningVelocity: 0,
-    }, loading: false, error: null })
-    render(<ProgressTrendPanel />)
+    }
+    render(<ProgressTrendPanel {...makeHooks(PROGRESS_1_SESSION, singleTimeline)} />)
     expect(screen.getByText(/1 more session/i)).toBeTruthy()
   })
 })

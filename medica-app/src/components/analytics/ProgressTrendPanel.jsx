@@ -1,5 +1,4 @@
 import { getAuthToken } from '../../lib/apiClient'
-import { useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
 import MasteryTimelineChart from './MasteryTimelineChart'
 
 // ── Local helpers ──────────────────────────────────────────────────────────────
@@ -54,9 +53,9 @@ function TrendCard({
 
 // ── Panel ──────────────────────────────────────────────────────────────────────
 
-export default function ProgressTrendPanel() {
-  const { data: progress, loading: pLoading, error: pErr } = useMasteryProgress()
-  const { data: timeline, loading: tLoading }              = useMasteryTimeline()
+export default function ProgressTrendPanel({ progressHook, timelineHook }) {
+  const { data: progress, loading: pLoading, error: pErr } = progressHook
+  const { data: timeline, loading: tLoading }              = timelineHook
 
   if (!getAuthToken()) return null
   if (pLoading || tLoading) return (

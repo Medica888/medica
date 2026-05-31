@@ -1,5 +1,4 @@
 import { getAuthToken } from '../../lib/apiClient'
-import { useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 
 function Delta({ value, label, invert = false }) {
@@ -40,9 +39,9 @@ function StatCard({ label, current, previous, unit = '', invert = false }) {
   )
 }
 
-export default function ProgressPanel() {
-  const { data: progress, loading: pLoading, error: pErr } = useMasteryProgress()
-  const { data: timeline, loading: tLoading }              = useMasteryTimeline()
+export default function ProgressPanel({ progressHook, timelineHook }) {
+  const { data: progress, loading: pLoading, error: pErr } = progressHook
+  const { data: timeline, loading: tLoading }              = timelineHook
 
   if (!getAuthToken()) return null
   if (pLoading && tLoading) return (

@@ -84,7 +84,7 @@ export class PgUserConceptMasteryRepository implements IUserConceptMasteryReposi
 
   async findByUserId(userId: string): Promise<UserConceptMastery[]> {
     const res = await this.pool.query<MasteryRow>(
-      'SELECT * FROM user_concept_mastery WHERE user_id = $1 ORDER BY mastery_score DESC',
+      'SELECT * FROM user_concept_mastery WHERE user_id = $1 ORDER BY mastery_score DESC LIMIT 2000',
       [userId],
     );
     return res.rows.map(toMastery);

@@ -34,19 +34,21 @@ export function sortByWeakness(rows: UserConceptMastery[]): UserConceptMastery[]
 /**
  * Resolves concept names and buckets them by tier.
  * Drops any concept_id that has no matching row in the concepts table.
- * Single Promise.all — no N+1.
+ * One batch fetch via findManyById — no N+1. Iterates sorted to preserve
+ * weakest-first order regardless of findManyById return order.
  */
 export async function buildConceptBuckets(
   rows:         UserConceptMastery[],
   conceptsRepo: IConceptsRepository,
 ): Promise<ConceptBuckets> {
-  const sorted   = sortByWeakness(rows);
-  const resolved = await Promise.all(sorted.map((r) => conceptsRepo.findById(r.concept_id)));
+  const sorted     = sortByWeakness(rows);
+  const fetched    = await conceptsRepo.findManyById(sorted.map((r) => r.concept_id));
+  const conceptMap = new Map(fetched.map((c) => [c.id, c]));
 
   const weak: string[] = [], medium: string[] = [], strong: string[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const name  = resolved[i]?.name;
-    const score = sorted[i]!.mastery_score;
+  for (const row of sorted) {
+    const name  = conceptMap.get(row.concept_id)?.name;
+    const score = row.mastery_score;
     if (!name) continue;
     if (score < TIER_WEAK)        weak.push(name);
     else if (score < TIER_MEDIUM) medium.push(name);

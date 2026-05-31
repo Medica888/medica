@@ -329,3 +329,47 @@ describe('AdaptiveExamService — readiness-aware allocation', () => {
     expect(bp.strategy).toBe('adaptive'); // used preRows, not emptyRepo
   });
 });
+
+// ── buildConceptBuckets order invariant ───────────────────────────────────────
+// Guards against the PG/mock divergence: findManyById may return IDs in any
+// order; buckets must still be sorted weakest-first because we iterate `sorted`,
+// not the fetched array.
+
+describe('buildConceptBuckets — weakest-first order preserved when findManyById shuffles results', () => {
+  it('buckets remain weakest-first even when findManyById returns IDs in reversed order', async () => {
+    const { buildConceptBuckets } = await import('./adaptiveMasteryUtils.js');
+    const { InMemoryUserConceptMasteryRepository } = await import('../repositories/memory/UserConceptMasteryRepository.js');
+    const { InMemoryConceptsRepository: ConceptsRepo } = await import('../repositories/memory/ConceptsRepository.js');
+
+    const realConcepts = new ConceptsRepo();
+    const c1 = await realConcepts.upsertBySlug('very-weak-ord',  { name: 'Very Weak',  subject: 'S', system: 'S' });
+    const c2 = await realConcepts.upsertBySlug('mid-weak-ord',   { name: 'Mid Weak',   subject: 'S', system: 'S' });
+    const c3 = await realConcepts.upsertBySlug('least-weak-ord', { name: 'Least Weak', subject: 'S', system: 'S' });
+
+    // Stub: findManyById returns concepts in REVERSED order (strongest first)
+    const shuffledRepo = {
+      ...realConcepts,
+      findManyById: async (_ids: string[]) => [
+        { ...c3 },  // Least Weak returned first
+        { ...c2 },  // Mid Weak second
+        { ...c1 },  // Very Weak last — reversed
+      ],
+    };
+
+    const masteryRepo = new InMemoryUserConceptMasteryRepository();
+    // mastery 0.00, 0.25, 0.50 — all weak (< 0.65)
+    await masteryRepo.upsertMany([
+      { userId: USER, conceptId: c1.id, attempted: 4, correct: 0 }, // 0.00
+      { userId: USER, conceptId: c2.id, attempted: 4, correct: 1 }, // 0.25
+      { userId: USER, conceptId: c3.id, attempted: 4, correct: 2 }, // 0.50
+    ]);
+    const rows = await masteryRepo.findByUserId(USER);
+
+    const buckets = await buildConceptBuckets(rows, shuffledRepo as any);
+
+    // Despite shuffled findManyById output, weak bucket must be weakest-first
+    expect(buckets.weak[0]).toBe('Very Weak');
+    expect(buckets.weak[1]).toBe('Mid Weak');
+    expect(buckets.weak[2]).toBe('Least Weak');
+  });
+});
