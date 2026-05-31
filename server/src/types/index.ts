@@ -253,12 +253,55 @@ export interface MasteryTrendPoint {
   ontrkCount:      number;    // mastery ≥ 0.85
 }
 
+// ── Exam readiness engine ─────────────────────────────────────────────────────
+
+export type ReadinessStatus =
+  | 'Needs Intensive Review'   // 0–49
+  | 'Developing'               // 50–69
+  | 'Approaching Readiness'    // 70–84
+  | 'Exam Ready';              // 85–100
+
+/** Minimal score computed by ProgressTrackingService.getReadiness(). */
+export interface ReadinessScore {
+  overallReadiness: number;         // 0–100
+  status:           ReadinessStatus;
+  components: {
+    mastery:     number;            // actual contribution 0–50
+    confidence:  number;            // 0–20
+    trend:       number;            // 0–15
+    consistency: number;            // 0–15
+  };
+  distribution: MasteryTierDistribution;
+}
+
+/** Topic-level readiness from ProgressTrackingService.getTopicReadiness(). */
+export interface TopicReadiness {
+  conceptId:      string;
+  conceptName:    string;
+  readiness:      number;
+  status:         ReadinessStatus;
+  trend:          'up' | 'down' | 'stable';
+  recommendation: string;
+}
+
+// ── Subject-level mastery rollup ─────────────────────────────────────────────
+
+export interface SubjectRollup {
+  subject:          string;      // e.g. "Pharmacology" — from concept.subject
+  rollupMastery:    number;      // 0–1 attempt-weighted avg mastery across subject concepts
+  rollupConfidence: number;      // 0–1 attempt-weighted avg confidence
+  totalAttempts:    number;      // Σ attempts across all concepts in this subject
+  weakConceptCount: number;      // concepts where mastery_score < 0.65 (priority tier)
+  tier:             MasteryTier; // derived from rollupMastery via masteryTier()
+}
+
 // ── Study prescription ───────────────────────────────────────────────────────
 
 export interface PrescriptionConcept {
   name:            string;
-  masteryScore:    number;  // 0–1
-  confidence:      number;  // 0–1; saturates at 5 attempts
+  subject?:        string;   // from concept.subject — used for subject chip in UI
+  masteryScore:    number;   // 0–1
+  confidence:      number;   // 0–1; saturates at 5 attempts
   attempts:        number;
   recentIncorrect: number;
   recommendation:  string;

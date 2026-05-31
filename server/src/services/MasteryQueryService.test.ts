@@ -13,10 +13,11 @@ async function seedConcept(
   slug: string,
   name: string,
   parentId?: string,
+  subject = 'Cardiology',
 ): Promise<string> {
   const c = await concepts.upsertBySlug(slug, {
     name,
-    subject: 'Cardiology',
+    subject,
     system:  'Cardiovascular',
     parent_concept_id: parentId,
   });
@@ -279,5 +280,227 @@ describe('MasteryQueryService.getConceptDetail', () => {
 
     const r = await makeService(masteryRepo, concepts).getConceptDetail(USER, leafId);
     expect(r!.ancestor_path).toEqual(['pharmacology', 'cardiac-drugs', 'beta-blockers']);
+  });
+});
+
+// ── getSubjectBreakdown ───────────────────────────────────────────────────────
+
+describe('MasteryQueryService.getSubjectBreakdown', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let concepts:    InMemoryConceptsRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    concepts    = new InMemoryConceptsRepository();
+  });
+
+  it('returns empty array when user has no mastery data', async () => {
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    expect(result).toHaveLength(0);
+  });
+
+  it('groups mastery rows by concept.subject', async () => {
+    const c1 = await seedConcept(concepts, 'cardio-1', 'Heart Failure',     undefined, 'Cardiology');
+    const c2 = await seedConcept(concepts, 'pharm-1',  'Beta Blockers',     undefined, 'Pharmacology');
+    const c3 = await seedConcept(concepts, 'cardio-2', 'Atrial Fibrillation', undefined, 'Cardiology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    await seedMastery(masteryRepo, USER, c2, 4, 3);
+    await seedMastery(masteryRepo, USER, c3, 4, 4);
+
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    const subjects = result.map(r => r.subject).sort();
+    expect(subjects).toEqual(['Cardiology', 'Pharmacology']);
+  });
+
+  it('computes attempt-weighted rollup mastery (not plain average)', async () => {
+    // mastery 0.9 × 20 attempts + mastery 0.4 × 2 attempts
+    // plain avg  = (0.9 + 0.4) / 2 = 0.65
+    // weighted   = (0.9×20 + 0.4×2) / (20+2) = (18+0.8)/22 ≈ 0.8545
+    const c1 = await seedConcept(concepts, 'wt-high', 'High Mastery', undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'wt-low',  'Low Mastery',  undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 20, 18); // mastery ≈ 0.9
+    await seedMastery(masteryRepo, USER, c2,  2,  0); // mastery ≈ 0 (but seedMastery gives 0/2 = 0... hmm let me verify)
+
+    // Actually: seedMastery(r, userId, conceptId, attempted, correct)
+    // mastery = correct/attempted
+    // c1: 18/20 = 0.9 ✓, c2: 0/2 = 0
+    // weighted = (0.9×20 + 0×2) / 22 = 18/22 ≈ 0.8182
+    // plain avg = (0.9 + 0) / 2 = 0.45
+    // These are clearly different — test pins the weighted formula
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    const pharm = result.find(r => r.subject === 'Pharmacology');
+    expect(pharm).toBeDefined();
+    // Weighted: (0.9×20 + 0×2)/22 ≈ 0.8182 — not plain avg 0.45
+    expect(pharm!.rollupMastery).toBeGreaterThan(0.80);
+    expect(pharm!.rollupMastery).toBeLessThan(0.85);
+  });
+
+  it('computes attempt-weighted rollup confidence (not plain average)', async () => {
+    // confidence = min(attempts/5, 1.0)
+    // c1: attempts=10 → confidence=1.0; c2: attempts=2 → confidence=0.4
+    // plain avg = (1.0+0.4)/2 = 0.7; weighted = (1.0×10 + 0.4×2)/12 = 10.8/12 = 0.9
+    const c1 = await seedConcept(concepts, 'cf-high', 'High Conf', undefined, 'Neurology');
+    const c2 = await seedConcept(concepts, 'cf-low',  'Low Conf',  undefined, 'Neurology');
+    await seedMastery(masteryRepo, USER, c1, 10, 10); // confidence = min(10/5,1) = 1.0
+    await seedMastery(masteryRepo, USER, c2,  2,  2); // confidence = min(2/5,1)  = 0.4
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    const neuro = result.find(r => r.subject === 'Neurology');
+    expect(neuro).toBeDefined();
+    // Weighted = (1.0×10 + 0.4×2) / 12 = 0.9; plain avg = 0.7
+    expect(neuro!.rollupConfidence).toBeCloseTo(0.9, 2);
+  });
+
+  it('counts weakConceptCount as concepts with mastery_score < 0.65', async () => {
+    const c1 = await seedConcept(concepts, 'wk-1', 'Weak 1',   undefined, 'Pathology');
+    const c2 = await seedConcept(concepts, 'wk-2', 'Boundary', undefined, 'Pathology');
+    const c3 = await seedConcept(concepts, 'wk-3', 'Strong',   undefined, 'Pathology');
+    await seedMastery(masteryRepo, USER, c1,  2,  0);  // mastery 0.00 → weak
+    await seedMastery(masteryRepo, USER, c2, 20, 12);  // mastery 0.60 → weak (< 0.65)
+    await seedMastery(masteryRepo, USER, c3, 20, 13);  // mastery 0.65 → NOT weak (≥ 0.65)
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    const patho = result.find(r => r.subject === 'Pathology');
+    expect(patho!.weakConceptCount).toBe(2);
+  });
+
+  it('assigns correct tier via masteryTier()', async () => {
+    // All strong → ontrack
+    const c1 = await seedConcept(concepts, 'tr-1', 'Strong Concept', undefined, 'Nephrology');
+    await seedMastery(masteryRepo, USER, c1, 10, 10); // mastery 1.0 → ontrack
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    expect(result[0]!.tier).toBe('ontrack');
+  });
+
+  it('sorts by rollupMastery ASC (weakest subject first)', async () => {
+    const c1 = await seedConcept(concepts, 'sort-a', 'Low',  undefined, 'Pulmonology');
+    const c2 = await seedConcept(concepts, 'sort-b', 'High', undefined, 'Rheumatology');
+    await seedMastery(masteryRepo, USER, c1, 4, 0);   // mastery 0.0
+    await seedMastery(masteryRepo, USER, c2, 4, 4);   // mastery 1.0
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    expect(result[0]!.subject).toBe('Pulmonology');
+    expect(result[1]!.subject).toBe('Rheumatology');
+  });
+
+  it('sums totalAttempts across all concepts in the subject', async () => {
+    const c1 = await seedConcept(concepts, 'att-1', 'C1', undefined, 'Cardiology');
+    const c2 = await seedConcept(concepts, 'att-2', 'C2', undefined, 'Cardiology');
+    await seedMastery(masteryRepo, USER, c1,  5, 4);
+    await seedMastery(masteryRepo, USER, c2, 10, 8);
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    expect(result[0]!.totalAttempts).toBe(15);
+  });
+
+  it('uses prefetched rows and skips internal findByUserId', async () => {
+    const c1 = await seedConcept(concepts, 'pf-1', 'Prefetch', undefined, 'Cardiology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    const preRows = await masteryRepo.findByUserId(USER);
+    // Pass an empty repo — would return [] if queried directly
+    const { InMemoryUserConceptMasteryRepository: R } = await import('../repositories/memory/UserConceptMasteryRepository.js');
+    const emptyRepo = new R();
+    const svc = new MasteryQueryService(emptyRepo, concepts, new ConceptHierarchyService(concepts));
+    const result = await svc.getSubjectBreakdown(USER, preRows);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.subject).toBe('Cardiology');
+  });
+
+  it('skips concepts with no subject field', async () => {
+    // Concepts with empty-string subject should be ignored
+    const c1 = await seedConcept(concepts, 'nosub', 'No Subject', undefined, '');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ── getConceptsBySubject ──────────────────────────────────────────────────────
+
+describe('MasteryQueryService.getConceptsBySubject', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let concepts:    InMemoryConceptsRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    concepts    = new InMemoryConceptsRepository();
+  });
+
+  it('returns empty array when user has no mastery data', async () => {
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Pharmacology');
+    expect(result).toHaveLength(0);
+  });
+
+  it('returns only concepts matching the given subject', async () => {
+    const c1 = await seedConcept(concepts, 'pharm-1', 'Beta Blockers',    undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'pharm-2', 'ACE Inhibitors',   undefined, 'Pharmacology');
+    const c3 = await seedConcept(concepts, 'cardio-1', 'Heart Failure',   undefined, 'Cardiology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    await seedMastery(masteryRepo, USER, c2, 4, 3);
+    await seedMastery(masteryRepo, USER, c3, 4, 1);
+
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Pharmacology');
+    expect(result).toHaveLength(2);
+    const names = result.map(e => e.concept.name).sort();
+    expect(names).toEqual(['ACE Inhibitors', 'Beta Blockers']);
+  });
+
+  it('excludes concepts from other subjects', async () => {
+    const c1 = await seedConcept(concepts, 'excl-p', 'Pharmacology C', undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'excl-c', 'Cardiology C',   undefined, 'Cardiology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    await seedMastery(masteryRepo, USER, c2, 4, 2);
+
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Cardiology');
+    expect(result).toHaveLength(1);
+    expect(result[0]!.concept.name).toBe('Cardiology C');
+  });
+
+  it('sorts by mastery_score ASC (weakest first)', async () => {
+    const c1 = await seedConcept(concepts, 'sort-ph-1', 'Strong Pharm', undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'sort-ph-2', 'Weak Pharm',   undefined, 'Pharmacology');
+    const c3 = await seedConcept(concepts, 'sort-ph-3', 'Mid Pharm',    undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 10, 10); // mastery 1.0
+    await seedMastery(masteryRepo, USER, c2,  4,  0); // mastery 0.0
+    await seedMastery(masteryRepo, USER, c3,  4,  2); // mastery 0.5
+
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Pharmacology');
+    expect(result[0]!.concept.name).toBe('Weak Pharm');
+    expect(result[1]!.concept.name).toBe('Mid Pharm');
+    expect(result[2]!.concept.name).toBe('Strong Pharm');
+  });
+
+  it('returns empty array when no concepts match the requested subject', async () => {
+    const c1 = await seedConcept(concepts, 'no-match', 'Pharmacology C', undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Neurology');
+    expect(result).toHaveLength(0);
+  });
+
+  it('includes all tracked concepts regardless of attempt count', async () => {
+    const c1 = await seedConcept(concepts, 'one-att', 'One Attempt', undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 1, 1); // only 1 attempt
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Pharmacology');
+    expect(result).toHaveLength(1);
+  });
+
+  it('attaches correct tier to each concept', async () => {
+    const c1 = await seedConcept(concepts, 'tier-p', 'Priority Pharm', undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'tier-o', 'OnTrack Pharm',  undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 2, 0);   // mastery 0.0 → priority
+    await seedMastery(masteryRepo, USER, c2, 10, 10); // mastery 1.0 → ontrack
+
+    const result = await makeService(masteryRepo, concepts).getConceptsBySubject(USER, 'Pharmacology');
+    expect(result[0]!.tier).toBe('priority');   // weakest first
+    expect(result[1]!.tier).toBe('ontrack');
+  });
+
+  it('uses prefetched rows and skips internal findByUserId', async () => {
+    const c1 = await seedConcept(concepts, 'pf-sub', 'Prefetch Pharm', undefined, 'Pharmacology');
+    await seedMastery(masteryRepo, USER, c1, 4, 2);
+    const preRows = await masteryRepo.findByUserId(USER);
+    const { InMemoryUserConceptMasteryRepository: R } = await import('../repositories/memory/UserConceptMasteryRepository.js');
+    const emptyRepo = new R();
+    const svc = new MasteryQueryService(emptyRepo, concepts, new ConceptHierarchyService(concepts));
+    const result = await svc.getConceptsBySubject(USER, 'Pharmacology', preRows);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.concept.name).toBe('Prefetch Pharm');
   });
 });

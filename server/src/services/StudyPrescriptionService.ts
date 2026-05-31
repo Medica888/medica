@@ -1,24 +1,31 @@
 import type { IUserConceptMasteryRepository, IConceptsRepository } from '../repositories/interfaces.js';
-import type { StudyPrescription, PrescriptionConcept, UserConceptMastery } from '../types/index.js';
-import { MIN_FOR_ADAPTIVE, sortByWeakness } from './adaptiveMasteryUtils.js';
+import type {
+  StudyPrescription, PrescriptionConcept, UserConceptMastery,
+  ReadinessScore, ReadinessStatus,
+} from '../types/index.js';
+import {
+  MIN_FOR_ADAPTIVE, sortByWeakness, adaptiveDisabledReason,
+  TIER_WEAK as TIER_PRIORITY_MAX,
+  TIER_MEDIUM as TIER_FOCUS_MAX,
+  TIER_REINFORCED as TIER_REINFORCED_MAX,
+} from './adaptiveMasteryUtils.js';
 
-// ── Tier boundaries (4-way; ≥ ONTRACK excluded from prescription) ─────────────
-const TIER_PRIORITY_MAX   = 0.65;
-const TIER_FOCUS_MAX      = 0.75;
-const TIER_REINFORCED_MAX = 0.85; // concepts ≥ this are on-track and not prescribed
+// Readiness-aware list caps.
+// Struggling users get more priority concepts; prepared users shift toward focus/reinforced.
+const CAPS_BY_STATUS: Record<ReadinessStatus, { priority: number; focus: number; reinforced: number }> = {
+  'Needs Intensive Review': { priority: 10, focus: 5,  reinforced: 2  },
+  'Developing':             { priority: 8,  focus: 6,  reinforced: 5  },  // legacy defaults
+  'Approaching Readiness':  { priority: 6,  focus: 8,  reinforced: 6  },
+  'Exam Ready':             { priority: 4,  focus: 8,  reinforced: 8  },
+};
 
-// Per-tier caps — limits the lists returned (and drives the estimate math)
-const MAX_PRIORITY   = 8;
-const MAX_FOCUS      = 6;
-const MAX_REINFORCED = 5;
-
-// Coefficients (tunable defaults — documented in API response)
-const MIN_PER_PRIORITY   = 5;  // estimated minutes per priority concept
+// Per-concept time/question/flashcard multipliers — fixed regardless of readiness
+const MIN_PER_PRIORITY   = 5;
 const MIN_PER_FOCUS      = 3;
 const MIN_PER_REINFORCED = 2;
-const Q_PER_PRIORITY     = 5;  // recommended practice questions per priority concept
+const Q_PER_PRIORITY     = 5;
 const Q_PER_FOCUS        = 3;
-const FC_PER_PRIORITY    = 3;  // recommended flashcards per priority concept
+const FC_PER_PRIORITY    = 3;
 const FC_PER_FOCUS       = 2;
 const FC_PER_REINFORCED  = 1;
 
@@ -50,9 +57,10 @@ function makeRecommendation(
   return 'Solid understanding — maintain with spaced review';
 }
 
-function toConcept(row: UserConceptMastery, name: string, tier: 'priority' | 'focus' | 'reinforced'): PrescriptionConcept {
+function toConcept(row: UserConceptMastery, name: string, tier: 'priority' | 'focus' | 'reinforced', subject?: string): PrescriptionConcept {
   return {
     name,
+    subject,
     masteryScore:    Math.round(row.mastery_score    * 10000) / 10000,
     confidence:      Math.round(row.confidence_score * 10000) / 10000,
     attempts:        row.attempts,
@@ -67,41 +75,42 @@ export class StudyPrescriptionService {
     private concepts: IConceptsRepository,
   ) {}
 
-  async getPrescription(userId: string): Promise<StudyPrescription> {
-    const rows = await this.mastery.findByUserId(userId);
+  async getPrescription(
+    userId:          string,
+    readinessScore?: ReadinessScore,
+    rows?:           UserConceptMastery[],
+  ): Promise<StudyPrescription> {
+    const masteryRows = rows ?? await this.mastery.findByUserId(userId);
 
-    if (rows.length < MIN_FOR_ADAPTIVE) {
+    if (masteryRows.length < MIN_FOR_ADAPTIVE) {
       return {
         ...RANDOM_PRESCRIPTION,
-        reason: `Only ${rows.length} concept(s) tracked — ${MIN_FOR_ADAPTIVE} needed for prescription.`,
+        reason: adaptiveDisabledReason(masteryRows.length),
       };
     }
 
-    // Sort weakest-first; ties broken by highest recent_incorrect_count
-    const sorted   = sortByWeakness(rows);
-    // Resolve all names in parallel — no N+1
-    const resolved = await Promise.all(sorted.map((r) => this.concepts.findById(r.concept_id)));
+    const caps       = readinessScore ? CAPS_BY_STATUS[readinessScore.status] : CAPS_BY_STATUS['Developing'];
+    const sorted     = sortByWeakness(masteryRows);
+    const fetched    = await this.concepts.findManyById(sorted.map((r) => r.concept_id));
+    const conceptMap = new Map(fetched.map((c) => [c.id, c]));
 
     const priority:   PrescriptionConcept[] = [];
     const focus:      PrescriptionConcept[] = [];
     const reinforced: PrescriptionConcept[] = [];
 
-    for (let i = 0; i < sorted.length; i++) {
-      const row   = sorted[i]!;
-      const name  = resolved[i]?.name;
+    for (const row of sorted) {
+      const concept = conceptMap.get(row.concept_id);
+      const name    = concept?.name;
       if (!name) continue;
 
       const s = row.mastery_score;
-      // Each branch is exclusive to its score range — caps only limit list size,
-      // not which tier a concept belongs to (no overflow into lower-priority tiers).
       if (s < TIER_PRIORITY_MAX) {
-        if (priority.length < MAX_PRIORITY) priority.push(toConcept(row, name, 'priority'));
+        if (priority.length < caps.priority) priority.push(toConcept(row, name, 'priority', concept?.subject));
       } else if (s < TIER_FOCUS_MAX) {
-        if (focus.length < MAX_FOCUS) focus.push(toConcept(row, name, 'focus'));
+        if (focus.length < caps.focus) focus.push(toConcept(row, name, 'focus', concept?.subject));
       } else if (s < TIER_REINFORCED_MAX) {
-        if (reinforced.length < MAX_REINFORCED) reinforced.push(toConcept(row, name, 'reinforced'));
+        if (reinforced.length < caps.reinforced) reinforced.push(toConcept(row, name, 'reinforced', concept?.subject));
       }
-      // s >= TIER_REINFORCED_MAX → on-track, excluded
     }
 
     const estimatedStudyTime    = priority.length * MIN_PER_PRIORITY +

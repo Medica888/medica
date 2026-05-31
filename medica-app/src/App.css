@@ -3595,6 +3595,8 @@ html, body, #root {
 .an-readiness-row-label { grid-column: 1; grid-row: 1; }
 .an-readiness-row-val   { grid-column: 2; grid-row: 1; font-size: 12px; }
 .an-readiness-bar-wrap  { grid-column: 1 / -1; grid-row: 2; }
+.an-readiness-status { display: flex; align-items: center; gap: 8px; margin-top: 6px; margin-bottom: 2px; }
+.an-readiness-hint   { font-size: 10.5px; color: rgba(244,246,250,.35); margin: 4px 0 0; line-height: 1.4; }
 
 /* Mistake Intelligence */
 .an-mistake-card { display: flex; flex-direction: column; gap: 16px; }
@@ -6893,6 +6895,18 @@ html, body, #root {
 }
 @keyframes mp-shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
 
+/* Subject breakdown rows (Row 3 of MasteryPanel) — interactive buttons */
+.mp-subject-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--border-s);
+  background: none; border-left: none; border-right: none; border-top: none;
+  width: 100%; text-align: left; cursor: pointer;
+  transition: background .12s; border-radius: 0;
+}
+.mp-subject-row:last-child { border-bottom: none; }
+.mp-subject-row:hover { background: var(--bg); }
+.mp-subject-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* ── CONCEPT DETAIL MODAL ──────────────────────────────────── */
 
 .cdm-overlay {
@@ -6949,6 +6963,11 @@ html, body, #root {
 .cdm-path-ancestor { font-size: 11px; color: var(--t3); }
 .cdm-path-current  { font-size: 11.5px; font-weight: 600; color: var(--t1); }
 .cdm-incorrect-note { font-size: 11.5px; color: var(--t3); background: var(--bg); padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-s); }
+.cdm-readiness-section { display: flex; flex-direction: column; gap: 6px; }
+.cdm-readiness-row     { display: flex; align-items: center; gap: 10px; }
+.cdm-readiness-score   { font-size: 20px; font-weight: 700; color: var(--t1); }
+.cdm-readiness-status  { font-size: 11px; font-weight: 600; color: var(--t3); }
+.cdm-readiness-rec     { font-size: 11px; color: var(--t3); line-height: 1.5; margin: 0; }
 
 /* ── SETTINGS PAGE ─────────────────────────────────────────── */
 
@@ -7235,6 +7254,14 @@ html, body, #root {
 .spp-conf-dot.filled { background: var(--blue); }
 
 .spp-attempts { font-size: 10.5px; color: var(--t4); white-space: nowrap; }
+
+/* Subject chip — shown above concept name when subject is present */
+.spp-subject-chip {
+  display: inline-block;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--t4); background: var(--bg); border: 1px solid var(--border-s);
+  border-radius: 4px; padding: 1px 6px; line-height: 1.6;
+}
 
 /* Footnote */
 .spp-footnote {

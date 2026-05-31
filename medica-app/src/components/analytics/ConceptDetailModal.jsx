@@ -1,4 +1,4 @@
-import { useMasteryConcept } from '../../hooks/useMastery'
+import { useMasteryConcept, useTopicReadiness } from '../../hooks/useMastery'
 
 const TIER_META = {
   priority:   { label: 'Priority',   color: 'var(--status-critical)' },
@@ -21,8 +21,12 @@ function ConfidenceBar({ score }) {
   )
 }
 
+const TOPIC_TREND_GLYPH = { up: '↑', down: '↓', stable: '→' }
+const TOPIC_TREND_CLS   = { up: 'ptp-delta--up', down: 'ptp-delta--down', stable: 'ptp-delta--flat' }
+
 export default function ConceptDetailModal({ concept, mastery, tier, onClose }) {
-  const { data: detail, loading } = useMasteryConcept(concept?.id)
+  const { data: detail,   loading }   = useMasteryConcept(concept?.id)
+  const { data: topicRd,  loading: trLoading } = useTopicReadiness(concept?.id)
 
   const tierMeta = TIER_META[tier] ?? TIER_META.focus
   const masteryPct = Math.round((mastery?.mastery_score ?? 0) * 100)
@@ -97,6 +101,27 @@ export default function ConceptDetailModal({ concept, mastery, tier, onClose }) 
           </div>
           <ConfidenceBar score={mastery?.confidence_score} />
         </div>
+
+        {/* Topic readiness */}
+        {trLoading && <p className="an-intel-muted" style={{ fontSize: 11 }}>Loading readiness…</p>}
+        {!trLoading && topicRd && (
+          <div className="cdm-readiness-section">
+            <div className="cdm-section-label">Readiness</div>
+            <div className="cdm-readiness-row">
+              <span className="cdm-readiness-score">{topicRd.readiness}%</span>
+              <span className="cdm-readiness-status">{topicRd.status}</span>
+              <span
+                className={`ptp-delta ${TOPIC_TREND_CLS[topicRd.trend] ?? 'ptp-delta--flat'}`}
+                aria-label={`Trend: ${topicRd.trend}`}
+              >
+                {TOPIC_TREND_GLYPH[topicRd.trend] ?? '→'}
+              </span>
+            </div>
+            {topicRd.recommendation && (
+              <p className="cdm-readiness-rec">{topicRd.recommendation}</p>
+            )}
+          </div>
+        )}
 
         {/* Ancestor path */}
         {!loading && ancestorPath.length > 1 && (

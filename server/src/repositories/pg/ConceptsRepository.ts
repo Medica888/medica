@@ -85,6 +85,15 @@ export class PgConceptsRepository implements IConceptsRepository {
     return res.rows[0] ? toConcept(res.rows[0]) : null;
   }
 
+  async findManyById(ids: string[]): Promise<Concept[]> {
+    if (!ids.length) return [];
+    const res = await this.pool.query<ConceptRow>(
+      'SELECT * FROM concepts WHERE id = ANY($1::uuid[])',
+      [ids],
+    );
+    return res.rows.map(toConcept);
+  }
+
   async findAncestors(conceptId: string): Promise<Concept[]> {
     // Walk parent_concept_id upward from the given concept.
     // Seed includes the concept itself; filter it out in the WHERE clause.

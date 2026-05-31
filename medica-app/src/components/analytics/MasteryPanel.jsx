@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { getAuthToken } from '../../lib/apiClient'
-import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest } from '../../hooks/useMastery'
+import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useMasterySubjects, useMasterySubjectConcepts } from '../../hooks/useMastery'
 import ConceptDetailModal from './ConceptDetailModal'
 
 const TIER_META = {
@@ -24,12 +24,145 @@ function SkeletonRow() {
   return <div className="mp-skeleton-row" />
 }
 
+// ── Subject drilldown modal — reuses cdm-* CSS from ConceptDetailModal ────────
+
+function SubjectDrilldownModal({ subjectData, onClose, onConceptClick }) {
+  const { data: drilldown, loading: dLoading } = useMasterySubjectConcepts(subjectData.subject)
+
+  const tierColor = TIER_META[subjectData.tier]?.color ?? 'var(--blue)'
+
+  return (
+    <div
+      className="cdm-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${subjectData.subject} subject mastery`}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="cdm-panel">
+
+        {/* Header */}
+        <div className="cdm-hdr">
+          <div className="cdm-hdr-left">
+            <span className="cdm-title">{subjectData.subject}</span>
+            <span
+              className={`an-subj-badge an-subj-badge--${subjectData.tier}`}
+              style={{ fontSize: 10, marginTop: 4 }}
+            >
+              {TIER_META[subjectData.tier]?.label ?? subjectData.tier}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="cdm-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 4-up metrics */}
+        <div className="cdm-metrics">
+          <div className="cdm-metric">
+            <span className="cdm-metric-val" style={{ color: tierColor }}>
+              {Math.round(subjectData.rollupMastery * 100)}%
+            </span>
+            <span className="cdm-metric-label">Mastery</span>
+          </div>
+          <div className="cdm-metric">
+            <span className="cdm-metric-val">
+              {Math.round(subjectData.rollupConfidence * 100)}%
+            </span>
+            <span className="cdm-metric-label">Confidence</span>
+          </div>
+          <div className="cdm-metric">
+            <span className="cdm-metric-val">{subjectData.totalAttempts}</span>
+            <span className="cdm-metric-label">Attempts</span>
+          </div>
+          <div className="cdm-metric">
+            <span
+              className="cdm-metric-val"
+              style={{ color: subjectData.weakConceptCount > 0 ? 'var(--status-critical)' : 'var(--blue)' }}
+            >
+              {subjectData.weakConceptCount}
+            </span>
+            <span className="cdm-metric-label">Weak</span>
+          </div>
+        </div>
+
+        {/* Concept list */}
+        <div className="cdm-section-label">
+          Concepts{drilldown ? ` · ${drilldown.count}` : ''}
+        </div>
+
+        {dLoading ? (
+          <div className="mp-skeleton-rows">
+            {[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}
+          </div>
+        ) : !drilldown?.concepts?.length ? (
+          <p className="an-intel-muted">No concepts tracked for this subject yet.</p>
+        ) : (
+          <div className="mp-concept-list">
+            {drilldown.concepts.map(({ concept, mastery, tier }) => (
+              <button
+                key={concept.id}
+                type="button"
+                className="mp-concept-row"
+                onClick={() => onConceptClick({ concept, mastery, tier })}
+                aria-label={`View ${concept.name} details`}
+              >
+                <span className="mp-concept-name">{concept.name}</span>
+                <MasteryBar score={mastery.mastery_score} />
+                <span className={`an-subj-badge an-subj-badge--${tier}`}>
+                  {TIER_META[tier]?.label ?? tier}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+      </div>
+    </div>
+  )
+}
+
+// ── Subject list — rows are clickable buttons ─────────────────────────────────
+
+function SubjectList({ items, emptyMsg, onSelect }) {
+  if (!items.length) return <p className="an-intel-muted">{emptyMsg}</p>
+  return (
+    <div className="mp-concept-list">
+      {items.map(s => (
+        <button
+          key={s.subject}
+          type="button"
+          className="mp-subject-row"
+          onClick={() => onSelect(s)}
+          aria-label={`View ${s.subject} subject details`}
+        >
+          <span className="mp-subject-name">{s.subject}</span>
+          <MasteryBar score={s.rollupMastery} />
+          <span className="spp-attempts">{s.totalAttempts} tries</span>
+          <span className={`an-subj-badge an-subj-badge--${s.tier}`}>
+            {TIER_META[s.tier]?.label ?? s.tier}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────────
+
 export default function MasteryPanel() {
-  const [selectedConcept, setSelectedConcept] = useState(null)
+  const [selectedConcept, setSelectedConcept] = useState(null)  // {concept, mastery, tier}
+  const [selectedSubject, setSelectedSubject] = useState(null)  // SubjectRollup
 
   const overview  = useMasteryOverview()
   const weakest   = useMasteryWeakest(5, 1)
   const strongest = useMasteryStrongest(5, 1)
+  const subjects  = useMasterySubjects()
 
   // Only render when authenticated
   if (!getAuthToken()) return null
@@ -51,6 +184,16 @@ export default function MasteryPanel() {
 
   const ov   = overview.data
   const dist = ov?.distribution
+
+  function handleSubjectClick(subjectRollup) {
+    setSelectedSubject(subjectRollup)
+    setSelectedConcept(null)
+  }
+
+  function handleConceptFromSubject(conceptData) {
+    setSelectedSubject(null)
+    setSelectedConcept(conceptData)
+  }
 
   return (
     <>
@@ -174,7 +317,55 @@ export default function MasteryPanel() {
             </table>
           )}
         </div>
+
+        {/* ── Row 3: Subject breakdown ──────────────────────────── */}
+        {!(subjects.error?.status === 401 || subjects.error?.status === 403) && (
+          <div className="mp-row">
+
+            {/* Weak subjects — tier is priority / focus / reinforced */}
+            <div className="an-intel-card mp-concept-card">
+              <div className="an-intel-card-title">Weak Subjects</div>
+              <div className="an-intel-card-sub">Below exam-ready threshold — click to drill down</div>
+              {subjects.loading ? (
+                <div className="mp-skeleton-rows">{[0,1,2].map(i => <SkeletonRow key={i} />)}</div>
+              ) : (
+                <SubjectList
+                  items={(subjects.data?.subjects ?? []).filter(s => s.tier !== 'ontrack')}
+                  emptyMsg="All subjects are performing at exam-ready level."
+                  onSelect={handleSubjectClick}
+                />
+              )}
+            </div>
+
+            {/* Strong subjects — tier is ontrack */}
+            <div className="an-intel-card mp-concept-card">
+              <div className="an-intel-card-title">Strong Subjects</div>
+              <div className="an-intel-card-sub">Mastery ≥ 85% — click to drill down</div>
+              {subjects.loading ? (
+                <div className="mp-skeleton-rows">{[0,1,2].map(i => <SkeletonRow key={i} />)}</div>
+              ) : (
+                <SubjectList
+                  items={(subjects.data?.subjects ?? [])
+                    .filter(s => s.tier === 'ontrack')
+                    .sort((a, b) => b.rollupMastery - a.rollupMastery)}
+                  emptyMsg="No subjects at exam-ready level yet."
+                  onSelect={handleSubjectClick}
+                />
+              )}
+            </div>
+
+          </div>
+        )}
+
       </div>
+
+      {selectedSubject && (
+        <SubjectDrilldownModal
+          subjectData={selectedSubject}
+          onClose={() => setSelectedSubject(null)}
+          onConceptClick={handleConceptFromSubject}
+        />
+      )}
 
       {selectedConcept && (
         <ConceptDetailModal

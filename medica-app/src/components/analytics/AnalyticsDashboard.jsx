@@ -8,6 +8,7 @@ import MasteryPanel from './MasteryPanel'
 import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 import ProgressPanel from './ProgressPanel'
 import ProgressTrendPanel from './ProgressTrendPanel'
+import { useReadiness } from '../../hooks/useMastery'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -21,6 +22,7 @@ const SUBJECT_STATUS = (pct) => {
 export default function AnalyticsDashboard({ onNavigate }) {
   const data = useMemo(() => buildAnalyticsData(), [])
   const [timeFilter, setTimeFilter] = useState('All time')
+  const rdHook = useReadiness()
 
   if (data.empty) {
     return (
@@ -197,18 +199,15 @@ export default function AnalyticsDashboard({ onNavigate }) {
           <div className="an-intel-right">
 
             {/* Readiness Estimate — dark card */}
-            <div className="an-readiness-card">
-              <div className="an-readiness-label">READINESS ESTIMATE</div>
-              <div className="an-readiness-pct">
-                {readinessPct}<span className="an-readiness-pct-unit">%</span>
-                <span className="an-readiness-ready"> ready</span>
-              </div>
-              <div className="an-readiness-bars">
-                <ReadinessRow label="Knowledge coverage"    value={knowledgeCoverage} />
-                <ReadinessRow label="Accuracy consistency"  value={accuracyConsistency} />
-                <ReadinessRow label="Retention stability"   value={retentionStability} variant="warn" />
-              </div>
-            </div>
+            <ReadinessCard
+              localPct={readinessPct}
+              localRows={[
+                { label: 'Knowledge coverage',   value: knowledgeCoverage },
+                { label: 'Accuracy consistency',  value: accuracyConsistency },
+                { label: 'Retention stability',   value: retentionStability, variant: 'warn' },
+              ]}
+              rdHook={rdHook}
+            />
 
             {/* Mistake Intelligence */}
             <div className="an-intel-card an-mistake-card">
@@ -312,6 +311,77 @@ function ReadinessRow({ label, value, variant }) {
       <span className="an-readiness-row-val">{value}%</span>
       <div className="an-readiness-bar-wrap">
         <div className="an-readiness-bar" style={{ width: `${value}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
+
+const READINESS_STATUS_COLOR = {
+  'Exam Ready':              '#2E64C8',
+  'Approaching Readiness':   'var(--status-stable)',
+  'Developing':              'var(--status-warn)',
+  'Needs Intensive Review':  'var(--status-critical)',
+}
+
+function ReadinessCard({ localPct, localRows, rdHook }) {
+  const rd = rdHook.data
+
+  // Derive trend direction from the trend contribution component.
+  // components.trend ∈ [0,15]; midpoint 7.5 = stable.
+  const trendVal = rd?.components?.trend ?? 7.5
+  const trendDir = trendVal > 8 ? 'up' : trendVal < 7 ? 'down' : 'flat'
+  const trendGlyph = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→'
+
+  // Normalize weighted contributions back to 0–100 for bar display
+  const compRows = rd ? [
+    { label: 'Mastery',      value: Math.round(rd.components.mastery     / 50 * 100) },
+    { label: 'Confidence',   value: Math.round(rd.components.confidence  / 20 * 100) },
+    { label: 'Consistency',  value: Math.round(rd.components.consistency / 15 * 100) },
+  ] : localRows
+
+  const displayPct   = rd ? rd.overallReadiness : localPct
+  const statusLabel  = rd?.status ?? null
+  const statusColor  = statusLabel ? (READINESS_STATUS_COLOR[statusLabel] ?? '#2E64C8') : null
+  const totalConcepts = rd ? (rd.distribution.priority + rd.distribution.focus + rd.distribution.reinforced + rd.distribution.ontrack) : null
+
+  return (
+    <div className="an-readiness-card">
+      <div className="an-readiness-label">EXAM READINESS</div>
+      <div className="an-readiness-pct">
+        {displayPct}<span className="an-readiness-pct-unit">%</span>
+        <span className="an-readiness-ready"> ready</span>
+      </div>
+
+      {statusLabel && (
+        <div className="an-readiness-status">
+          <span
+            className="an-readiness-badge"
+            style={{ borderColor: statusColor, color: statusColor }}
+            aria-label={`Readiness status: ${statusLabel}`}
+          >
+            {statusLabel}
+          </span>
+          <span className={`ptp-delta ptp-delta--${trendDir}`} aria-label={`Trend: ${trendDir}`}>
+            {trendGlyph}
+          </span>
+        </div>
+      )}
+
+      {totalConcepts != null && totalConcepts > 0 && totalConcepts < 20 && (
+        <p className="an-readiness-hint">
+          Based on {totalConcepts} concept{totalConcepts !== 1 ? 's' : ''} — accuracy improves with more practice
+        </p>
+      )}
+
+      <div className="an-readiness-bars">
+        {compRows.map(r => (
+          <ReadinessRow
+            key={r.label}
+            label={r.label}
+            value={r.value}
+            variant={r.variant}
+          />
+        ))}
       </div>
     </div>
   )

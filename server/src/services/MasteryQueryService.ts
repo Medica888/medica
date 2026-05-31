@@ -4,18 +4,23 @@ import type {
   MasteryOverview,
   EnrichedConceptMastery,
   ConceptMasteryDetail,
+  SubjectRollup,
 } from '../types/index.js';
 import type { IUserConceptMasteryRepository, IConceptsRepository } from '../repositories/interfaces.js';
 import type { ConceptHierarchyService } from './ConceptHierarchyService.js';
-
-// Thresholds mirror AnalyticsDashboard.jsx SUBJECT_STATUS (pct → score / 100)
-const TIER_PRIORITY   = 0.65;
-const TIER_FOCUS      = 0.75;
-const TIER_REINFORCED = 0.85;
+import {
+  TIER_WEAK as TIER_PRIORITY,
+  TIER_MEDIUM as TIER_FOCUS,
+  TIER_REINFORCED,
+} from './adaptiveMasteryUtils.js';
 
 const DEFAULT_LIMIT        = 10;
 const DEFAULT_MIN_ATTEMPTS = 2;
 const CONFIDENT_THRESHOLD  = 5; // attempts needed for confidence_score to saturate
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
 
 export function masteryTier(masteryScore: number): MasteryTier {
   if (masteryScore < TIER_PRIORITY)   return 'priority';
@@ -66,11 +71,12 @@ export class MasteryQueryService {
   }
 
   async getWeakest(
-    userId:      string,
-    limit       = DEFAULT_LIMIT,
-    minAttempts = DEFAULT_MIN_ATTEMPTS,
+    userId:       string,
+    limit        = DEFAULT_LIMIT,
+    minAttempts  = DEFAULT_MIN_ATTEMPTS,
+    prefetchedRows?: UserConceptMastery[],
   ): Promise<EnrichedConceptMastery[]> {
-    const rows = await this.mastery.findByUserId(userId);
+    const rows = prefetchedRows ?? await this.mastery.findByUserId(userId);
     const filtered = rows
       .filter((r) => r.attempts >= minAttempts)
       .sort((a, b) => a.mastery_score - b.mastery_score)
@@ -79,11 +85,12 @@ export class MasteryQueryService {
   }
 
   async getStrongest(
-    userId:      string,
-    limit       = DEFAULT_LIMIT,
-    minAttempts = DEFAULT_MIN_ATTEMPTS,
+    userId:       string,
+    limit        = DEFAULT_LIMIT,
+    minAttempts  = DEFAULT_MIN_ATTEMPTS,
+    prefetchedRows?: UserConceptMastery[],
   ): Promise<EnrichedConceptMastery[]> {
-    const rows = await this.mastery.findByUserId(userId);
+    const rows = prefetchedRows ?? await this.mastery.findByUserId(userId);
     const filtered = rows
       .filter((r) => r.attempts >= minAttempts)
       .sort((a, b) => b.mastery_score - a.mastery_score)
@@ -108,11 +115,91 @@ export class MasteryQueryService {
     };
   }
 
+  /**
+   * Attempt-weighted subject rollup.
+   * Groups all mastery rows by concept.subject and computes:
+   *   rollupMastery    = Σ(mastery_score    × attempts) / Σ(attempts)
+   *   rollupConfidence = Σ(confidence_score × attempts) / Σ(attempts)
+   * weakConceptCount counts rows where mastery_score < TIER_PRIORITY (0.65).
+   * Returns sorted by rollupMastery ASC (weakest subjects first).
+   */
+  async getSubjectBreakdown(
+    userId:          string,
+    prefetchedRows?: UserConceptMastery[],
+  ): Promise<SubjectRollup[]> {
+    const rows = prefetchedRows ?? await this.mastery.findByUserId(userId);
+    if (!rows.length) return [];
+
+    // _enrich() performs one batch findManyById call; reuse it to avoid a separate loop
+    const enriched = await this._enrich(rows);
+
+    const acc = new Map<string, {
+      masteryWeightedSum: number;
+      confWeightedSum:    number;
+      totalAttempts:      number;
+      weakConceptCount:   number;
+    }>();
+
+    for (const e of enriched) {
+      const subject = e.concept.subject;
+      if (!subject) continue;
+      const row     = e.mastery;
+      const w       = row.attempts;
+      const existing = acc.get(subject);
+      if (existing) {
+        existing.masteryWeightedSum += row.mastery_score    * w;
+        existing.confWeightedSum    += row.confidence_score * w;
+        existing.totalAttempts      += w;
+        if (row.mastery_score < TIER_PRIORITY) existing.weakConceptCount++;
+      } else {
+        acc.set(subject, {
+          masteryWeightedSum: row.mastery_score    * w,
+          confWeightedSum:    row.confidence_score * w,
+          totalAttempts:      w,
+          weakConceptCount:   row.mastery_score < TIER_PRIORITY ? 1 : 0,
+        });
+      }
+    }
+
+    return [...acc.entries()]
+      .map(([subject, g]): SubjectRollup => {
+        const rollupMastery    = g.totalAttempts > 0 ? round4(g.masteryWeightedSum / g.totalAttempts) : 0;
+        const rollupConfidence = g.totalAttempts > 0 ? round4(g.confWeightedSum    / g.totalAttempts) : 0;
+        return {
+          subject,
+          rollupMastery,
+          rollupConfidence,
+          totalAttempts:    g.totalAttempts,
+          weakConceptCount: g.weakConceptCount,
+          tier:             masteryTier(rollupMastery),
+        };
+      })
+      .sort((a, b) => a.rollupMastery - b.rollupMastery);
+  }
+
+  /**
+   * All mastery rows for a user filtered to one subject, sorted weakest-first.
+   * Reuses _enrich() so concept name + tier are resolved in one Promise.all.
+   */
+  async getConceptsBySubject(
+    userId:          string,
+    subject:         string,
+    prefetchedRows?: UserConceptMastery[],
+  ): Promise<EnrichedConceptMastery[]> {
+    const rows     = prefetchedRows ?? await this.mastery.findByUserId(userId);
+    const enriched = await this._enrich(rows);
+    return enriched
+      .filter((e) => e.concept.subject === subject)
+      .sort((a, b) => a.mastery.mastery_score - b.mastery.mastery_score);
+  }
+
   private async _enrich(rows: UserConceptMastery[]): Promise<EnrichedConceptMastery[]> {
-    const concepts = await Promise.all(rows.map((r) => this.concepts.findById(r.concept_id)));
+    if (!rows.length) return [];
+    const fetched    = await this.concepts.findManyById(rows.map((r) => r.concept_id));
+    const conceptMap = new Map(fetched.map((c) => [c.id, c]));
     return rows
-      .map((row, i) => {
-        const concept = concepts[i];
+      .map((row) => {
+        const concept = conceptMap.get(row.concept_id);
         return concept ? { concept, mastery: row, tier: masteryTier(row.mastery_score) } : null;
       })
       .filter((x): x is EnrichedConceptMastery => x !== null);

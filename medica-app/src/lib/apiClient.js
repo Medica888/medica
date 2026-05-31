@@ -95,6 +95,14 @@ export const mastery = {
     request('GET', '/api/mastery/progress'),
   timeline: () =>
     request('GET', '/api/mastery/timeline'),
+  readiness: () =>
+    request('GET', '/api/mastery/readiness'),
+  topicReadiness: (id) =>
+    request('GET', `/api/mastery/readiness/topic/${id}`),
+  subjects: () =>
+    request('GET', '/api/mastery/subjects'),
+  subjectConcepts: (subject) =>
+    request('GET', `/api/mastery/subjects/${encodeURIComponent(subject)}/concepts`),
 };
 
 // ── Generate ──────────────────────────────────────────────────────────────

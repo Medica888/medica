@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ProgressTrackingService } from './ProgressTrackingService.js';
+import { ProgressTrackingService, readinessStatus } from './ProgressTrackingService.js';
 import { InMemoryUserConceptMasteryRepository } from '../repositories/memory/UserConceptMasteryRepository.js';
 import { InMemoryMasterySnapshotsRepository } from '../repositories/memory/MasterySnapshotsRepository.js';
 import { InMemoryConceptsRepository } from '../repositories/memory/ConceptsRepository.js';
@@ -219,5 +219,214 @@ describe('ProgressTrackingService derived metrics', () => {
       { sessionId: 's2', date: '', avgMastery: 0.5, totalConcepts: 3, priorityCount: 1, focusCount: 2, reinforcedCount: 0, ontrkCount: 0 },
     ];
     expect(svc.getLearningVelocity(trend)).toBe(-2); // (1-3)/1
+  });
+});
+
+// ── readinessStatus ───────────────────────────────────────────────────────────
+
+describe('readinessStatus', () => {
+  it('maps 0–49 to Needs Intensive Review', () => {
+    expect(readinessStatus(0)).toBe('Needs Intensive Review');
+    expect(readinessStatus(49)).toBe('Needs Intensive Review');
+  });
+  it('maps 50–69 to Developing', () => {
+    expect(readinessStatus(50)).toBe('Developing');
+    expect(readinessStatus(69)).toBe('Developing');
+  });
+  it('maps 70–84 to Approaching Readiness', () => {
+    expect(readinessStatus(70)).toBe('Approaching Readiness');
+    expect(readinessStatus(84)).toBe('Approaching Readiness');
+  });
+  it('maps 85–100 to Exam Ready', () => {
+    expect(readinessStatus(85)).toBe('Exam Ready');
+    expect(readinessStatus(100)).toBe('Exam Ready');
+  });
+});
+
+// ── getReadiness ──────────────────────────────────────────────────────────────
+
+describe('ProgressTrackingService.getReadiness', () => {
+  it('returns 0 and Needs Intensive Review when no mastery data', async () => {
+    const svc = makeService(
+      new InMemoryUserConceptMasteryRepository(),
+      new InMemoryMasterySnapshotsRepository(),
+    );
+    const r = await svc.getReadiness(USER);
+    expect(r.overallReadiness).toBe(0);
+    expect(r.status).toBe('Needs Intensive Review');
+  });
+
+  it('never returns NaN or out-of-bounds with zero snapshots', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'no-snap');
+    await seedMastery(mastery, USER, c1, 2, 1);
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    expect(Number.isNaN(r.overallReadiness)).toBe(false);
+    expect(r.overallReadiness).toBeGreaterThanOrEqual(0);
+    expect(r.overallReadiness).toBeLessThanOrEqual(100);
+  });
+
+  it('never returns NaN with a single snapshot batch', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'one-snap');
+    await seedMastery(mastery, USER, c1, 2, 1);
+    const svc = makeService(mastery, snapshots);
+    await svc.takeSnapshot(USER, 'sess-only');
+    const r = await svc.getReadiness(USER);
+    expect(Number.isNaN(r.overallReadiness)).toBe(false);
+    expect(r.overallReadiness).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns Exam Ready for strong all-correct mastery', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `strong-${i}`);
+      await seedMastery(mastery, USER, id, 5, 5); // mastery 1.0, confidence 1.0
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    expect(r.status).toBe('Exam Ready');
+    expect(r.overallReadiness).toBeGreaterThanOrEqual(85);
+  });
+
+  it('returns Needs Intensive Review for all-zero mastery', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `zero-${i}`);
+      await seedMastery(mastery, USER, id, 2, 0); // mastery 0
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    expect(r.status).toBe('Needs Intensive Review');
+    expect(r.overallReadiness).toBeLessThan(50);
+  });
+
+  it('improving trend yields higher score than declining trend at same mastery', async () => {
+    const concepts = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'trend-cmp');
+
+    // User A: improving trend
+    const masteryA   = new InMemoryUserConceptMasteryRepository();
+    const snapshotsA = new InMemoryMasterySnapshotsRepository();
+    await seedMastery(masteryA, USER, c1, 4, 2); // mastery 0.5
+    const svcA = makeService(masteryA, snapshotsA);
+    await snapshotsA.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'A1', masteryScore: 0.3, confidence: 0.4, attemptCount: 2 }]);
+    await snapshotsA.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'A2', masteryScore: 0.5, confidence: 0.4, attemptCount: 4 }]);
+    const rA = await svcA.getReadiness(USER);
+
+    // User B: declining trend
+    const masteryB   = new InMemoryUserConceptMasteryRepository();
+    const snapshotsB = new InMemoryMasterySnapshotsRepository();
+    await seedMastery(masteryB, USER, c1, 4, 2); // same mastery 0.5
+    const svcB = makeService(masteryB, snapshotsB);
+    await snapshotsB.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'B1', masteryScore: 0.7, confidence: 0.4, attemptCount: 4 }]);
+    await snapshotsB.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'B2', masteryScore: 0.5, confidence: 0.4, attemptCount: 4 }]);
+    const rB = await svcB.getReadiness(USER);
+
+    expect(rA.overallReadiness).toBeGreaterThan(rB.overallReadiness);
+  });
+
+  it('distribution sums to total concept count', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const ids = [
+      await seedConcept(concepts, 'dist-p'), // priority
+      await seedConcept(concepts, 'dist-f'), // focus
+      await seedConcept(concepts, 'dist-r'), // reinforced
+      await seedConcept(concepts, 'dist-o'), // ontrack
+    ];
+    await seedMastery(mastery, USER, ids[0]!, 2, 0);    // 0.0
+    await seedMastery(mastery, USER, ids[1]!, 20, 13);  // 0.65
+    await seedMastery(mastery, USER, ids[2]!, 20, 15);  // 0.75
+    await seedMastery(mastery, USER, ids[3]!, 10, 10);  // 1.0
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    const { priority, focus, reinforced, ontrack } = r.distribution;
+    expect(priority + focus + reinforced + ontrack).toBe(4);
+    expect(priority).toBe(1);
+    expect(focus).toBe(1);
+    expect(reinforced).toBe(1);
+    expect(ontrack).toBe(1);
+  });
+});
+
+// ── getTopicReadiness ─────────────────────────────────────────────────────────
+
+describe('ProgressTrackingService.getTopicReadiness', () => {
+  it('returns null for a concept the user has never seen', async () => {
+    const svc = makeService(
+      new InMemoryUserConceptMasteryRepository(),
+      new InMemoryMasterySnapshotsRepository(),
+    );
+    const r = await svc.getTopicReadiness(USER, '00000000-0000-0000-0000-000000000000');
+    expect(r).toBeNull();
+  });
+
+  it('returns stable trend when only one snapshot batch exists', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'topic-stable');
+    await seedMastery(mastery, USER, c1, 2, 1);
+    const svc = makeService(mastery, snapshots);
+    await svc.takeSnapshot(USER, 'single-batch');
+    const r = await svc.getTopicReadiness(USER, c1);
+    expect(r?.trend).toBe('stable');
+  });
+
+  it('returns up when mastery improved between batches', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'topic-up');
+    await seedMastery(mastery, USER, c1, 4, 3); // current 0.75
+    const svc = makeService(mastery, snapshots);
+    // Batch 1: lower mastery
+    await snapshots.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'up-1', masteryScore: 0.4, confidence: 0.4, attemptCount: 2 }]);
+    // Batch 2: higher mastery
+    await snapshots.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'up-2', masteryScore: 0.75, confidence: 0.6, attemptCount: 4 }]);
+    const r = await svc.getTopicReadiness(USER, c1);
+    expect(r?.trend).toBe('up');
+  });
+
+  it('returns down when mastery declined between batches', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'topic-down');
+    await seedMastery(mastery, USER, c1, 4, 1); // current 0.25
+    const svc = makeService(mastery, snapshots);
+    await snapshots.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'down-1', masteryScore: 0.7, confidence: 0.6, attemptCount: 4 }]);
+    await snapshots.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'down-2', masteryScore: 0.25, confidence: 0.4, attemptCount: 4 }]);
+    const r = await svc.getTopicReadiness(USER, c1);
+    expect(r?.trend).toBe('down');
+  });
+
+  it('readiness is bounded 0–100', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'topic-bound');
+    await seedMastery(mastery, USER, c1, 5, 5); // mastery 1.0, confidence 1.0
+    const r = await makeService(mastery, snapshots).getTopicReadiness(USER, c1);
+    expect(r!.readiness).toBeGreaterThanOrEqual(0);
+    expect(r!.readiness).toBeLessThanOrEqual(100);
+  });
+
+  it('includes a non-empty recommendation string', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'topic-rec');
+    await seedMastery(mastery, USER, c1, 3, 1);
+    const r = await makeService(mastery, snapshots).getTopicReadiness(USER, c1);
+    expect(typeof r!.recommendation).toBe('string');
+    expect(r!.recommendation.length).toBeGreaterThan(0);
   });
 });

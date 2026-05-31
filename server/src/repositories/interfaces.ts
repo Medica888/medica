@@ -90,6 +90,8 @@ export interface IConceptsRepository {
 
   findBySlug(slug: string): Promise<Concept | null>;
   findById(id: string): Promise<Concept | null>;
+  /** Fetch multiple concepts by ID in one round-trip. Missing IDs are silently omitted. */
+  findManyById(ids: string[]): Promise<Concept[]>;
 
   /**
    * Returns the ancestor chain for a concept, ordered from immediate parent to root.

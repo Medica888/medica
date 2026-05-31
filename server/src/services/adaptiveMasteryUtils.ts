@@ -9,7 +9,13 @@ import type { UserConceptMastery } from '../types/index.js';
 
 export const TIER_WEAK        = 0.65;
 export const TIER_MEDIUM      = 0.75;
+export const TIER_REINFORCED  = 0.85;
 export const MIN_FOR_ADAPTIVE = 20;
+
+/** Single reason string for all "not enough data" early-returns. */
+export function adaptiveDisabledReason(rowCount: number): string {
+  return `Only ${rowCount} concept(s) tracked — ${MIN_FOR_ADAPTIVE} needed for personalized recommendations.`;
+}
 
 export interface ConceptBuckets {
   weak:   string[];

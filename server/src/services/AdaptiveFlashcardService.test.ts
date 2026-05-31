@@ -197,3 +197,139 @@ describe('AdaptiveFlashcardService — adaptive strategy', () => {
     expect(plan.targetConcepts).not.toContain('Parent Concept FC');
   });
 });
+
+// ── P2: Medium-tier fill when weak bucket is small ────────────────────────────
+
+describe('AdaptiveFlashcardService — medium-tier fill (P2)', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let concepts:    InMemoryConceptsRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    concepts    = new InMemoryConceptsRepository();
+  });
+
+  it('fills remaining capacity with medium concepts when weak < 10', async () => {
+    // 3 weak + 7 medium + 10 strong = 20 total
+    for (let i = 0; i < 3; i++) {
+      const id = await seedConcept(concepts, `p2-w-${i}`, `P2 Weak ${i}`);
+      await seedMastery(masteryRepo, USER, id, 2, 0);         // mastery 0 → weak
+    }
+    for (let i = 0; i < 7; i++) {
+      const id = await seedConcept(concepts, `p2-m-${i}`, `P2 Medium ${i}`);
+      await seedMastery(masteryRepo, USER, id, 20, 13);       // mastery 0.65 → medium
+    }
+    await seedFillers(concepts, masteryRepo, USER, 10, 800);  // strong fillers
+
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);
+    const weakInTarget   = plan.targetConcepts.filter(n => n.startsWith('P2 Weak'));
+    const mediumInTarget = plan.targetConcepts.filter(n => n.startsWith('P2 Medium'));
+    expect(weakInTarget).toHaveLength(3);    // all 3 weak included
+    expect(mediumInTarget).toHaveLength(7);  // 7 medium fill remaining slots (3+7=10)
+    expect(plan.targetConcepts).toHaveLength(10);
+  });
+
+  it('does not include medium when weak fills all 10 slots', async () => {
+    for (let i = 0; i < 12; i++) {
+      const id = await seedConcept(concepts, `p2-full-w-${i}`, `Full Weak ${i}`);
+      await seedMastery(masteryRepo, USER, id, 2, 0);         // mastery 0 → weak
+    }
+    for (let i = 0; i < 8; i++) {
+      const id = await seedConcept(concepts, `p2-full-m-${i}`, `Full Medium ${i}`);
+      await seedMastery(masteryRepo, USER, id, 20, 13);       // medium
+    }
+
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);
+    const mediumInTarget = plan.targetConcepts.filter(n => n.startsWith('Full Medium'));
+    expect(mediumInTarget).toHaveLength(0);  // no room — weak fills all 10 slots
+    expect(plan.targetConcepts).toHaveLength(10);
+  });
+
+  it('weakConcepts list still reflects ALL weak concepts regardless of fill', async () => {
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `p2-all-w-${i}`, `All Weak ${i}`);
+      await seedMastery(masteryRepo, USER, id, 2, 0);
+    }
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `p2-all-m-${i}`, `All Med ${i}`);
+      await seedMastery(masteryRepo, USER, id, 20, 13);
+    }
+    await seedFillers(concepts, masteryRepo, USER, 10, 900);
+
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);
+    expect(plan.weakConcepts).toHaveLength(5);   // all 5 weak reported
+    expect(plan.targetConcepts).toHaveLength(10); // 5 weak + 5 medium
+  });
+
+  it('medium targets appear in promptFocusText', async () => {
+    const wId = await seedConcept(concepts, 'p2-fc-w', 'Renal Tubular Acidosis');
+    const mId = await seedConcept(concepts, 'p2-fc-m', 'Nephritic Syndrome');
+    await seedMastery(masteryRepo, USER, wId, 2, 0);    // weak
+    await seedMastery(masteryRepo, USER, mId, 20, 13);  // medium
+    await seedFillers(concepts, masteryRepo, USER, 18, 1000);
+
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);
+    expect(plan.promptFocusText).toContain('Renal Tubular Acidosis');
+    expect(plan.promptFocusText).toContain('Nephritic Syndrome');
+  });
+});
+
+// ── P1: Readiness-aware medium fill ──────────────────────────────────────────
+
+describe('AdaptiveFlashcardService — readiness-aware medium fill (P1)', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let concepts:    InMemoryConceptsRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    concepts    = new InMemoryConceptsRepository();
+  });
+
+  async function seedMixed(weakCount: number, mediumCount: number, fillStart = 0): Promise<void> {
+    for (let i = 0; i < weakCount; i++) {
+      const id = await seedConcept(concepts, `rda-w-${i}`, `RDA Weak ${i}`);
+      await seedMastery(masteryRepo, USER, id, 2, 0);
+    }
+    for (let i = 0; i < mediumCount; i++) {
+      const id = await seedConcept(concepts, `rda-m-${i}`, `RDA Med ${i}`);
+      await seedMastery(masteryRepo, USER, id, 20, 13);
+    }
+    const remaining = MIN - weakCount - mediumCount;
+    if (remaining > 0) await seedFillers(concepts, masteryRepo, USER, remaining, fillStart);
+  }
+
+  it('suppresses medium fill for Needs Intensive Review', async () => {
+    await seedMixed(5, 10, 2000);
+    const score = { overallReadiness: 30, status: 'Needs Intensive Review' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 5, focus: 0, reinforced: 0, ontrack: 0 } };
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER, score);
+    const mediumInTarget = plan.targetConcepts.filter(n => n.startsWith('RDA Med'));
+    expect(mediumInTarget).toHaveLength(0);  // no medium — focus on weak only
+    expect(plan.targetConcepts).toHaveLength(5); // all 5 weak
+  });
+
+  it('allows medium fill for Developing status', async () => {
+    await seedMixed(3, 7, 3000);
+    const score = { overallReadiness: 60, status: 'Developing' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 3, focus: 7, reinforced: 0, ontrack: 0 } };
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER, score);
+    const mediumInTarget = plan.targetConcepts.filter(n => n.startsWith('RDA Med'));
+    expect(mediumInTarget.length).toBeGreaterThan(0); // medium fill enabled
+  });
+
+  it('allows medium fill for Exam Ready status', async () => {
+    await seedMixed(2, 8, 4000);
+    const score = { overallReadiness: 90, status: 'Exam Ready' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 0, reinforced: 2, ontrack: 8 } };
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER, score);
+    const mediumInTarget = plan.targetConcepts.filter(n => n.startsWith('RDA Med'));
+    expect(mediumInTarget.length).toBeGreaterThan(0); // medium fill enabled
+    expect(plan.targetConcepts.length).toBeLessThanOrEqual(10);
+  });
+
+  it('never reduces weak targets below what weak bucket provides', async () => {
+    // 8 weak concepts — Needs Intensive Review should still get all 8
+    await seedMixed(8, 5, 5000);
+    const score = { overallReadiness: 20, status: 'Needs Intensive Review' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 8, focus: 0, reinforced: 0, ontrack: 0 } };
+    const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER, score);
+    const weakInTarget = plan.targetConcepts.filter(n => n.startsWith('RDA Weak'));
+    expect(weakInTarget).toHaveLength(8); // all 8 weak retained
+  });
+});

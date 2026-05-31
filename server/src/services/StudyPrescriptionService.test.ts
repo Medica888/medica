@@ -216,3 +216,79 @@ describe('StudyPrescriptionService — enabled (20+ records)', () => {
     }
   });
 });
+
+// ── Readiness-aware caps (P1) ─────────────────────────────────────────────────
+
+describe('StudyPrescriptionService — readiness-aware caps (P1)', () => {
+  let mastery:  InMemoryUserConceptMasteryRepository;
+  let concepts: InMemoryConceptsRepository;
+  beforeEach(() => { mastery = new InMemoryUserConceptMasteryRepository(); concepts = new InMemoryConceptsRepository(); });
+
+  async function seedTierConcepts(priorityN: number, focusN: number, reinforcedN: number, offset = 0): Promise<void> {
+    for (let i = 0; i < priorityN; i++) {
+      const id = await seedConcept(concepts, `cap-p-${offset + i}`, `Cap P ${offset + i}`);
+      await seedMastery(mastery, USER, id, 2, 0);      // mastery 0 → priority
+    }
+    for (let i = 0; i < focusN; i++) {
+      const id = await seedConcept(concepts, `cap-f-${offset + i}`, `Cap F ${offset + i}`);
+      await seedMastery(mastery, USER, id, 20, 13);    // mastery 0.65 → focus
+    }
+    for (let i = 0; i < reinforcedN; i++) {
+      const id = await seedConcept(concepts, `cap-r-${offset + i}`, `Cap R ${offset + i}`);
+      await seedMastery(mastery, USER, id, 20, 15);    // mastery 0.75 → reinforced
+    }
+    const filled = priorityN + focusN + reinforcedN;
+    if (filled < MIN) await seedFillers(concepts, mastery, USER, MIN - filled, offset + 100);
+  }
+
+  it('uses default caps (8/6/5) when no readinessScore provided', async () => {
+    await seedTierConcepts(10, 8, 6, 200);
+    const rx = await makeService(mastery, concepts).getPrescription(USER);
+    expect(rx.priority.length).toBeLessThanOrEqual(8);
+    expect(rx.focus.length).toBeLessThanOrEqual(6);
+    expect(rx.reinforced.length).toBeLessThanOrEqual(5);
+  });
+
+  it('Needs Intensive Review raises priority cap to 10, lowers reinforced to 2', async () => {
+    await seedTierConcepts(10, 6, 4, 300);
+    const score = { overallReadiness: 25, status: 'Needs Intensive Review' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 10, focus: 0, reinforced: 0, ontrack: 0 } };
+    const rx = await makeService(mastery, concepts).getPrescription(USER, score);
+    expect(rx.priority.length).toBe(10);      // raised cap
+    expect(rx.reinforced.length).toBeLessThanOrEqual(2);  // lowered cap
+  });
+
+  it('Approaching Readiness raises focus cap to 8, lowers priority cap to 6', async () => {
+    await seedTierConcepts(8, 10, 6, 400);
+    const score = { overallReadiness: 75, status: 'Approaching Readiness' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 8, reinforced: 4, ontrack: 0 } };
+    const rx = await makeService(mastery, concepts).getPrescription(USER, score);
+    expect(rx.priority.length).toBeLessThanOrEqual(6);  // lowered cap
+    expect(rx.focus.length).toBeLessThanOrEqual(8);     // raised cap
+  });
+
+  it('Exam Ready caps priority at 4 and raises reinforced cap to 8', async () => {
+    await seedTierConcepts(6, 8, 8, 500);
+    const score = { overallReadiness: 88, status: 'Exam Ready' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 0, reinforced: 6, ontrack: 8 } };
+    const rx = await makeService(mastery, concepts).getPrescription(USER, score);
+    expect(rx.priority.length).toBeLessThanOrEqual(4);  // strict cap at 4
+    expect(rx.reinforced.length).toBeLessThanOrEqual(8);
+  });
+
+  it('per-concept multipliers are unchanged regardless of readiness', async () => {
+    // 1 priority + 1 focus + 1 reinforced → time must still be 5+3+2 = 10
+    await seedTierConcepts(1, 1, 1, 600);
+    const score = { overallReadiness: 90, status: 'Exam Ready' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 0, reinforced: 1, ontrack: 1 } };
+    const rx = await makeService(mastery, concepts).getPrescription(USER, score);
+    expect(rx.estimatedStudyTime).toBe(
+      rx.priority.length * 5 + rx.focus.length * 3 + rx.reinforced.length * 2,
+    );
+  });
+
+  it('pre-fetched rows skip internal findByUserId', async () => {
+    await seedTierConcepts(2, 2, 2, 700);
+    const preRows = await mastery.findByUserId(USER);
+    const { InMemoryUserConceptMasteryRepository: R } = await import('../repositories/memory/UserConceptMasteryRepository.js');
+    const emptyRepo = new R();
+    const rx = await new StudyPrescriptionService(emptyRepo, concepts).getPrescription(USER, undefined, preRows);
+    expect(rx.strategy).toBe('adaptive'); // used preRows, not emptyRepo
+  });
+});

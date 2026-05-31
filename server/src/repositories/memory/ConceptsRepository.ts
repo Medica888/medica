@@ -54,6 +54,15 @@ export class InMemoryConceptsRepository implements IConceptsRepository {
     return c ? { ...c } : null;
   }
 
+  async findManyById(ids: string[]): Promise<Concept[]> {
+    const result: Concept[] = [];
+    for (const id of ids) {
+      const c = this.idIndex.get(id);
+      if (c) result.push({ ...c });
+    }
+    return result;
+  }
+
   async findAncestors(conceptId: string): Promise<Concept[]> {
     const ancestors: Concept[] = [];
     let current = this.idIndex.get(conceptId);

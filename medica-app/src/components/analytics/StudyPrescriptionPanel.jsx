@@ -36,6 +36,9 @@ function ConceptRow({ item }) {
   return (
     <div className="spp-row">
       <div className="spp-row-main">
+        {item.subject && (
+          <span className="spp-subject-chip">{item.subject}</span>
+        )}
         <span className="spp-name">{item.name}</span>
         <span className="spp-rec">{item.recommendation}</span>
       </div>

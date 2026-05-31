@@ -242,3 +242,90 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
     expect(bp.strategy).toBe('adaptive');
   });
 });
+
+// ── Readiness-aware allocation (P1) ───────────────────────────────────────────
+
+describe('AdaptiveExamService — readiness-aware allocation', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let concepts:    InMemoryConceptsRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    concepts    = new InMemoryConceptsRepository();
+  });
+
+  async function seedMixed(weakCount: number, mediumCount: number, strongCount: number): Promise<void> {
+    for (let i = 0; i < weakCount; i++) {
+      const id = await seedConcept(concepts, `rdw-${i}`, `RD Weak ${i}`);
+      await seedMastery(masteryRepo, USER, id, 2, 0); // mastery 0 → weak
+    }
+    for (let i = 0; i < mediumCount; i++) {
+      const id = await seedConcept(concepts, `rdm-${i}`, `RD Medium ${i}`);
+      await seedMastery(masteryRepo, USER, id, 20, 13); // mastery 0.65 → medium
+    }
+    for (let i = 0; i < strongCount; i++) {
+      const id = await seedConcept(concepts, `rds-${i}`, `RD Strong ${i}`);
+      await seedMastery(masteryRepo, USER, id, 10, 9); // mastery 0.9 → strong
+    }
+  }
+
+  it('uses 60/25 split for Needs Intensive Review', async () => {
+    await seedMixed(10, 10, 0);
+    const score = { overallReadiness: 30, status: 'Needs Intensive Review' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 10, focus: 0, reinforced: 0, ontrack: 0 } };
+    const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10, score);
+    const weakInTarget   = bp.targetConcepts.filter(n => n.startsWith('RD Weak'));
+    const mediumInTarget = bp.targetConcepts.filter(n => n.startsWith('RD Medium'));
+    expect(weakInTarget).toHaveLength(6);   // floor(10 * 0.60)
+    expect(mediumInTarget).toHaveLength(2); // floor(10 * 0.25)
+  });
+
+  it('uses 50/30 split for Developing (unchanged default)', async () => {
+    await seedMixed(10, 10, 0);
+    const score = { overallReadiness: 55, status: 'Developing' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 10, reinforced: 0, ontrack: 0 } };
+    const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10, score);
+    const weakInTarget   = bp.targetConcepts.filter(n => n.startsWith('RD Weak'));
+    const mediumInTarget = bp.targetConcepts.filter(n => n.startsWith('RD Medium'));
+    expect(weakInTarget).toHaveLength(5);   // floor(10 * 0.50)
+    expect(mediumInTarget).toHaveLength(3); // floor(10 * 0.30)
+  });
+
+  it('uses 40/35 split for Approaching Readiness', async () => {
+    await seedMixed(10, 10, 0);
+    const score = { overallReadiness: 75, status: 'Approaching Readiness' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 5, reinforced: 5, ontrack: 0 } };
+    const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10, score);
+    const weakInTarget   = bp.targetConcepts.filter(n => n.startsWith('RD Weak'));
+    const mediumInTarget = bp.targetConcepts.filter(n => n.startsWith('RD Medium'));
+    expect(weakInTarget).toHaveLength(4);   // floor(10 * 0.40)
+    expect(mediumInTarget).toHaveLength(3); // floor(10 * 0.35)
+  });
+
+  it('uses 30/40 split for Exam Ready', async () => {
+    await seedMixed(10, 10, 0);
+    const score = { overallReadiness: 90, status: 'Exam Ready' as const, components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 }, distribution: { priority: 0, focus: 0, reinforced: 5, ontrack: 5 } };
+    const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10, score);
+    const weakInTarget   = bp.targetConcepts.filter(n => n.startsWith('RD Weak'));
+    const mediumInTarget = bp.targetConcepts.filter(n => n.startsWith('RD Medium'));
+    expect(weakInTarget).toHaveLength(3);   // floor(10 * 0.30)
+    expect(mediumInTarget).toHaveLength(4); // floor(10 * 0.40)
+  });
+
+  it('falls back to Developing fractions when no readinessScore provided', async () => {
+    await seedMixed(10, 10, 0);
+    const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10);
+    const weakInTarget   = bp.targetConcepts.filter(n => n.startsWith('RD Weak'));
+    const mediumInTarget = bp.targetConcepts.filter(n => n.startsWith('RD Medium'));
+    expect(weakInTarget).toHaveLength(5);
+    expect(mediumInTarget).toHaveLength(3);
+  });
+
+  it('pre-fetched rows skip the internal findByUserId call', async () => {
+    await seedMixed(5, 5, 10);
+    // Fetch rows externally and pass them — service must use them, not re-fetch
+    const { InMemoryUserConceptMasteryRepository: R } = await import('../repositories/memory/UserConceptMasteryRepository.js');
+    const emptyRepo = new R(); // no rows — would return random if queried
+    const preRows = await masteryRepo.findByUserId(USER);
+    const bp = await new (await import('./AdaptiveExamService.js')).AdaptiveExamService(emptyRepo, concepts)
+      .buildAdaptiveBlueprint(USER, 10, undefined, preRows);
+    expect(bp.strategy).toBe('adaptive'); // used preRows, not emptyRepo
+  });
+});

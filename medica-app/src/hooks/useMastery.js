@@ -59,3 +59,25 @@ export function useMasteryConcept(conceptId) {
     [conceptId],
   )
 }
+
+export function useReadiness() {
+  return useApiCall(() => masteryApi.readiness())
+}
+
+export function useTopicReadiness(conceptId) {
+  return useApiCall(
+    () => (conceptId ? masteryApi.topicReadiness(conceptId) : Promise.resolve(null)),
+    [conceptId],
+  )
+}
+
+export function useMasterySubjects() {
+  return useApiCall(() => masteryApi.subjects())
+}
+
+export function useMasterySubjectConcepts(subject) {
+  return useApiCall(
+    () => (subject ? masteryApi.subjectConcepts(subject) : Promise.resolve(null)),
+    [subject],
+  )
+}
