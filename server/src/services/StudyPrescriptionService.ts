@@ -2,7 +2,7 @@ import type { IUserConceptMasteryRepository, IConceptsRepository } from '../repo
 import type {
   StudyPrescription, PrescriptionConcept, UserConceptMastery,
   ReadinessScore, ReadinessStatus, DailyStudyPlan, DailyPlanConceptReview,
-  Concept,
+  Concept, MasteryTier,
 } from '../types/index.js';
 import {
   MIN_FOR_ADAPTIVE, sortByWeakness, adaptiveDisabledReason,
@@ -74,7 +74,7 @@ function toConcept(row: UserConceptMastery, name: string, tier: 'priority' | 'fo
   };
 }
 
-type ReviewTier = 'priority' | 'focus' | 'reinforced';
+type ReviewTier = MasteryTier;
 
 interface PrescriptionBuild {
   rx: StudyPrescription;
@@ -85,14 +85,15 @@ interface PrescriptionBuild {
   }[];
 }
 
-function tierFor(score: number): ReviewTier | null {
+function tierFor(score: number): ReviewTier {
   if (score < TIER_PRIORITY_MAX)   return 'priority';
   if (score < TIER_FOCUS_MAX)      return 'focus';
   if (score < TIER_REINFORCED_MAX) return 'reinforced';
-  return null;
+  return 'ontrack';
 }
 
 function dailyReason(row: UserConceptMastery): string {
+  if (row.next_review_at && row.next_review_at.getTime() <= Date.now()) return 'Due for spaced review';
   if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count > 0 && row.confidence_score < 0.5) {
     return 'Low mastery, low confidence, and recent incorrect answers';
   }
@@ -135,7 +136,11 @@ export class StudyPrescriptionService {
     rows?:           UserConceptMastery[],
   ): Promise<DailyStudyPlan> {
     const { rx, candidates } = await this.buildPrescription(userId, readinessScore, rows);
+    const now = Date.now();
     const ranked = [...candidates].sort((a, b) => {
+      const aDue = a.row.next_review_at && a.row.next_review_at.getTime() <= now ? 0 : 1;
+      const bDue = b.row.next_review_at && b.row.next_review_at.getTime() <= now ? 0 : 1;
+      if (aDue !== bDue) return aDue - bDue;
       const tierDiff = tierRank(a.tier) - tierRank(b.tier);
       if (tierDiff !== 0) return tierDiff;
       if (a.row.mastery_score !== b.row.mastery_score) return a.row.mastery_score - b.row.mastery_score;
@@ -151,6 +156,8 @@ export class StudyPrescriptionService {
         subject:   concept.subject,
         priority:  tier,
         reason:    dailyReason(row),
+        nextReviewAt: row.next_review_at ? row.next_review_at.toISOString() : null,
+        reviewIntervalDays: row.review_interval_days,
       }));
 
     const focusSubjects = [...new Set(conceptReviews.map((r) => r.subject).filter(Boolean))].slice(0, 3);
@@ -204,7 +211,6 @@ export class StudyPrescriptionService {
       const name = concept.name;
 
       const tier = tierFor(row.mastery_score);
-      if (!tier) continue;
       candidates.push({ row, concept, tier });
 
       if (tier === 'priority') {
@@ -245,5 +251,6 @@ export class StudyPrescriptionService {
 function tierRank(tier: ReviewTier): number {
   if (tier === 'priority') return 0;
   if (tier === 'focus') return 1;
-  return 2;
+  if (tier === 'reinforced') return 2;
+  return 3;
 }

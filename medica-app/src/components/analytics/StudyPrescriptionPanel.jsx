@@ -3,6 +3,7 @@ import { useDailyStudyPlan, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
+  ontrack:    { label: 'On Track',   sub: 'Maintain with spaced review',    badgeClass: 'an-subj-badge--ontrack',    borderColor: 'var(--blue)'            },
   priority:   { label: 'Priority',   sub: 'Below passing threshold',        badgeClass: 'an-subj-badge--priority',   borderColor: 'var(--status-critical)' },
   focus:      { label: 'Focus',      sub: 'Developing — close to threshold', badgeClass: 'an-subj-badge--focus',      borderColor: 'var(--status-warn)'     },
   reinforced: { label: 'Reinforced', sub: 'Solid — maintain with review',   badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)'   },
@@ -83,6 +84,7 @@ function StatPill({ icon, value, label }) {
 
 function DailyPlanSummary({ plan }) {
   if (!plan) return null
+  const today = new Date().toISOString().slice(0, 10)
   return (
     <div className="spp-tier">
       <div className="spp-tier-hdr">
@@ -110,6 +112,10 @@ function DailyPlanSummary({ plan }) {
                 {item.subject && <span className="spp-subject-chip">{item.subject}</span>}
                 <span className="spp-name">{item.name}</span>
                 <span className="spp-rec">{item.reason}</span>
+                <span className="spp-rec">
+                  {item.nextReviewAt?.slice(0, 10) <= today ? 'Due Today' : `Next Review ${item.nextReviewAt?.slice(0, 10) || 'TBD'}`}
+                  {' '}· Interval {item.reviewIntervalDays} day{item.reviewIntervalDays !== 1 ? 's' : ''}
+                </span>
               </div>
               <span className={`an-subj-badge an-subj-badge--${item.priority}`}>
                 {TIER_CONFIG[item.priority]?.label ?? item.priority}

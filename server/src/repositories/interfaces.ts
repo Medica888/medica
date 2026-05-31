@@ -149,6 +149,7 @@ export interface IUserConceptMasteryRepository {
   /**
    * Increment attempt/correct counters and recompute mastery_score for each
    * (userId, conceptId) pair. Rows are created on first encounter.
+   * Also updates the concept's persisted spaced-repetition schedule.
    * Records for the same (userId, conceptId) within one call are pre-aggregated
    * by the caller; the DB upsert accumulates on top of existing totals.
    */

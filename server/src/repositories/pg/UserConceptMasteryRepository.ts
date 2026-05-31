@@ -10,6 +10,9 @@ interface MasteryRow extends QueryResultRow {
   mastery_score:          string; // pg returns numeric as string
   confidence_score:       string;
   recent_incorrect_count: number;
+  review_interval_days:   number;
+  next_review_at:         Date | null;
+  last_reviewed_at:       Date | null;
   last_seen_at:           Date;
   created_at:             Date;
   updated_at:             Date;
@@ -24,11 +27,40 @@ function toMastery(row: MasteryRow): UserConceptMastery {
     mastery_score:          Number(row.mastery_score),
     confidence_score:       Number(row.confidence_score),
     recent_incorrect_count: Number(row.recent_incorrect_count),
+    review_interval_days:   Number(row.review_interval_days),
+    next_review_at:         row.next_review_at ?? undefined,
+    last_reviewed_at:       row.last_reviewed_at ?? undefined,
     last_seen_at:           row.last_seen_at,
     created_at:             row.created_at,
     updated_at:             row.updated_at,
   };
 }
+
+const INSERT_INTERVAL_SQL = `
+  CASE
+    WHEN r < a THEN 1
+    WHEN a > 0 AND (r::numeric / a) < 0.65 THEN 1
+    WHEN a > 0 AND (r::numeric / a) < 0.75 THEN 2
+    WHEN a > 0 AND (r::numeric / a) < 0.85 THEN 4
+    ELSE 7
+  END
+`;
+
+const UPDATE_INTERVAL_SQL = `
+  CASE
+    WHEN EXCLUDED.correct < EXCLUDED.attempts THEN 1
+    WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
+         ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.65 THEN 1
+    WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
+         ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.75 THEN 2
+    WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
+         ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.85 THEN 4
+    ELSE 7
+  END
+`;
 
 export class PgUserConceptMasteryRepository implements IUserConceptMasteryRepository {
   constructor(private pool: Pool) {}
@@ -46,11 +78,15 @@ export class PgUserConceptMasteryRepository implements IUserConceptMasteryReposi
       `INSERT INTO user_concept_mastery
          (user_id, concept_id, attempts, correct,
           mastery_score, confidence_score, recent_incorrect_count,
+          review_interval_days, next_review_at, last_reviewed_at,
           last_seen_at, updated_at)
        SELECT u, c, a, r,
               CASE WHEN a > 0 THEN ROUND(r::numeric / a, 4) ELSE 0 END,
               ROUND(LEAST(a::numeric / 5, 1.0), 4),
               a - r,
+              ${INSERT_INTERVAL_SQL},
+              now() + (${INSERT_INTERVAL_SQL} * INTERVAL '1 day'),
+              now(),
               now(), now()
        FROM unnest($1::uuid[], $2::uuid[], $3::int[], $4::int[]) AS t(u, c, a, r)
        ON CONFLICT (user_id, concept_id) DO UPDATE SET
@@ -71,6 +107,9 @@ export class PgUserConceptMasteryRepository implements IUserConceptMasteryReposi
                                     4),
          recent_incorrect_count = (user_concept_mastery.attempts + EXCLUDED.attempts) -
                                   (user_concept_mastery.correct  + EXCLUDED.correct),
+         review_interval_days   = ${UPDATE_INTERVAL_SQL},
+         next_review_at         = now() + (${UPDATE_INTERVAL_SQL} * INTERVAL '1 day'),
+         last_reviewed_at       = now(),
          last_seen_at           = EXCLUDED.last_seen_at,
          updated_at             = EXCLUDED.updated_at`,
       [

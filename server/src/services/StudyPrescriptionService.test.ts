@@ -163,6 +163,35 @@ describe('StudyPrescriptionService - daily study plan', () => {
     expect(plan.focusSubjects).toContain('Nephrology');
     expect(plan.summary).toMatch(/concepts/);
   });
+
+  it('prioritizes concepts due today before non-due concepts', async () => {
+    const dueId = await seedConcept(concepts, 'daily-due', 'Daily Due');
+    const weakerId = await seedConcept(concepts, 'daily-weaker-not-due', 'Daily Weaker Not Due');
+    await seedMastery(mastery, USER, dueId, 10, 7);
+    await seedMastery(mastery, USER, weakerId, 10, 4);
+    await seedFillers(concepts, mastery, USER, MIN - 2, 1700);
+
+    const dueRow = (await mastery.findByUserAndConcept(USER, dueId))!;
+    const notDueRow = (await mastery.findByUserAndConcept(USER, weakerId))!;
+    dueRow.next_review_at = new Date(Date.now() - 60 * 60 * 1000);
+    notDueRow.next_review_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.conceptReviews[0]?.conceptId).toBe(dueId);
+    expect(plan.conceptReviews[0]?.reason).toMatch(/Due for spaced review/);
+  });
+
+  it('includes next review and interval fields in concept reviews', async () => {
+    const conceptId = await seedConcept(concepts, 'daily-srs-fields', 'Daily SRS Fields');
+    await seedMastery(mastery, USER, conceptId, 9, 6);
+    await seedMastery(mastery, USER, conceptId, 1, 1);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 1800);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.conceptId === conceptId);
+    expect(review?.nextReviewAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(review?.reviewIntervalDays).toBe(2);
+  });
 });
 
 // ── Adaptive (sufficient data) ────────────────────────────────────────────────

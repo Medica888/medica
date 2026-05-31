@@ -9,6 +9,18 @@ function computeScores(attempts: number, correct: number) {
   };
 }
 
+function intervalFor(masteryScore: number, batchAttempted: number, batchCorrect: number): number {
+  if (batchCorrect < batchAttempted) return 1;
+  if (masteryScore < 0.65) return 1;
+  if (masteryScore < 0.75) return 2;
+  if (masteryScore < 0.85) return 4;
+  return 7;
+}
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
 export class InMemoryUserConceptMasteryRepository implements IUserConceptMasteryRepository {
   // Key: "userId:conceptId"
   private store = new Map<string, UserConceptMastery>();
@@ -20,27 +32,38 @@ export class InMemoryUserConceptMasteryRepository implements IUserConceptMastery
     for (const rec of records) {
       const key = `${rec.userId}:${rec.conceptId}`;
       const existing = this.store.get(key);
+      const now = new Date();
       if (existing) {
         const newAttempts = existing.attempts + rec.attempted;
         const newCorrect  = existing.correct  + rec.correct;
+        const scores = computeScores(newAttempts, newCorrect);
+        const reviewInterval = intervalFor(scores.mastery_score, rec.attempted, rec.correct);
         this.store.set(key, {
           ...existing,
           attempts: newAttempts,
           correct:  newCorrect,
-          ...computeScores(newAttempts, newCorrect),
-          last_seen_at: new Date(),
-          updated_at:   new Date(),
+          ...scores,
+          review_interval_days: reviewInterval,
+          next_review_at:       addDays(now, reviewInterval),
+          last_reviewed_at:     now,
+          last_seen_at:         now,
+          updated_at:           now,
         });
       } else {
+        const scores = computeScores(rec.attempted, rec.correct);
+        const reviewInterval = intervalFor(scores.mastery_score, rec.attempted, rec.correct);
         this.store.set(key, {
           user_id:    rec.userId,
           concept_id: rec.conceptId,
           attempts:   rec.attempted,
           correct:    rec.correct,
-          ...computeScores(rec.attempted, rec.correct),
-          last_seen_at: new Date(),
-          created_at:   new Date(),
-          updated_at:   new Date(),
+          ...scores,
+          review_interval_days: reviewInterval,
+          next_review_at:       addDays(now, reviewInterval),
+          last_reviewed_at:     now,
+          last_seen_at:         now,
+          created_at:           now,
+          updated_at:           now,
         });
       }
     }

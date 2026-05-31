@@ -117,6 +117,9 @@ export interface UserConceptMastery {
   mastery_score:          number;
   confidence_score:       number;
   recent_incorrect_count: number;
+  review_interval_days:   number;
+  next_review_at?:        Date;
+  last_reviewed_at?:      Date;
   last_seen_at:           Date;
   created_at:             Date;
   updated_at:             Date;
@@ -320,11 +323,13 @@ export interface StudyPrescription {
 }
 
 export interface DailyPlanConceptReview {
-  conceptId: string;
-  name:      string;
-  subject:   string;
-  priority:  'priority' | 'focus' | 'reinforced';
-  reason:    string;
+  conceptId:          string;
+  name:               string;
+  subject:            string;
+  priority:           MasteryTier;
+  reason:             string;
+  nextReviewAt?:      string | null;
+  reviewIntervalDays: number;
 }
 
 export interface DailyStudyPlan {

@@ -28,6 +28,11 @@ async function seedLink(
   await qc.linkMany([{ questionId, conceptId, weight: 1.0 }]);
 }
 
+function daysUntil(date?: Date): number {
+  if (!date) return -1;
+  return Math.round((date.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ConceptMasteryService', () => {
@@ -56,6 +61,9 @@ describe('ConceptMasteryService', () => {
     expect(row!.mastery_score).toBe(1);
     expect(row!.recent_incorrect_count).toBe(0);
     expect(row!.confidence_score).toBe(0.2); // 1/5
+    expect(row!.review_interval_days).toBe(7);
+    expect(daysUntil(row!.next_review_at)).toBe(7);
+    expect(row!.last_reviewed_at).toBeInstanceOf(Date);
   });
 
   it('creates a mastery row on first wrong answer', async () => {
@@ -70,6 +78,8 @@ describe('ConceptMasteryService', () => {
     expect(row!.mastery_score).toBe(0);
     expect(row!.recent_incorrect_count).toBe(1);
     expect(row!.confidence_score).toBe(0.2); // 1/5
+    expect(row!.review_interval_days).toBe(1);
+    expect(daysUntil(row!.next_review_at)).toBe(1);
   });
 
   it('accumulates attempts and correct across two sessions', async () => {
@@ -177,5 +187,55 @@ describe('ConceptMasteryService', () => {
     const rows = await masteryRepo.findByUserId(USER_A);
     expect(rows).toHaveLength(2);
     expect(rows[0]!.mastery_score).toBeGreaterThanOrEqual(rows[1]!.mastery_score);
+  });
+
+  it('incorrect answers reset the SRS interval to 1 day', async () => {
+    const conceptId = await seedConcept(concepts, 'srs-reset', 'SRS Reset');
+    await seedLink(qcRepo, 'q-srs-reset', conceptId);
+
+    await service.updateFromSession(USER_A, [{ questionDbId: 'q-srs-reset', isCorrect: true }]);
+    let row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.review_interval_days).toBe(7);
+
+    await service.updateFromSession(USER_A, [{ questionDbId: 'q-srs-reset', isCorrect: false }]);
+    row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.review_interval_days).toBe(1);
+    expect(daysUntil(row!.next_review_at)).toBe(1);
+  });
+
+  it('correct answers expand interval by mastery tier', async () => {
+    const priority = await seedConcept(concepts, 'srs-priority', 'SRS Priority');
+    const focus = await seedConcept(concepts, 'srs-focus', 'SRS Focus');
+    const reinforced = await seedConcept(concepts, 'srs-reinforced', 'SRS Reinforced');
+    const ontrack = await seedConcept(concepts, 'srs-ontrack', 'SRS On Track');
+
+    await masteryRepo.upsertMany([
+      { userId: USER_A, conceptId: priority, attempted: 9, correct: 5 },
+      { userId: USER_A, conceptId: focus, attempted: 9, correct: 6 },
+      { userId: USER_A, conceptId: reinforced, attempted: 9, correct: 7 },
+      { userId: USER_A, conceptId: ontrack, attempted: 9, correct: 8 },
+    ]);
+    await masteryRepo.upsertMany([
+      { userId: USER_A, conceptId: priority, attempted: 1, correct: 1 },
+      { userId: USER_A, conceptId: focus, attempted: 1, correct: 1 },
+      { userId: USER_A, conceptId: reinforced, attempted: 1, correct: 1 },
+      { userId: USER_A, conceptId: ontrack, attempted: 1, correct: 1 },
+    ]);
+
+    expect((await masteryRepo.findByUserAndConcept(USER_A, priority))!.review_interval_days).toBe(1);
+    expect((await masteryRepo.findByUserAndConcept(USER_A, focus))!.review_interval_days).toBe(2);
+    expect((await masteryRepo.findByUserAndConcept(USER_A, reinforced))!.review_interval_days).toBe(4);
+    expect((await masteryRepo.findByUserAndConcept(USER_A, ontrack))!.review_interval_days).toBe(7);
+  });
+
+  it('persists SRS timestamps on repository rows', async () => {
+    const conceptId = await seedConcept(concepts, 'srs-persist', 'SRS Persist');
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 4, correct: 3 }]);
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 1, correct: 1 }]);
+
+    const row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.review_interval_days).toBe(4);
+    expect(row!.next_review_at).toBeInstanceOf(Date);
+    expect(row!.last_reviewed_at).toBeInstanceOf(Date);
   });
 });

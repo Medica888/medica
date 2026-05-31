@@ -157,6 +157,8 @@ const DAILY_PLAN_DATA = {
       subject: 'Pharmacology',
       priority: 'priority',
       reason: 'Low mastery and recent incorrect answers',
+      nextReviewAt: '2026-05-31T00:00:00.000Z',
+      reviewIntervalDays: 1,
     },
   ],
   focusSubjects: ['Pharmacology'],
@@ -400,6 +402,7 @@ describe('StudyPrescriptionPanel daily plan render', () => {
     expect(screen.getByText('Focus today on weak pharmacology concepts.')).toBeTruthy()
     expect(screen.getAllByText('ACE Inhibitors').length).toBeGreaterThan(0)
     expect(screen.getByText('Low mastery and recent incorrect answers')).toBeTruthy()
+    expect(screen.getByText(/Interval 1 day/)).toBeTruthy()
   })
 
   it('renders the daily plan empty state alongside insufficient prescription data', async () => {
