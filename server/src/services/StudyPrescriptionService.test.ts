@@ -13,9 +13,10 @@ async function seedConcept(
   slug: string,
   name: string,
   parentId?: string,
+  subject = 'Pharmacology',
 ): Promise<string> {
   const c = await concepts.upsertBySlug(slug, {
-    name, subject: 'Pharmacology', system: 'Cardiovascular', parent_concept_id: parentId,
+    name, subject, system: 'Cardiovascular', parent_concept_id: parentId,
   });
   return c.id;
 }
@@ -70,6 +71,97 @@ describe('StudyPrescriptionService — disabled (insufficient data)', () => {
     const rx = await makeService(mastery, concepts).getPrescription(USER);
     expect(rx.enabled).toBe(false);
     expect(rx.reason).toMatch(/Only 19/);
+  });
+});
+
+describe('StudyPrescriptionService - daily study plan', () => {
+  let mastery:  InMemoryUserConceptMasteryRepository;
+  let concepts: InMemoryConceptsRepository;
+  const score = {
+    overallReadiness: 62,
+    status: 'Developing' as const,
+    components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 },
+    distribution: { priority: 0, focus: 0, reinforced: 0, ontrack: 0 },
+  };
+
+  beforeEach(() => {
+    mastery = new InMemoryUserConceptMasteryRepository();
+    concepts = new InMemoryConceptsRepository();
+  });
+
+  it('returns an empty concept review plan when there is no mastery data', async () => {
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(plan.readinessStatus).toBe('Developing');
+    expect(plan.conceptReviews).toHaveLength(0);
+    expect(plan.focusSubjects).toHaveLength(0);
+    expect(plan.summary).toMatch(/No urgent concept reviews/);
+  });
+
+  it('ranks priority concepts before focus and reinforced concepts', async () => {
+    const focusId = await seedConcept(concepts, 'daily-focus', 'Daily Focus');
+    const priorityId = await seedConcept(concepts, 'daily-priority', 'Daily Priority');
+    const reinforcedId = await seedConcept(concepts, 'daily-reinforced', 'Daily Reinforced');
+    await seedMastery(mastery, USER, focusId, 20, 13);
+    await seedMastery(mastery, USER, priorityId, 5, 1);
+    await seedMastery(mastery, USER, reinforcedId, 20, 15);
+    await seedFillers(concepts, mastery, USER, MIN - 3, 1200);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.conceptReviews[0]?.conceptId).toBe(priorityId);
+    expect(plan.conceptReviews[0]?.priority).toBe('priority');
+  });
+
+  it('uses mastery, confidence, and recent incorrects to break ranking ties', async () => {
+    const c1 = await seedConcept(concepts, 'daily-tie-high-conf', 'High Confidence Tie');
+    const c2 = await seedConcept(concepts, 'daily-tie-low-conf', 'Low Confidence Tie');
+    const c3 = await seedConcept(concepts, 'daily-tie-more-wrong', 'More Wrong Tie');
+    await seedMastery(mastery, USER, c1, 10, 5);
+    await seedMastery(mastery, USER, c2, 2, 1);
+    await seedMastery(mastery, USER, c3, 10, 5);
+    await seedFillers(concepts, mastery, USER, MIN - 3, 1300);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const ids = plan.conceptReviews.map((r) => r.conceptId);
+    expect(ids.indexOf(c2)).toBeLessThan(ids.indexOf(c1));
+    expect(ids).toContain(c3);
+  });
+
+  it('caps concept reviews at 5', async () => {
+    for (let i = 0; i < 8; i++) {
+      const id = await seedConcept(concepts, `daily-cap-${i}`, `Daily Cap ${i}`);
+      await seedMastery(mastery, USER, id, 5, 0);
+    }
+    await seedFillers(concepts, mastery, USER, MIN - 8, 1400);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.conceptReviews).toHaveLength(5);
+  });
+
+  it('estimates time from questions, flashcards, and concept reviews', async () => {
+    const c1 = await seedConcept(concepts, 'daily-est-p', 'Daily Est P');
+    const c2 = await seedConcept(concepts, 'daily-est-f', 'Daily Est F');
+    await seedMastery(mastery, USER, c1, 2, 0);
+    await seedMastery(mastery, USER, c2, 20, 13);
+    await seedFillers(concepts, mastery, USER, MIN - 2, 1500);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.estimatedMinutes).toBe(
+      plan.recommendedQuestions * 2 + plan.recommendedFlashcards + plan.conceptReviews.length * 3,
+    );
+  });
+
+  it('derives focus subjects from selected concept reviews', async () => {
+    const c1 = await seedConcept(concepts, 'daily-subject-pharm', 'Daily Pharm', undefined, 'Pharmacology');
+    const c2 = await seedConcept(concepts, 'daily-subject-renal', 'Daily Renal', undefined, 'Nephrology');
+    await seedMastery(mastery, USER, c1, 2, 0);
+    await seedMastery(mastery, USER, c2, 3, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 2, 1600);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(plan.focusSubjects).toContain('Pharmacology');
+    expect(plan.focusSubjects).toContain('Nephrology');
+    expect(plan.summary).toMatch(/concepts/);
   });
 });
 

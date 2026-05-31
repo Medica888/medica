@@ -319,6 +319,25 @@ export interface StudyPrescription {
   recommendedFlashcards: number;                // capped at 30
 }
 
+export interface DailyPlanConceptReview {
+  conceptId: string;
+  name:      string;
+  subject:   string;
+  priority:  'priority' | 'focus' | 'reinforced';
+  reason:    string;
+}
+
+export interface DailyStudyPlan {
+  date:                  string; // YYYY-MM-DD
+  readinessStatus:       ReadinessStatus;
+  estimatedMinutes:      number;
+  recommendedQuestions:  number;
+  recommendedFlashcards: number;
+  conceptReviews:        DailyPlanConceptReview[];
+  focusSubjects:         string[];
+  summary:               string;
+}
+
 export interface AdaptiveFlashcardPlan {
   strategy:             AdaptiveStrategy;
   enabled:              boolean;

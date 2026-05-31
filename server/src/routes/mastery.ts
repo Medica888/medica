@@ -127,6 +127,20 @@ router.get('/prescription', async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.get('/daily-plan', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, concepts, masterySnapshots } = getRepositories();
+    const rows  = await userConceptMastery.findByUserId(req.userId!);
+    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots)
+      .getReadiness(req.userId!, rows);
+    const plan = await new StudyPrescriptionService(userConceptMastery, concepts)
+      .getDailyPlan(req.userId!, score, rows);
+    res.json(plan);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/progress', async (req: AuthRequest, res: Response) => {
   try {
     const { userConceptMastery, masterySnapshots } = getRepositories();

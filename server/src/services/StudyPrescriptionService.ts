@@ -1,7 +1,8 @@
 import type { IUserConceptMasteryRepository, IConceptsRepository } from '../repositories/interfaces.js';
 import type {
   StudyPrescription, PrescriptionConcept, UserConceptMastery,
-  ReadinessScore, ReadinessStatus,
+  ReadinessScore, ReadinessStatus, DailyStudyPlan, DailyPlanConceptReview,
+  Concept,
 } from '../types/index.js';
 import {
   MIN_FOR_ADAPTIVE, sortByWeakness, adaptiveDisabledReason,
@@ -28,6 +29,10 @@ const Q_PER_FOCUS        = 3;
 const FC_PER_PRIORITY    = 3;
 const FC_PER_FOCUS       = 2;
 const FC_PER_REINFORCED  = 1;
+const DAILY_REVIEW_CAP   = 5;
+const MIN_PER_QUESTION   = 2;
+const MIN_PER_FLASHCARD  = 1;
+const MIN_PER_REVIEW     = 3;
 
 const RANDOM_PRESCRIPTION: StudyPrescription = {
   strategy:              'random',
@@ -69,6 +74,47 @@ function toConcept(row: UserConceptMastery, name: string, tier: 'priority' | 'fo
   };
 }
 
+type ReviewTier = 'priority' | 'focus' | 'reinforced';
+
+interface PrescriptionBuild {
+  rx: StudyPrescription;
+  candidates: {
+    row: UserConceptMastery;
+    concept: Concept;
+    tier: ReviewTier;
+  }[];
+}
+
+function tierFor(score: number): ReviewTier | null {
+  if (score < TIER_PRIORITY_MAX)   return 'priority';
+  if (score < TIER_FOCUS_MAX)      return 'focus';
+  if (score < TIER_REINFORCED_MAX) return 'reinforced';
+  return null;
+}
+
+function dailyReason(row: UserConceptMastery): string {
+  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count > 0 && row.confidence_score < 0.5) {
+    return 'Low mastery, low confidence, and recent incorrect answers';
+  }
+  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count > 0) {
+    return 'Low mastery and recent incorrect answers';
+  }
+  if (row.mastery_score < TIER_PRIORITY_MAX) return 'Low mastery needs targeted review';
+  if (row.confidence_score < 0.5) return 'Developing concept with low confidence';
+  if (row.recent_incorrect_count > 0) return 'Recent incorrect answers need reinforcement';
+  return 'Developing concept needs spaced reinforcement';
+}
+
+function summarizeDailyPlan(reviews: DailyPlanConceptReview[]): string {
+  if (!reviews.length) return 'No urgent concept reviews today. Maintain progress with light mixed practice.';
+  const subjects = [...new Set(reviews.map((r) => r.subject).filter(Boolean))];
+  const primary = subjects.slice(0, 2).join(' and ');
+  const priorityCount = reviews.filter((r) => r.priority === 'priority').length;
+  if (primary && priorityCount > 0) return `Focus today on weak ${primary} concepts.`;
+  if (primary) return `Reinforce developing ${primary} concepts today.`;
+  return 'Focus today on your weakest tracked concepts.';
+}
+
 export class StudyPrescriptionService {
   constructor(
     private mastery:  IUserConceptMasteryRepository,
@@ -80,12 +126,65 @@ export class StudyPrescriptionService {
     readinessScore?: ReadinessScore,
     rows?:           UserConceptMastery[],
   ): Promise<StudyPrescription> {
+    return (await this.buildPrescription(userId, readinessScore, rows)).rx;
+  }
+
+  async getDailyPlan(
+    userId:          string,
+    readinessScore:  ReadinessScore,
+    rows?:           UserConceptMastery[],
+  ): Promise<DailyStudyPlan> {
+    const { rx, candidates } = await this.buildPrescription(userId, readinessScore, rows);
+    const ranked = [...candidates].sort((a, b) => {
+      const tierDiff = tierRank(a.tier) - tierRank(b.tier);
+      if (tierDiff !== 0) return tierDiff;
+      if (a.row.mastery_score !== b.row.mastery_score) return a.row.mastery_score - b.row.mastery_score;
+      if (a.row.confidence_score !== b.row.confidence_score) return a.row.confidence_score - b.row.confidence_score;
+      return b.row.recent_incorrect_count - a.row.recent_incorrect_count;
+    });
+
+    const conceptReviews: DailyPlanConceptReview[] = ranked
+      .slice(0, DAILY_REVIEW_CAP)
+      .map(({ row, concept, tier }) => ({
+        conceptId: concept.id,
+        name:      concept.name,
+        subject:   concept.subject,
+        priority:  tier,
+        reason:    dailyReason(row),
+      }));
+
+    const focusSubjects = [...new Set(conceptReviews.map((r) => r.subject).filter(Boolean))].slice(0, 3);
+    const estimatedMinutes =
+      rx.recommendedQuestions  * MIN_PER_QUESTION +
+      rx.recommendedFlashcards * MIN_PER_FLASHCARD +
+      conceptReviews.length    * MIN_PER_REVIEW;
+
+    return {
+      date:                  new Date().toISOString().slice(0, 10),
+      readinessStatus:       readinessScore.status,
+      estimatedMinutes,
+      recommendedQuestions:  rx.recommendedQuestions,
+      recommendedFlashcards: rx.recommendedFlashcards,
+      conceptReviews,
+      focusSubjects,
+      summary:               summarizeDailyPlan(conceptReviews),
+    };
+  }
+
+  private async buildPrescription(
+    userId:          string,
+    readinessScore?: ReadinessScore,
+    rows?:           UserConceptMastery[],
+  ): Promise<PrescriptionBuild> {
     const masteryRows = rows ?? await this.mastery.findByUserId(userId);
 
     if (masteryRows.length < MIN_FOR_ADAPTIVE) {
       return {
-        ...RANDOM_PRESCRIPTION,
-        reason: adaptiveDisabledReason(masteryRows.length),
+        rx: {
+          ...RANDOM_PRESCRIPTION,
+          reason: adaptiveDisabledReason(masteryRows.length),
+        },
+        candidates: [],
       };
     }
 
@@ -97,18 +196,22 @@ export class StudyPrescriptionService {
     const priority:   PrescriptionConcept[] = [];
     const focus:      PrescriptionConcept[] = [];
     const reinforced: PrescriptionConcept[] = [];
+    const candidates: PrescriptionBuild['candidates'] = [];
 
     for (const row of sorted) {
       const concept = conceptMap.get(row.concept_id);
-      const name    = concept?.name;
-      if (!name) continue;
+      if (!concept) continue;
+      const name = concept.name;
 
-      const s = row.mastery_score;
-      if (s < TIER_PRIORITY_MAX) {
+      const tier = tierFor(row.mastery_score);
+      if (!tier) continue;
+      candidates.push({ row, concept, tier });
+
+      if (tier === 'priority') {
         if (priority.length < caps.priority) priority.push(toConcept(row, name, 'priority', concept?.subject));
-      } else if (s < TIER_FOCUS_MAX) {
+      } else if (tier === 'focus') {
         if (focus.length < caps.focus) focus.push(toConcept(row, name, 'focus', concept?.subject));
-      } else if (s < TIER_REINFORCED_MAX) {
+      } else if (tier === 'reinforced') {
         if (reinforced.length < caps.reinforced) reinforced.push(toConcept(row, name, 'reinforced', concept?.subject));
       }
     }
@@ -124,14 +227,23 @@ export class StudyPrescriptionService {
     );
 
     return {
-      strategy:  'adaptive',
-      enabled:   true,
-      priority,
-      focus,
-      reinforced,
-      estimatedStudyTime,
-      recommendedQuestions,
-      recommendedFlashcards,
+      rx: {
+        strategy:  'adaptive',
+        enabled:   true,
+        priority,
+        focus,
+        reinforced,
+        estimatedStudyTime,
+        recommendedQuestions,
+        recommendedFlashcards,
+      },
+      candidates,
     };
   }
+}
+
+function tierRank(tier: ReviewTier): number {
+  if (tier === 'priority') return 0;
+  if (tier === 'focus') return 1;
+  return 2;
 }

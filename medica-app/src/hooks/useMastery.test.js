@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
-import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useReadiness, useTopicReadiness, useMasterySubjects, useMasterySubjectConcepts } from './useMastery'
+import { createElement } from 'react'
+import { render, renderHook, screen, waitFor } from '@testing-library/react'
+import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useReadiness, useTopicReadiness, useMasterySubjects, useMasterySubjectConcepts, useDailyStudyPlan } from './useMastery'
+import StudyPrescriptionPanel from '../components/analytics/StudyPrescriptionPanel'
 
 // Mock the entire apiClient module
 vi.mock('../lib/apiClient', () => ({
@@ -12,6 +14,8 @@ vi.mock('../lib/apiClient', () => ({
     concept:                   vi.fn(),
     adaptivePreview:           vi.fn(),
     adaptiveFlashcardsPreview: vi.fn(),
+    prescription:              vi.fn(),
+    dailyPlan:                 vi.fn(),
     readiness:                 vi.fn(),
     topicReadiness:            vi.fn(),
     subjects:                  vi.fn(),
@@ -140,6 +144,25 @@ const TOPIC_RD_DATA = {
   recommendation: 'Developing — continue practice with varied question angles.',
 }
 
+const DAILY_PLAN_DATA = {
+  date: '2026-05-31',
+  readinessStatus: 'Developing',
+  estimatedMinutes: 45,
+  recommendedQuestions: 12,
+  recommendedFlashcards: 8,
+  conceptReviews: [
+    {
+      conceptId: 'c1',
+      name: 'ACE Inhibitors',
+      subject: 'Pharmacology',
+      priority: 'priority',
+      reason: 'Low mastery and recent incorrect answers',
+    },
+  ],
+  focusSubjects: ['Pharmacology'],
+  summary: 'Focus today on weak pharmacology concepts.',
+}
+
 describe('useReadiness', () => {
   it('returns loading=true initially', () => {
     apiClient.getAuthToken.mockReturnValue('tok')
@@ -208,6 +231,24 @@ describe('useTopicReadiness', () => {
     apiClient.getAuthToken.mockReturnValue(null)
     renderHook(() => useTopicReadiness('c1'))
     expect(apiClient.mastery.topicReadiness).not.toHaveBeenCalled()
+  })
+})
+
+describe('useDailyStudyPlan', () => {
+  it('returns daily plan data on success', async () => {
+    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.mastery.dailyPlan.mockResolvedValue(DAILY_PLAN_DATA)
+    const { result } = renderHook(() => useDailyStudyPlan())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.data).toEqual(DAILY_PLAN_DATA)
+    expect(apiClient.mastery.dailyPlan).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips fetch when no auth token', async () => {
+    apiClient.getAuthToken.mockReturnValue(null)
+    const { result } = renderHook(() => useDailyStudyPlan())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(apiClient.mastery.dailyPlan).not.toHaveBeenCalled()
   })
 })
 
@@ -323,5 +364,68 @@ describe('useMasterySubjectConcepts', () => {
     const { result } = renderHook(() => useMasterySubjectConcepts('Pharmacology'))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.error).toBe(err)
+  })
+})
+
+const PRESCRIPTION_DATA = {
+  strategy: 'adaptive',
+  enabled: true,
+  priority: [
+    {
+      name: 'ACE Inhibitors',
+      subject: 'Pharmacology',
+      masteryScore: 0.3,
+      confidence: 0.4,
+      attempts: 4,
+      recentIncorrect: 2,
+      recommendation: 'Below passing threshold',
+    },
+  ],
+  focus: [],
+  reinforced: [],
+  estimatedStudyTime: 5,
+  recommendedQuestions: 5,
+  recommendedFlashcards: 3,
+}
+
+describe('StudyPrescriptionPanel daily plan render', () => {
+  it('shows the daily plan at the top of the existing prescription panel', async () => {
+    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.mastery.prescription.mockResolvedValue(PRESCRIPTION_DATA)
+    apiClient.mastery.dailyPlan.mockResolvedValue(DAILY_PLAN_DATA)
+
+    render(createElement(StudyPrescriptionPanel))
+
+    await waitFor(() => expect(screen.getByText('Today')).toBeTruthy())
+    expect(screen.getByText('Focus today on weak pharmacology concepts.')).toBeTruthy()
+    expect(screen.getAllByText('ACE Inhibitors').length).toBeGreaterThan(0)
+    expect(screen.getByText('Low mastery and recent incorrect answers')).toBeTruthy()
+  })
+
+  it('renders the daily plan empty state alongside insufficient prescription data', async () => {
+    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.mastery.prescription.mockResolvedValue({
+      strategy: 'random',
+      enabled: false,
+      reason: 'Only 0 concept(s) tracked',
+      priority: [],
+      focus: [],
+      reinforced: [],
+      estimatedStudyTime: 0,
+      recommendedQuestions: 10,
+      recommendedFlashcards: 10,
+    })
+    apiClient.mastery.dailyPlan.mockResolvedValue({
+      ...DAILY_PLAN_DATA,
+      estimatedMinutes: 30,
+      conceptReviews: [],
+      focusSubjects: [],
+      summary: 'No urgent concept reviews today. Maintain progress with light mixed practice.',
+    })
+
+    render(createElement(StudyPrescriptionPanel))
+
+    await waitFor(() => expect(screen.getByText('No urgent concept reviews today. Maintain progress with light mixed practice.')).toBeTruthy())
+    expect(screen.getByText('Only 0 concept(s) tracked')).toBeTruthy()
   })
 })

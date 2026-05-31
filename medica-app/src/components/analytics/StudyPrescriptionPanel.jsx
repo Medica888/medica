@@ -1,5 +1,5 @@
 import { getAuthToken } from '../../lib/apiClient'
-import { useStudyPrescription } from '../../hooks/useMastery'
+import { useDailyStudyPlan, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
@@ -81,11 +81,53 @@ function StatPill({ icon, value, label }) {
   )
 }
 
+function DailyPlanSummary({ plan }) {
+  if (!plan) return null
+  return (
+    <div className="spp-tier">
+      <div className="spp-tier-hdr">
+        <span className="an-subj-badge an-subj-badge--priority">Today</span>
+        <span className="spp-tier-sub">{plan.summary}</span>
+        <span className="spp-tier-count">{plan.readinessStatus}</span>
+      </div>
+      <div className="spp-stats">
+        <StatPill icon="?" value={plan.recommendedQuestions} label="questions" />
+        <StatPill icon="F" value={plan.recommendedFlashcards} label="flashcards" />
+        <StatPill icon="T" value={`${plan.estimatedMinutes} min`} label="today" />
+      </div>
+      {plan.focusSubjects?.length > 0 && (
+        <div className="cdm-chips">
+          {plan.focusSubjects.map(subject => (
+            <span key={subject} className="spp-subject-chip">{subject}</span>
+          ))}
+        </div>
+      )}
+      {plan.conceptReviews?.length > 0 && (
+        <div className="spp-tier-body" style={{ borderLeftColor: 'var(--status-critical)' }}>
+          {plan.conceptReviews.map(item => (
+            <div key={item.conceptId} className="spp-row">
+              <div className="spp-row-main">
+                {item.subject && <span className="spp-subject-chip">{item.subject}</span>}
+                <span className="spp-name">{item.name}</span>
+                <span className="spp-rec">{item.reason}</span>
+              </div>
+              <span className={`an-subj-badge an-subj-badge--${item.priority}`}>
+                {TIER_CONFIG[item.priority]?.label ?? item.priority}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function StudyPrescriptionPanel() {
   const { data: rx, loading, error } = useStudyPrescription()
+  const { data: dailyPlan, loading: planLoading, error: planError } = useDailyStudyPlan()
 
   if (!getAuthToken()) return null
-  if (loading) return (
+  if (loading || planLoading) return (
     <div className="an-intel-card spp-panel">
       <div className="an-intel-card-title">Study Prescription</div>
       <div className="mp-skeleton-rows">
@@ -95,12 +137,14 @@ export default function StudyPrescriptionPanel() {
   )
   // Silent on 401/403 — anonymous or expired session
   if (error?.status === 401 || error?.status === 403) return null
+  if (planError?.status === 401 || planError?.status === 403) return null
 
   if (!rx?.enabled) {
     if (!rx) return null
     return (
       <div className="an-intel-card spp-panel">
         <div className="an-intel-card-title">Study Prescription</div>
+        <DailyPlanSummary plan={dailyPlan} />
         <p className="an-intel-muted">
           {rx.reason ?? 'Complete more sessions to generate a personalized study prescription.'}
         </p>
@@ -119,6 +163,8 @@ export default function StudyPrescriptionPanel() {
         </div>
         <span className="spp-strategy-badge">Adaptive</span>
       </div>
+
+      <DailyPlanSummary plan={dailyPlan} />
 
       {/* Summary stats */}
       <div className="spp-stats">

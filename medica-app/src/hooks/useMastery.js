@@ -45,6 +45,10 @@ export function useStudyPrescription() {
   return useApiCall(() => masteryApi.prescription())
 }
 
+export function useDailyStudyPlan() {
+  return useApiCall(() => masteryApi.dailyPlan())
+}
+
 export function useMasteryProgress() {
   return useApiCall(() => masteryApi.progress())
 }
