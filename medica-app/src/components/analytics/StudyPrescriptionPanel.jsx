@@ -1,4 +1,5 @@
-import { getAuthToken } from '../../lib/apiClient'
+import { useState } from 'react'
+import { getAuthToken, mastery as masteryApi } from '../../lib/apiClient'
 import { useDailyStudyPlan, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
@@ -7,6 +8,23 @@ const TIER_CONFIG = {
   priority:   { label: 'Priority',   sub: 'Below passing threshold',        badgeClass: 'an-subj-badge--priority',   borderColor: 'var(--status-critical)' },
   focus:      { label: 'Focus',      sub: 'Developing — close to threshold', badgeClass: 'an-subj-badge--focus',      borderColor: 'var(--status-warn)'     },
   reinforced: { label: 'Reinforced', sub: 'Solid — maintain with review',   badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)'   },
+}
+
+const EASE_META = [
+  { result: 'again', label: 'Again', color: 'var(--status-critical)' },
+  { result: 'hard',  label: 'Hard',  color: 'var(--status-warn)'     },
+  { result: 'good',  label: 'Good',  color: 'var(--status-stable)'   },
+  { result: 'easy',  label: 'Easy',  color: 'var(--blue)'            },
+]
+
+function previewInterval(current, ease) {
+  switch (ease) {
+    case 'again': return 1
+    case 'hard':  return Math.max(current, 1)
+    case 'good':  return Math.max(Math.round(current * 1.5), 1)
+    case 'easy':  return Math.min(current * 2, 30)
+    default:      return current
+  }
 }
 
 function MasteryPct({ score }) {
@@ -83,8 +101,30 @@ function StatPill({ icon, value, label }) {
 }
 
 function DailyPlanSummary({ plan }) {
+  const [dismissed, setDismissed] = useState(() => new Set())
+  const [pending,   setPending]   = useState(() => new Set())
+  const [errors,    setErrors]    = useState(() => new Map())
+
   if (!plan) return null
+
   const today = new Date().toISOString().slice(0, 10)
+
+  const handleEase = async (conceptId, currentInterval, result) => {
+    if (pending.has(conceptId)) return
+    setPending(prev => new Set([...prev, conceptId]))
+    setErrors(prev => { const m = new Map(prev); m.delete(conceptId); return m })
+    try {
+      await masteryApi.reviewConcept(conceptId, result)
+      setDismissed(prev => new Set([...prev, conceptId]))
+    } catch {
+      setErrors(prev => new Map([...prev, [conceptId, 'Review failed — try again']]))
+    } finally {
+      setPending(prev => { const s = new Set(prev); s.delete(conceptId); return s })
+    }
+  }
+
+  const visibleReviews = plan.conceptReviews?.filter(item => !dismissed.has(item.conceptId)) ?? []
+
   return (
     <div className="spp-tier">
       <div className="spp-tier-hdr">
@@ -104,24 +144,44 @@ function DailyPlanSummary({ plan }) {
           ))}
         </div>
       )}
-      {plan.conceptReviews?.length > 0 && (
+      {visibleReviews.length > 0 && (
         <div className="spp-tier-body" style={{ borderLeftColor: 'var(--status-critical)' }}>
-          {plan.conceptReviews.map(item => (
-            <div key={item.conceptId} className="spp-row">
-              <div className="spp-row-main">
-                {item.subject && <span className="spp-subject-chip">{item.subject}</span>}
-                <span className="spp-name">{item.name}</span>
-                <span className="spp-rec">{item.reason}</span>
-                <span className="spp-rec">
-                  {item.nextReviewAt?.slice(0, 10) <= today ? 'Due Today' : `Next Review ${item.nextReviewAt?.slice(0, 10) || 'TBD'}`}
-                  {' '}· Interval {item.reviewIntervalDays} day{item.reviewIntervalDays !== 1 ? 's' : ''}
+          {visibleReviews.map(item => {
+            const isPending = pending.has(item.conceptId)
+            const errorMsg  = errors.get(item.conceptId)
+            return (
+              <div key={item.conceptId} className="spp-row">
+                <div className="spp-row-main">
+                  {item.subject && <span className="spp-subject-chip">{item.subject}</span>}
+                  <span className="spp-name">{item.name}</span>
+                  <span className="spp-rec">{item.reason}</span>
+                  <span className="spp-rec">
+                    {item.nextReviewAt?.slice(0, 10) <= today ? 'Due Today' : `Next Review ${item.nextReviewAt?.slice(0, 10) || 'TBD'}`}
+                    {' '}· Interval {item.reviewIntervalDays} day{item.reviewIntervalDays !== 1 ? 's' : ''}
+                  </span>
+                  <div className="spp-ease-row" role="group" aria-label={`Rate review for ${item.name}`}>
+                    {EASE_META.map(({ result, label, color }) => (
+                      <button
+                        key={result}
+                        type="button"
+                        className="spp-ease-btn"
+                        disabled={isPending}
+                        onClick={() => handleEase(item.conceptId, item.reviewIntervalDays, result)}
+                        aria-label={`${label} — ${previewInterval(item.reviewIntervalDays, result)}d`}
+                      >
+                        <span className="spp-ease-label" style={{ color }}>{label}</span>
+                        <span className="spp-ease-interval">{previewInterval(item.reviewIntervalDays, result)}d</span>
+                      </button>
+                    ))}
+                  </div>
+                  {errorMsg && <span className="spp-ease-error" role="alert">{errorMsg}</span>}
+                </div>
+                <span className={`an-subj-badge an-subj-badge--${item.priority}`}>
+                  {TIER_CONFIG[item.priority]?.label ?? item.priority}
                 </span>
               </div>
-              <span className={`an-subj-badge an-subj-badge--${item.priority}`}>
-                {TIER_CONFIG[item.priority]?.label ?? item.priority}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

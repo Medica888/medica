@@ -105,6 +105,12 @@ export const mastery = {
     request('GET', '/api/mastery/subjects'),
   subjectConcepts: (subject) =>
     request('GET', `/api/mastery/subjects/${encodeURIComponent(subject)}/concepts`),
+
+  reviewConcept: (conceptId, result) =>
+    request('POST', `/api/mastery/concept/${conceptId}/review`, { result }),
+
+  dueReviews: () =>
+    request('GET', '/api/mastery/reviews/due'),
 };
 
 // ── Generate ──────────────────────────────────────────────────────────────

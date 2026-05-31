@@ -239,3 +239,200 @@ describe('ConceptMasteryService', () => {
     expect(row!.last_reviewed_at).toBeInstanceOf(Date);
   });
 });
+
+// ── findDueForReview ──────────────────────────────────────────────────────────
+
+describe('findDueForReview', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+  });
+
+  function daysFromNow(n: number): Date {
+    return new Date(Date.now() + n * 24 * 60 * 60 * 1000);
+  }
+
+  it('returns rows where next_review_at is on or before asOf', async () => {
+    const c1 = 'concept-due-1';
+    const c2 = 'concept-due-2';
+    await masteryRepo.upsertMany([
+      { userId: USER_A, conceptId: c1, attempted: 5, correct: 5 }, // next_review_at ~ now+7
+      { userId: USER_A, conceptId: c2, attempted: 5, correct: 5 }, // next_review_at ~ now+7
+    ]);
+
+    // Pass asOf = 8 days from now → both rows are due
+    const rows = await masteryRepo.findDueForReview(USER_A, daysFromNow(8));
+    expect(rows).toHaveLength(2);
+  });
+
+  it('excludes rows where next_review_at is in the future relative to asOf', async () => {
+    const conceptId = 'concept-future';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    // next_review_at = now + 7 days; asOf = now + 3 days → not yet due
+    const rows = await masteryRepo.findDueForReview(USER_A, daysFromNow(3));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('excludes rows where next_review_at is null', async () => {
+    // upsertMany always sets next_review_at, so we test via a row that has never
+    // been upserted — which means it doesn't exist. Null is the DB default for
+    // rows that somehow lack the column (migration guard). findDueForReview
+    // explicitly filters IS NOT NULL, so we verify empty result for a fresh repo.
+    const rows = await masteryRepo.findDueForReview(USER_A, daysFromNow(30));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('returns empty array when user has no mastery rows', async () => {
+    const rows = await masteryRepo.findDueForReview('unknown-user', daysFromNow(30));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('orders results by next_review_at ascending', async () => {
+    // c1 gets interval=7, c2 gets interval=1 (wrong answer → shorter interval)
+    const c1 = 'concept-order-1';
+    const c2 = 'concept-order-2';
+    await masteryRepo.upsertMany([
+      { userId: USER_A, conceptId: c1, attempted: 5, correct: 5 }, // interval 7
+      { userId: USER_A, conceptId: c2, attempted: 1, correct: 0 }, // interval 1
+    ]);
+
+    // Both due in 8 days
+    const rows = await masteryRepo.findDueForReview(USER_A, daysFromNow(8));
+    expect(rows).toHaveLength(2);
+    // c2 (interval 1, earlier next_review_at) should come first
+    expect(rows[0]!.concept_id).toBe(c2);
+    expect(rows[1]!.concept_id).toBe(c1);
+  });
+
+  it('is isolated between users', async () => {
+    const conceptId = 'concept-user-iso-due';
+    await masteryRepo.upsertMany([
+      { userId: USER_A, conceptId, attempted: 5, correct: 5 },
+      { userId: USER_B, conceptId, attempted: 5, correct: 5 },
+    ]);
+
+    const rowsA = await masteryRepo.findDueForReview(USER_A, daysFromNow(8));
+    const rowsB = await masteryRepo.findDueForReview(USER_B, daysFromNow(8));
+    expect(rowsA).toHaveLength(1);
+    expect(rowsB).toHaveLength(1);
+    expect(rowsA[0]!.user_id).toBe(USER_A);
+    expect(rowsB[0]!.user_id).toBe(USER_B);
+  });
+});
+
+// ── scheduleReview ────────────────────────────────────────────────────────────
+
+describe('scheduleReview', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+  });
+
+  it('again resets interval to 1 regardless of current value', async () => {
+    const conceptId = 'c-again';
+    // Start at interval 7 (full correct history)
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(before!.review_interval_days).toBe(7);
+
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'again');
+    expect(result).not.toBeNull();
+    expect(result!.reviewIntervalDays).toBe(1);
+    expect(daysUntil(result!.nextReviewAt!)).toBe(1);
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.review_interval_days).toBe(1);
+  });
+
+  it('hard preserves current interval', async () => {
+    const conceptId = 'c-hard';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    const originalInterval = before!.review_interval_days; // 7
+
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'hard');
+    expect(result!.reviewIntervalDays).toBe(originalInterval);
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.review_interval_days).toBe(originalInterval);
+  });
+
+  it('good increases interval by 1.5× (rounded)', async () => {
+    const conceptId = 'c-good';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(before!.review_interval_days).toBe(7);
+
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'good');
+    expect(result!.reviewIntervalDays).toBe(Math.max(Math.round(7 * 1.5), 1)); // 11
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.review_interval_days).toBe(11);
+  });
+
+  it('easy doubles interval', async () => {
+    const conceptId = 'c-easy';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(before!.review_interval_days).toBe(7);
+
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'easy');
+    expect(result!.reviewIntervalDays).toBe(14);
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.review_interval_days).toBe(14);
+  });
+
+  it('easy caps at 30 days', async () => {
+    const conceptId = 'c-easy-cap';
+    // Reach interval 30 by chaining easy reviews
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    // 7 → easy → 14 → easy → 28 → easy → 30 (cap)
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy'); // 14
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy'); // 28
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'easy'); // 30 (cap from 56)
+    expect(result!.reviewIntervalDays).toBe(30);
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.review_interval_days).toBe(30);
+  });
+
+  it('scheduleReview never modifies mastery metrics', async () => {
+    const conceptId = 'c-no-contaminate';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 4, correct: 3 }]);
+
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    const { mastery_score, confidence_score, attempts, correct, recent_incorrect_count } = before!;
+
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy');
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'again');
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'good');
+
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(after!.mastery_score).toBe(mastery_score);
+    expect(after!.confidence_score).toBe(confidence_score);
+    expect(after!.attempts).toBe(attempts);
+    expect(after!.correct).toBe(correct);
+    expect(after!.recent_incorrect_count).toBe(recent_incorrect_count);
+  });
+
+  it('returns null when no mastery row exists for the concept', async () => {
+    const result = await masteryRepo.scheduleReview(USER_A, 'nonexistent-concept-id', 'good');
+    expect(result).toBeNull();
+  });
+
+  it('isolates schedule updates between users', async () => {
+    const conceptId = 'c-user-iso';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    await masteryRepo.upsertMany([{ userId: USER_B, conceptId, attempted: 5, correct: 5 }]);
+
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'again'); // A → interval 1
+
+    const rowA = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    const rowB = await masteryRepo.findByUserAndConcept(USER_B, conceptId);
+    expect(rowA!.review_interval_days).toBe(1);
+    expect(rowB!.review_interval_days).toBe(7); // untouched
+  });
+});

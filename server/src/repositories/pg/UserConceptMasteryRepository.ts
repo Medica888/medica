@@ -129,11 +129,59 @@ export class PgUserConceptMasteryRepository implements IUserConceptMasteryReposi
     return res.rows.map(toMastery);
   }
 
+  async findDueForReview(userId: string, asOf?: Date): Promise<UserConceptMastery[]> {
+    const cutoff = asOf ?? new Date();
+    const res = await this.pool.query<MasteryRow>(
+      `SELECT * FROM user_concept_mastery
+       WHERE user_id = $1
+         AND next_review_at IS NOT NULL
+         AND next_review_at <= $2
+       ORDER BY next_review_at ASC
+       LIMIT 100`,
+      [userId, cutoff],
+    );
+    return res.rows.map(toMastery);
+  }
+
   async findByUserAndConcept(userId: string, conceptId: string): Promise<UserConceptMastery | null> {
     const res = await this.pool.query<MasteryRow>(
       'SELECT * FROM user_concept_mastery WHERE user_id = $1 AND concept_id = $2',
       [userId, conceptId],
     );
     return res.rows[0] ? toMastery(res.rows[0]) : null;
+  }
+
+  async scheduleReview(
+    userId: string,
+    conceptId: string,
+    ease: 'again' | 'hard' | 'good' | 'easy',
+  ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null> {
+    // All CASE branches reference the OLD review_interval_days (pre-update) — correct behaviour.
+    const res = await this.pool.query<{ review_interval_days: number; next_review_at: Date | null }>(
+      `UPDATE user_concept_mastery
+       SET
+         review_interval_days = CASE $3
+           WHEN 'again' THEN 1
+           WHEN 'hard'  THEN GREATEST(review_interval_days, 1)
+           WHEN 'good'  THEN GREATEST(ROUND(review_interval_days::numeric * 1.5)::int, 1)
+           WHEN 'easy'  THEN LEAST(review_interval_days * 2, 30)
+         END,
+         next_review_at = now() + CASE $3
+           WHEN 'again' THEN INTERVAL '1 day'
+           WHEN 'hard'  THEN GREATEST(review_interval_days, 1)          * INTERVAL '1 day'
+           WHEN 'good'  THEN GREATEST(ROUND(review_interval_days::numeric * 1.5)::int, 1) * INTERVAL '1 day'
+           WHEN 'easy'  THEN LEAST(review_interval_days * 2, 30)        * INTERVAL '1 day'
+         END,
+         last_reviewed_at = now(),
+         updated_at       = now()
+       WHERE user_id = $1 AND concept_id = $2
+       RETURNING review_interval_days, next_review_at`,
+      [userId, conceptId, ease],
+    );
+    if (!res.rows[0]) return null;
+    return {
+      reviewIntervalDays: Number(res.rows[0].review_interval_days),
+      nextReviewAt:       res.rows[0].next_review_at ?? null,
+    };
   }
 }

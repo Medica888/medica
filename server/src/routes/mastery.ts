@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import type { Response } from 'express';
-import { MasteryQueryService } from '../services/MasteryQueryService.js';
+import { MasteryQueryService, masteryTier } from '../services/MasteryQueryService.js';
 import { ConceptHierarchyService } from '../services/ConceptHierarchyService.js';
 import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
 import { StudyPrescriptionService } from '../services/StudyPrescriptionService.js';
 import { ProgressTrackingService } from '../services/ProgressTrackingService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { reviewConceptSchema } from '../schemas/mastery.js';
 import { getRepositories } from '../repositories/index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -239,6 +241,54 @@ router.get('/concept/:id', async (req: AuthRequest, res: Response) => {
     const data = await getService().getConceptDetail(req.userId!, id);
     if (!data) return res.status(404).json({ error: 'Concept not found' });
     res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/reviews/due', async (req: AuthRequest, res: Response) => {
+  try {
+    const { userConceptMastery, concepts } = getRepositories();
+    const rows = await userConceptMastery.findDueForReview(req.userId!);
+    if (!rows.length) return res.json({ reviews: [], total: 0 });
+
+    const conceptMap = new Map(
+      (await concepts.findManyById(rows.map((r) => r.concept_id))).map((c) => [c.id, c]),
+    );
+
+    const reviews = rows.flatMap((row) => {
+      const concept = conceptMap.get(row.concept_id);
+      if (!concept) return [];
+      return [{
+        conceptId:          row.concept_id,
+        name:               concept.name,
+        subject:            concept.subject,
+        priority:           masteryTier(row.mastery_score),
+        reviewIntervalDays: row.review_interval_days,
+        nextReviewAt:       row.next_review_at?.toISOString() ?? null,
+      }];
+    });
+
+    res.json({ reviews, total: reviews.length });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/concept/:id/review', validate(reviewConceptSchema), async (req: AuthRequest, res: Response) => {
+  const id = String(req.params['id']);
+  if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Concept not found' });
+  try {
+    const { result } = req.body as { result: 'again' | 'hard' | 'good' | 'easy' };
+    const { userConceptMastery } = getRepositories();
+    const updated = await userConceptMastery.scheduleReview(req.userId!, id, result);
+    if (!updated) return res.status(404).json({ error: 'No mastery record found for this concept' });
+    res.json({
+      conceptId:         id,
+      result,
+      reviewIntervalDays: updated.reviewIntervalDays,
+      nextReviewAt:      updated.nextReviewAt?.toISOString() ?? null,
+    });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

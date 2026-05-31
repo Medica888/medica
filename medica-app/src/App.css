@@ -7268,3 +7268,20 @@ html, body, #root {
   font-size: 10.5px; color: var(--t4); margin: 0;
   padding-top: 8px; border-top: 1px solid var(--border-s);
 }
+
+/* Ease review buttons (Phase 5.3) */
+.spp-ease-row {
+  display: flex; gap: 5px; padding-top: 7px;
+}
+.spp-ease-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 3px; border-radius: 5px;
+  background: var(--bg); border: 1px solid var(--border-s);
+  cursor: pointer; font-family: inherit;
+  transition: background .12s, border-color .12s;
+}
+.spp-ease-btn:hover:not(:disabled) { background: var(--bg-1); border-color: var(--border); }
+.spp-ease-btn:disabled { opacity: .42; cursor: not-allowed; }
+.spp-ease-label   { font-size: 9.5px; font-weight: 700; line-height: 1.2; }
+.spp-ease-interval { font-size: 8.5px; color: var(--t4); line-height: 1.3; }
+.spp-ease-error   { font-size: 10px; color: var(--status-critical); padding-top: 3px; }

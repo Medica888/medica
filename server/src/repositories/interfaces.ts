@@ -160,4 +160,23 @@ export interface IUserConceptMasteryRepository {
 
   findByUserId(userId: string): Promise<UserConceptMastery[]>;
   findByUserAndConcept(userId: string, conceptId: string): Promise<UserConceptMastery | null>;
+
+  /**
+   * Returns mastery rows where next_review_at is not null and falls on or before
+   * `asOf` (defaults to now). Ordered by next_review_at ascending.
+   * Capped at 100 rows.
+   */
+  findDueForReview(userId: string, asOf?: Date): Promise<UserConceptMastery[]>;
+
+  /**
+   * Update ONLY the SRS scheduling fields for a concept the user just reviewed.
+   * Never touches mastery_score, confidence_score, attempts, correct, or
+   * recent_incorrect_count — those remain driven by objective exam performance.
+   * Returns the new schedule, or null if no mastery row exists for this pair.
+   */
+  scheduleReview(
+    userId: string,
+    conceptId: string,
+    ease: 'again' | 'hard' | 'good' | 'easy',
+  ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null>;
 }

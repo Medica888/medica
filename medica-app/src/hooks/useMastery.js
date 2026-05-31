@@ -85,3 +85,7 @@ export function useMasterySubjectConcepts(subject) {
     [subject],
   )
 }
+
+export function useDueReviews() {
+  return useApiCall(() => masteryApi.dueReviews())
+}

@@ -75,8 +75,47 @@ export class InMemoryUserConceptMasteryRepository implements IUserConceptMastery
       .sort((a, b) => b.mastery_score - a.mastery_score);
   }
 
+  async findDueForReview(userId: string, asOf?: Date): Promise<UserConceptMastery[]> {
+    const cutoff = asOf ?? new Date();
+    return [...this.store.values()]
+      .filter((m) => m.user_id === userId && m.next_review_at != null && m.next_review_at <= cutoff)
+      .sort((a, b) => (a.next_review_at?.getTime() ?? 0) - (b.next_review_at?.getTime() ?? 0))
+      .slice(0, 100);
+  }
+
   async findByUserAndConcept(userId: string, conceptId: string): Promise<UserConceptMastery | null> {
     return this.store.get(`${userId}:${conceptId}`) ?? null;
+  }
+
+  async scheduleReview(
+    userId: string,
+    conceptId: string,
+    ease: 'again' | 'hard' | 'good' | 'easy',
+  ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null> {
+    const key = `${userId}:${conceptId}`;
+    const existing = this.store.get(key);
+    if (!existing) return null;
+
+    const cur = existing.review_interval_days;
+    const newInterval =
+      ease === 'again' ? 1 :
+      ease === 'hard'  ? Math.max(cur, 1) :
+      ease === 'good'  ? Math.max(Math.round(cur * 1.5), 1) :
+      Math.min(cur * 2, 30); // easy
+
+    const now = new Date();
+    const nextReviewAt = addDays(now, newInterval);
+
+    this.store.set(key, {
+      ...existing,
+      review_interval_days: newInterval,
+      next_review_at:       nextReviewAt,
+      last_reviewed_at:     now,
+      updated_at:           now,
+      // mastery_score, confidence_score, attempts, correct, recent_incorrect_count untouched
+    });
+
+    return { reviewIntervalDays: newInterval, nextReviewAt };
   }
 
   _getAll(): UserConceptMastery[] {
