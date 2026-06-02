@@ -1,4 +1,4 @@
-import { SYSTEMS } from '../../lib/quizTypes'
+import { SYSTEMS, getSystemLabel } from '../../lib/quizTypes'
 
 /** @param {{ value: string, onChange: (v: string) => void }} props */
 export default function SystemSelector({ value, onChange }) {
@@ -14,7 +14,7 @@ export default function SystemSelector({ value, onChange }) {
             onClick={() => onChange(s)}
             aria-pressed={value === s}
           >
-            {s}
+            {getSystemLabel(s)}
           </button>
         ))}
       </div>

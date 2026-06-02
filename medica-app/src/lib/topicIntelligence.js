@@ -231,7 +231,7 @@ export function getCanonicalTopic(rawTopic, subject, system) {
 
 /**
  * Builds full topic metadata from a quiz config.
- * Uses config.topic (or config.coachSpecificTopic as fallback) as the raw input.
+ * Uses config.topic as the raw input.
  * Returns an object with rawTopic, canonicalTopic, topicSlug, subject, system, topicSource.
  * If no topic is entered, all fields are empty and topicSource is 'auto'.
  * @param {import('./quizTypes').QuizConfig} config
@@ -246,7 +246,7 @@ export function getCanonicalTopic(rawTopic, subject, system) {
  */
 export function buildTopicMetadata(config) {
   const rawTopic = normalizeTopicText(
-    config.topic || config.coachSpecificTopic || ''
+    config.topic || ''
   )
 
   // Strip default dropdown sentinels so they never pollute metadata
@@ -348,9 +348,8 @@ export function resolveFlashcardTopicMetadata(question, session) {
     s.rawTopic             ||
     s.canonicalTopic       ||
     s.topic                ||
-    sc.rawTopic            ||
-    sc.topic               ||
-    sc.coachSpecificTopic  ||
+    sc.rawTopic ||
+    sc.topic    ||
     ''
 
   // Canonical — use question's if already set (most reliable), else compute

@@ -228,11 +228,11 @@ export function normalizeGenerationConfig(config) {
 
 /**
  * Resolves the generation scope from a quiz config using the priority chain:
- * clinicalFocus > coachSpecificTopic > rawTopic > topic > system > subject > global
+ * clinicalFocus > rawTopic > topic > system > subject > global
  *
  * @param {object} config
  * @returns {{
- *   scopeType: 'clinicalFocus'|'coachSpecificTopic'|'manualTopic'|'selectedTopic'|'system'|'subject'|'global',
+ *   scopeType: 'clinicalFocus'|'manualTopic'|'selectedTopic'|'system'|'subject'|'global',
  *   scopeText: string,
  *   subject: string,
  *   system: string,
@@ -246,23 +246,21 @@ export function normalizeGenerationConfig(config) {
  */
 export function resolveGenerationScope(config) {
   const {
-    clinicalFocus      = '',
-    coachSpecificTopic = '',
-    rawTopic           = '',
-    topic              = '',
-    canonicalTopic     = '',
-    topicSlug          = '',
-    topicSource        = '',
-    subject            = '',
-    system             = '',
+    clinicalFocus = '',
+    rawTopic      = '',
+    topic         = '',
+    canonicalTopic = '',
+    topicSlug     = '',
+    topicSource   = '',
+    subject       = '',
+    system        = '',
   } = config || {}
 
-  const cf  = String(clinicalFocus      || '').trim()
-  const cst = String(coachSpecificTopic || '').trim()
-  const rt  = String(rawTopic           || '').trim()
-  const t   = String(topic              || '').trim()
-  const sys = String(system             || '').trim()
-  const sub = String(subject            || '').trim()
+  const cf  = String(clinicalFocus || '').trim()
+  const rt  = String(rawTopic      || '').trim()
+  const t   = String(topic         || '').trim()
+  const sys = String(system        || '').trim()
+  const sub = String(subject       || '').trim()
 
   const base = {
     subject:        isEmptySelection(sub) ? '' : sub,
@@ -273,10 +271,9 @@ export function resolveGenerationScope(config) {
     topicSource:    String(topicSource    || '').trim(),
   }
 
-  if (cf)  return { ...base, scopeType: 'clinicalFocus',      scopeText: cf,  topic: cf,  priorityReason: 'clinicalFocus overrides all other scope selectors' }
-  if (cst) return { ...base, scopeType: 'coachSpecificTopic', scopeText: cst, topic: cst, priorityReason: 'coachSpecificTopic is the explicit coach override' }
-  if (rt)  return { ...base, scopeType: 'manualTopic',        scopeText: rt,  topic: rt,  priorityReason: 'rawTopic from topic intelligence (user-typed topic)' }
-  if (t)   return { ...base, scopeType: 'selectedTopic',      scopeText: t,   topic: t,   priorityReason: 'topic field from config (user-selected topic)' }
+  if (cf) return { ...base, scopeType: 'clinicalFocus', scopeText: cf, topic: cf, priorityReason: 'clinicalFocus overrides all other scope selectors' }
+  if (rt) return { ...base, scopeType: 'manualTopic',   scopeText: rt, topic: rt, priorityReason: 'rawTopic from topic intelligence (user-typed topic)' }
+  if (t)  return { ...base, scopeType: 'selectedTopic', scopeText: t,  topic: t,  priorityReason: 'topic field from config (user-selected topic)' }
   if (sys && !isEmptySelection(sys)) return { ...base, scopeType: 'system',  scopeText: sys, topic: '', priorityReason: 'system selected in config' }
   if (sub && !isEmptySelection(sub)) return { ...base, scopeType: 'subject', scopeText: sub, topic: '', priorityReason: 'subject selected in config' }
 
@@ -295,7 +292,7 @@ export function resolveGenerationScope(config) {
  * @param {{ scopeType: string }} scope
  */
 export function isSpecificScope(scope) {
-  return ['clinicalFocus', 'coachSpecificTopic', 'manualTopic', 'selectedTopic'].includes(scope?.scopeType)
+  return ['clinicalFocus', 'manualTopic', 'selectedTopic'].includes(scope?.scopeType)
 }
 
 /**

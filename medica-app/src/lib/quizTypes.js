@@ -9,7 +9,6 @@
  * @property {3|5|10|20|40} questionCount
  * @property {string} difficulty
  * @property {string} clinicalFocus
- * @property {string} [coachSpecificTopic]
  * @property {string} createdAt
  *
  * @typedef {'A'|'B'|'C'|'D'} OptionLetter
@@ -28,6 +27,10 @@
  * @property {OptionLetter} correct
  * @property {string} explanation
  * @property {string} pearl
+ * @property {string} [usmleContentArea]
+ * @property {string} [usmleSubdomain]
+ * @property {string} [physicianTask]
+ * @property {string} [questionAngle]
  *
  * @typedef {Object} QuizSession
  * @property {string} id
@@ -51,6 +54,15 @@ export const SYSTEMS = [
   'Psychiatry', 'Musculoskeletal', 'Dermatology', 'Hematology',
   'Oncology', 'Immunology', 'Infectious Disease', 'Multisystem',
 ]
+
+export const SYSTEM_LABELS = {
+  'All Systems': 'Mixed / All Systems',
+  Multisystem: 'General Principles / Multisystem',
+}
+
+export function getSystemLabel(system) {
+  return SYSTEM_LABELS[system] || system
+}
 
 export const DIFFICULTIES = [
   { id: 'Balanced',         desc: 'Mixed standard Step 1 difficulty.' },
@@ -112,6 +124,5 @@ export const DEFAULT_CONFIG = {
   questionCount: 10,
   difficulty: 'Balanced',
   clinicalFocus: '',
-  coachSpecificTopic: '',
   blockType: '',
 }

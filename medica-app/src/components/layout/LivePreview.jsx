@@ -1,4 +1,4 @@
-import { MODE_FEATURES } from '../../lib/quizTypes'
+import { MODE_FEATURES, getSystemLabel } from '../../lib/quizTypes'
 
 const MODE_NOTES = {
   exam:     (n) => `This ${n}-question timed block simulates board-style USMLE testing conditions.`,
@@ -8,7 +8,7 @@ const MODE_NOTES = {
 
 /** @param {{ config: import('../../lib/quizTypes').QuizConfig }} props */
 export default function LivePreview({ config }) {
-  const { mode, subject, system, topic, questionCount, difficulty, coachSpecificTopic } = config
+  const { mode, subject, system, topic, questionCount, difficulty } = config
   const timed    = mode === 'exam'
   const features = MODE_FEATURES[mode] || []
 
@@ -29,11 +29,8 @@ export default function LivePreview({ config }) {
 
         <div className="lp-rows">
           <Row label="Subject"    value={subject} />
-          <Row label="System"     value={system} />
+          <Row label="System"     value={getSystemLabel(system)} />
           <Row label="Topic" value={topic || 'Auto-selected (high-yield)'} />
-          {mode === 'coach' && coachSpecificTopic && (
-            <Row label="Coach focus" value={coachSpecificTopic} />
-          )}
           <Row label="Questions"  value={`${questionCount} questions`} />
           <Row label="Time"       value={timeLabel} />
           <Row label="Difficulty" value={difficulty} />
