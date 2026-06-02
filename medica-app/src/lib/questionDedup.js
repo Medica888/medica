@@ -1,6 +1,6 @@
 /**
  * Question deduplication and cross-session exclusion utilities.
- * All functions are pure — no side effects, no imports from storage or API layers.
+ * All functions are pure - no side effects, no imports from storage or API layers.
  */
 
 export function getBaseQuestionId(id) {
