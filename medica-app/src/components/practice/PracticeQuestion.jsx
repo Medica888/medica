@@ -1,6 +1,8 @@
-import { normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
+import { useState } from 'react'
+import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
 import PracticeAnswerOption from './PracticeAnswerOption'
 import PracticeExplanationPanel from './PracticeExplanationPanel'
+import { saveQuestionReport } from '../../lib/storage'
 
 /**
  * @param {{
@@ -14,15 +16,23 @@ import PracticeExplanationPanel from './PracticeExplanationPanel'
  */
 export default function PracticeQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer }) {
   const options = normalizeOptions(question.options)
-  const normalizedCorrect = normalizeAnswerLetter(question.correct)
-  const isCorrect = answered === normalizedCorrect
+  const normalizedCorrect  = getQuestionCorrectLetter(question)
+  const normalizedAnswered = normalizeAnswerLetter(answered)
+  const isCorrect = normalizedAnswered === normalizedCorrect
+  const [reportReason, setReportReason] = useState('wrong_answer')
+  const [reported, setReported] = useState(false)
 
   const getOptionState = (opt) => {
-    if (!answered) return 'default'
-    if (!revealed) return opt.letter === answered ? 'selected' : 'default'
+    if (!normalizedAnswered) return 'default'
+    if (!revealed) return opt.letter === normalizedAnswered ? 'selected' : 'default'
     if (opt.letter === normalizedCorrect) return 'correct'
-    if (opt.letter === answered && !isCorrect) return 'wrong'
+    if (opt.letter === normalizedAnswered && !isCorrect) return 'wrong'
     return 'neutral'
+  }
+
+  const handleReport = () => {
+    const saved = saveQuestionReport(question, reportReason, { mode: 'practice' })
+    if (saved) setReported(true)
   }
 
   return (
@@ -36,6 +46,23 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
 
       <div className="pi-stem">
         <p>{question.stem}</p>
+      </div>
+
+      <div className="question-report-row">
+        <select
+          className="question-report-select"
+          value={reportReason}
+          onChange={e => { setReportReason(e.target.value); setReported(false) }}
+          aria-label="Report question reason"
+        >
+          <option value="wrong_answer">Wrong answer</option>
+          <option value="bad_explanation">Bad explanation</option>
+          <option value="off_topic">Off topic</option>
+        </select>
+        <button type="button" className="question-report-btn" onClick={handleReport}>
+          Report
+        </button>
+        {reported && <span className="question-report-status">Saved</span>}
       </div>
 
       <div className="pi-options" role="group" aria-label="Answer options">

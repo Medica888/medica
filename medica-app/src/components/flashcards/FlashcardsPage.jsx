@@ -18,6 +18,27 @@ const TAG_COLORS = {
   Pearl:     { background: 'rgba(15,173,111,.1)', color: 'var(--green)'  },
 }
 
+function conceptPrompt(card) {
+  const concept = card?.testedConcept || card?.concept || card?.topicGroup || card?.weakSpotCategory || ''
+  const currentPrompt = getClinicalPrompt(card)
+  const shouldRepairPrompt =
+    card?.generationMethod === 'stemExtraction' ||
+    /\b(which management approach|most appropriate next|most likely mechanism for (?:his|her|this|the)|best explains|which of the following)\b/i.test(currentPrompt)
+
+  if (!concept || !shouldRepairPrompt) return currentPrompt
+  const dash = concept.indexOf(' — ')
+  if (dash > -1) {
+    const left = concept.slice(0, dash).trim()
+    const right = concept.slice(dash + 3).trim()
+    if (left && right) return `In ${left}, what clinical mechanism explains ${right}?`
+  }
+  return `What clinical mechanism explains ${concept}?`
+}
+
+function cardAnswer(card) {
+  return getCoreMechanism(card)
+}
+
 const STATUS_COLOR = {
   new:      '#2E64C8',
   learning: 'var(--status-warn)',
@@ -577,7 +598,7 @@ export default function FlashcardsPage({ onNavigate }) {
                   ))}
                 </div>
                 <span className="fc-rev-card-prompt-label">{card.cardCategory || CARD_PROMPT_LABEL[card.tag] || 'High-Yield Recall'}</span>
-                <p className="fc-rev-question">{getClinicalPrompt(card)}</p>
+                <p className="fc-rev-question">{conceptPrompt(card)}</p>
                 {!flipped ? (
                   <>
                     <div className="fc-rev-divider" />
@@ -592,7 +613,7 @@ export default function FlashcardsPage({ onNavigate }) {
                   <>
                     <div className="fc-rev-divider"/>
                     <span className="fc-rev-card-answer-label">{CARD_ANSWER_LABEL[card.tag] || 'Core Mechanism'}</span>
-                    <p className="fc-rev-answer">{getCoreMechanism(card)}</p>
+                    <p className="fc-rev-answer">{cardAnswer(card)}</p>
                     {card.memoryAnchor && (
                       <div className="fc-rev-card-anchor">
                         <span className="fc-rev-card-anchor-label">Memory Anchor</span>
@@ -1103,8 +1124,8 @@ export default function FlashcardsPage({ onNavigate }) {
                     <div className="fc-card-item-left">
                       <div className="fc-card-accent-bar"/>
                       <div className="fc-card-item-body">
-                        <p className="fc-card-front">{card.front}</p>
-                        {!isExpanded && <p className="fc-card-back-preview">{card.back}</p>}
+                        <p className="fc-card-front">{conceptPrompt(card)}</p>
+                        {!isExpanded && <p className="fc-card-back-preview">{cardAnswer(card)}</p>}
                         {metaParts.length > 0 && (
                           <p className="fc-meta-line">{metaParts.join(' · ')}</p>
                         )}
@@ -1135,7 +1156,7 @@ export default function FlashcardsPage({ onNavigate }) {
                   {isExpanded && (
                     <div className="fc-card-item-answer">
                       <div className="fc-card-item-divider"/>
-                      <p className="fc-card-back-full">{card.back}</p>
+                      <p className="fc-card-back-full">{cardAnswer(card)}</p>
                     </div>
                   )}
                 </div>

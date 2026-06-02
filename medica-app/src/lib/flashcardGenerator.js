@@ -1,5 +1,6 @@
 import { resolveFlashcardTopicMetadata, slugifyTopic } from './topicIntelligence.js'
-import { normalizeAnswerLetter } from './answerNormalize.js'
+import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js'
+import { validateClinicalCard } from './flashcardValidator.js'
 
 /**
  * @typedef {{
@@ -36,7 +37,7 @@ function getUserAnswer(session, questionId) {
 }
 
 function getCorrectAnswer(q) {
-  return normalizeAnswerLetter(q.correctAnswer ?? q.correct)
+  return getQuestionCorrectLetter(q)
 }
 
 function getMissedQuestions(session) {
@@ -259,20 +260,27 @@ function getQueryConcept(concept) {
  * @param {string} [stem]   — q.stem
  * @returns {{ front: string, method: string, category: string }}
  */
-function buildRecallFront(concept, stem) {
-  const stemQ = extractStemQuestion(stem)
-  if (stemQ) return { front: stemQ, method: 'stemExtraction', category: 'Board Recall' }
-
+function buildRecallFront(concept) {
   if (!concept) return { front: 'What mechanism is tested in this clinical scenario?', method: 'fallback', category: 'Mechanism' }
 
-  // Dash format: "Drug — aspect" → "What is the aspect of Drug?"
-  // Only fires when right side is a clinical aspect, not a disease name.
+  // Dash format: "Concept - subconcept" becomes a standalone concept card.
+  // Do not reuse the vignette's final question as the flashcard prompt.
   const dash = concept.indexOf(' — ')
   if (dash > -1) {
     const left  = concept.slice(0, dash).trim()
     const right = concept.slice(dash + 3).trim()
-    if (DASH_ASPECT_RE.test(right)) {
-      return { front: `What is the ${right} of ${left}?`, method: 'dashFormat', category: 'Classic board association' }
+    const rightPrompt = /\bmechanism\b/i.test(right)
+      ? right
+          .replace(/\bmechanism\s+of\b/ig, '')
+          .replace(/\bmechanism\b/ig, '')
+          .replace(/^of\s+/i, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim()
+      : right
+    return {
+      front: `In ${left}, what explains ${rightPrompt}?`,
+      method: 'conceptSubconcept',
+      category: DASH_ASPECT_RE.test(right) ? 'Classic board association' : 'Concept recall',
     }
   }
 
@@ -282,7 +290,7 @@ function buildRecallFront(concept, stem) {
     if (re.test(concept)) return { front: fn(queryConcept), method: 'keywordRule', category }
   }
 
-  return { front: `What mechanism is tested by ${queryConcept}?`, method: 'fallback', category: 'Mechanism' }
+  return { front: `What clinical mechanism explains ${queryConcept}?`, method: 'fallback', category: 'Concept recall' }
 }
 
 /**
@@ -309,6 +317,15 @@ function buildRecallBack(q) {
  */
 function buildPearlFront(concept, pearl) {
   if (!pearl) return { front: '', category: '' }
+  const firstLineMatch = pearl.match(/\b(.+?)\s+(?:is|are)\s+first-?line for\s+([^.;]+)/i)
+  if (firstLineMatch) {
+    const condition = firstLineMatch[2].split(/\balongside\b|\bwith\b|,|—/i)[0].trim()
+    return {
+      front: `What is first-line for ${condition}?`,
+      category: 'Treatment trigger',
+    }
+  }
+
   const queryConcept = getQueryConcept(concept)
   for (const { re, fn, category } of FRONT_KEYWORD_RULES) {
     if (re.test(pearl)) return { front: fn(queryConcept), category }
@@ -412,8 +429,7 @@ export function generateFlashcardsFromWrongQuestions(session, sourceMode) {
       if (META_FRONT_RE.test(cleanFront)) return
       const key = normKey(cleanFront)
       if (sessionFronts.has(key)) return
-      sessionFronts.add(key)
-      questionCards.push({
+      const candidate = {
         id,
         ...base,
         tag,
@@ -426,11 +442,14 @@ export function generateFlashcardsFromWrongQuestions(session, sourceMode) {
         // Backward-compat: front/back remain populated for storage dedup and old card reads.
         clinicalPrompt: cleanFront,
         coreMechanism:  cleanBack,
-      })
+      }
+      if (!validateClinicalCard(candidate).valid) return
+      sessionFronts.add(key)
+      questionCards.push(candidate)
     }
 
     // 1. Recall — always
-    const { front: recallFront, method: recallMethod, category: recallCategory } = buildRecallFront(concept, q.stem)
+    const { front: recallFront, method: recallMethod, category: recallCategory } = buildRecallFront(concept)
     tryAdd(
       `fc_${sourceMode}_${q.id}_recall`,
       'Recall', 'recall',

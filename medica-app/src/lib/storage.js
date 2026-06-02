@@ -1,5 +1,12 @@
+import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
+import { validateClinicalCard } from './flashcardValidator.js'
+
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
+const QUESTION_REPORTS_KEY = 'medica_question_reports'
+const TRUSTED_QUESTIONS_KEY = 'medica_trusted_generated_questions'
+const TRUSTED_QUESTIONS_MAX = 500
+const QUESTION_REPORTS_UPDATED_EVENT = 'medica:question-reports-updated'
 
 /** @param {import('./quizTypes').QuizConfig} config */
 export function saveLastQuizConfig(config) {
@@ -51,6 +58,209 @@ export function clearLastQuizSession() {
   try {
     localStorage.removeItem(SESSION_KEY)
   } catch { /* ignore */ }
+}
+
+function _questionFingerprint(question) {
+  const stem = String(question?.stem || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+  const concept = String(question?.testedConcept || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return `${stem}||${concept}`
+}
+
+export function getQuestionReports() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(QUESTION_REPORTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+export function saveQuestionReport(question, reason, context = {}) {
+  if (typeof window === 'undefined' || !question?.id || !reason) return null
+  try {
+    const reports = getQuestionReports()
+    const fingerprint = _questionFingerprint(question)
+    const now = new Date().toISOString()
+    const taggedQuestion = enrichQuestionWithUsmleTaxonomy(question, context)
+    const report = {
+      id: `${question.id}:${reason}`,
+      questionId: String(question.id),
+      fingerprint,
+      reason,
+      subject: taggedQuestion.subject || '',
+      system: taggedQuestion.system || '',
+      usmleContentArea: taggedQuestion.usmleContentArea || '',
+      usmleSubdomain: taggedQuestion.usmleSubdomain || '',
+      physicianTask: taggedQuestion.physicianTask || '',
+      questionAngle: taggedQuestion.questionAngle || '',
+      testedConcept: taggedQuestion.testedConcept || '',
+      mode: context.mode || '',
+      reportedAt: now,
+    }
+    const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
+    localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(updated))
+    window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
+    return report
+  } catch {
+    return null
+  }
+}
+
+export function subscribeQuestionReports(listener) {
+  if (typeof window === 'undefined') return () => {}
+  const onStorage = (event) => {
+    if (event.key === QUESTION_REPORTS_KEY) listener()
+  }
+  window.addEventListener(QUESTION_REPORTS_UPDATED_EVENT, listener)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    window.removeEventListener(QUESTION_REPORTS_UPDATED_EVENT, listener)
+    window.removeEventListener('storage', onStorage)
+  }
+}
+
+function _topCounts(items, key, limit = 3) {
+  const counts = new Map()
+  for (const item of items) {
+    const value = String(item?.[key] || '').trim() || 'Unlabeled'
+    counts.set(value, (counts.get(value) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, limit)
+}
+
+export function getQuestionReportAnalytics() {
+  const reports = getQuestionReports()
+  const reasonLabels = {
+    wrong_answer: 'Wrong answer',
+    bad_explanation: 'Bad explanation',
+    off_topic: 'Off topic',
+  }
+  const reasonCounts = reports.reduce((acc, r) => {
+    const key = r.reason || 'unknown'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  return {
+    total: reports.length,
+    reasons: Object.entries(reasonCounts)
+      .map(([reason, count]) => ({ reason, label: reasonLabels[reason] || reason, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    topConcepts: _topCounts(reports, 'testedConcept'),
+    topSubjects: _topCounts(reports, 'subject'),
+    topUsmleContentAreas: _topCounts(reports, 'usmleContentArea'),
+    topPhysicianTasks: _topCounts(reports, 'physicianTask'),
+    recent: reports.slice(0, 5),
+  }
+}
+
+export function filterReportedQuestions(questions) {
+  if (!questions?.length) return []
+  const reports = getQuestionReports()
+  if (reports.length === 0) return questions
+
+  const reportedIds = new Set(reports.map(r => String(r.questionId || '')).filter(Boolean))
+  const reportedFingerprints = new Set(reports.map(r => String(r.fingerprint || '')).filter(Boolean))
+
+  return questions.filter(q => {
+    const id = String(q?.id || '')
+    const fingerprint = _questionFingerprint(q)
+    return !reportedIds.has(id) && !reportedFingerprints.has(fingerprint)
+  })
+}
+
+export function getTrustedGeneratedQuestions() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(TRUSTED_QUESTIONS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function _matchesRequestedValue(requested, actual, allLabel) {
+  if (!requested || requested === allLabel || requested === 'Balanced') return true
+  return String(actual || '').toLowerCase() === String(requested).toLowerCase()
+}
+
+function _matchesRequestedTopic(config, question) {
+  const requested = config.clinicalFocus || config.topic || ''
+  if (!String(requested).trim()) return true
+  const needle = String(requested).toLowerCase()
+  return [
+    question.topic,
+    question.testedConcept,
+    question.stem,
+  ].some(value => String(value || '').toLowerCase().includes(needle))
+}
+
+export function getTrustedGeneratedQuestionsForConfig(config = {}) {
+  const trusted = getTrustedGeneratedQuestions()
+  return trusted.filter(q => {
+    if (q.mode && config.mode && q.mode !== config.mode) return false
+    return _matchesRequestedValue(config.subject, q.subject, 'All Subjects')
+      && _matchesRequestedValue(config.system, q.system, 'All Systems')
+      && _matchesRequestedValue(config.difficulty, q.difficulty, 'Balanced')
+      && _matchesRequestedTopic(config, q)
+  })
+}
+
+export function appendTrustedGeneratedQuestions(questions, config = {}) {
+  if (typeof window === 'undefined' || !questions?.length) return 0
+  try {
+    const existing = getTrustedGeneratedQuestions()
+    const seen = new Set(existing.map(q => q.fingerprint || _questionFingerprint(q)))
+    const now = new Date().toISOString()
+    const additions = []
+
+    for (const rawQuestion of questions) {
+      const q = enrichQuestionWithUsmleTaxonomy(rawQuestion, config)
+      const fingerprint = _questionFingerprint(q)
+      if (!fingerprint || fingerprint === '||' || seen.has(fingerprint)) continue
+      seen.add(fingerprint)
+      additions.push({
+        id: String(q.id || fingerprint),
+        fingerprint,
+        stem: q.stem || '',
+        options: q.options || [],
+        correct: q.correct || '',
+        explanation: q.explanation || '',
+        subject: q.subject || '',
+        system: q.system || '',
+        usmleContentArea: q.usmleContentArea || '',
+        usmleSubdomain: q.usmleSubdomain || '',
+        physicianTask: q.physicianTask || '',
+        questionAngle: q.questionAngle || '',
+        topic: q.topic || '',
+        testedConcept: q.testedConcept || '',
+        difficulty: q.difficulty || config.difficulty || '',
+        mode: config.mode || '',
+        source: 'ai',
+        trustedAt: now,
+      })
+    }
+
+    if (additions.length > 0) {
+      localStorage.setItem(TRUSTED_QUESTIONS_KEY, JSON.stringify([...additions, ...existing].slice(0, TRUSTED_QUESTIONS_MAX)))
+    }
+    return additions.length
+  } catch {
+    return 0
+  }
 }
 
 const PRACTICE_RESULTS_KEY = 'medica_last_practice_results'
@@ -165,6 +375,7 @@ export function appendFlashcards(newCards) {
 
     const toAdd = []
     for (const c of newCards) {
+      if (!validateClinicalCard(c).valid) continue
       const pk = `${c.sourceQuestionId}::${c.tag}`
       const fk = _normFront(c.front)
       if (seenPrimary.has(pk)) continue
@@ -202,8 +413,8 @@ export function updateFlashcardStatus(id, status, ease) {
 
 /**
  * Mark a card as reviewed with a given ease rating.
- * Simple MVP logic: easy → mastered; again/hard → learning;
- * good → mastered if reviewCount >= 2, otherwise learning.
+ * Simple MVP logic: easy -> mastered; again/hard -> learning;
+ * good -> mastered if reviewCount >= 2, otherwise learning.
  * @param {string} id
  * @param {'again'|'hard'|'good'|'easy'} ease
  */

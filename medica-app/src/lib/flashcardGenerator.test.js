@@ -32,17 +32,61 @@ describe('generateFlashcardsFromWrongQuestions', () => {
     expect(recall.reviewStatus).toBe('new');
   });
 
+  it('builds Recall cards from tested concept, not the original question stem', () => {
+    const session = makeSession([
+      {
+        ...baseQuestion({
+          testedConcept: 'RV infarction — preload-dependent management',
+          stem: 'A patient with inferior STEMI and right ventricular infarction is hypotensive. Which management approach is most appropriate?',
+        }),
+        selectedAnswer: 'B',
+      },
+    ]);
+    const cards = generateFlashcardsFromWrongQuestions(session, 'coach');
+    const recall = cards.find((c) => c.tag === 'Recall');
+    expect(recall.front).toMatch(/RV infarction/i);
+    expect(recall.front).toMatch(/preload-dependent management/i);
+    expect(recall.front).not.toMatch(/Which management approach/i);
+  });
+
   it('generates a Pearl card when pearl contains a recognisable clinical pattern', () => {
     const session = makeSession([
-      { ...baseQuestion({ pearl: 'Loop diuretics are first-line for acute pulmonary edema.' }), selectedAnswer: 'B' },
+      {
+        ...baseQuestion({
+          testedConcept: 'Acute pulmonary edema — loop diuretics first-line treatment',
+          pearl: 'Loop diuretics are first-line for acute pulmonary edema.',
+        }),
+        selectedAnswer: 'B',
+      },
     ]);
     const cards = generateFlashcardsFromWrongQuestions(session, 'practice');
     expect(cards.some((c) => c.tag === 'Pearl')).toBe(true);
   });
 
+  it('does not generate Pearl cards when the pearl does not match the tested concept', () => {
+    const session = makeSession([
+      {
+        ...baseQuestion({
+          testedConcept: 'Preload and afterload mechanics',
+          pearl: 'ACE inhibitors are first-line for hypertension with diabetic nephropathy.',
+        }),
+        selectedAnswer: 'B',
+      },
+    ]);
+    const cards = generateFlashcardsFromWrongQuestions(session, 'practice');
+    expect(cards.some((c) => c.tag === 'Pearl')).toBe(false);
+  });
+
   it('generates a Trap card when commonTrap contains a recognisable clinical pattern', () => {
     const session = makeSession([
-      { ...baseQuestion({ commonTrap: 'Furosemide is contraindicated in sulfa allergy.' }), selectedAnswer: 'B' },
+      {
+        ...baseQuestion({
+          testedConcept: 'Furosemide contraindication in sulfa allergy',
+          explanation: 'Furosemide blocks NKCC2 in the thick ascending limb.',
+          commonTrap: 'Furosemide is contraindicated in sulfa allergy.',
+        }),
+        selectedAnswer: 'B',
+      },
     ]);
     const cards = generateFlashcardsFromWrongQuestions(session, 'practice');
     expect(cards.some((c) => c.tag === 'Trap')).toBe(true);
@@ -153,6 +197,7 @@ describe('generateFlashcardsFromWrongQuestions — clinical reinforcement fields
   it('prefers mechanism sentence from explanation over bare option text in back', () => {
     const q = {
       ...baseQuestion({
+        testedConcept: 'ACE inhibitor cough — bradykinin accumulation mechanism',
         options: ['Bradykinin', 'Renin', 'Angiotensin', 'Aldosterone'],
         explanation: 'ACE inhibits bradykinin breakdown, causing accumulation in the airways. This leads to stimulation of cough receptors.',
       }),

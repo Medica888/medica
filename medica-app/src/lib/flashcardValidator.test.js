@@ -128,6 +128,15 @@ describe('validateClinicalCard — rejected cards', () => {
     expect(r.reasons).toContain('back_buzzword_only')
   })
 
+  it('rejects short label-only backs without mechanism language', () => {
+    const r = validateClinicalCard(card(
+      'In UIP/IPF, what explains temporal heterogeneity?',
+      'Usual interstitial pneumonia pattern'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('back_too_sparse')
+  })
+
   it('rejects a front that is too short', () => {
     const r = validateClinicalCard(card('X?', 'Something valid and mechanistic.'))
     expect(r.valid).toBe(false)
@@ -141,6 +150,52 @@ describe('validateClinicalCard — rejected cards', () => {
     ))
     expect(r.valid).toBe(false)
     expect(r.reasons).toContain('back_too_short')
+  })
+
+  it('rejects repetitive mechanism prompts', () => {
+    const r = validateClinicalCard(card(
+      'In Cor pulmonale, what clinical mechanism explains hypoxic pulmonary vasoconstriction mechanism?',
+      'COPD causes chronic alveolar hypoxia, triggering hypoxic pulmonary vasoconstriction.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('repetitive_prompt')
+  })
+
+  it('rejects trap backs that start as teaching-meta narration', () => {
+    const r = validateClinicalCard(card(
+      'What is the mechanism of pyelonephritis-related creatinine elevation?',
+      'Students pick intrinsic renal injury because the kidney is infected.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('meta_trap_answer')
+  })
+
+  it('rejects treatment fronts when the back does not answer treatment', () => {
+    const r = validateClinicalCard(card(
+      'How is UIP / IPF treated?',
+      'UIP/IPF shows temporal heterogeneity, fibroblastic foci, and honeycombing.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('treatment_mismatch')
+  })
+
+  it('rejects contraindication fronts when the back has no avoid or risk logic', () => {
+    const r = validateClinicalCard(card(
+      'When is atrial fibrillation rate control contraindicated?',
+      'AF rate control includes diltiazem or beta-blocker as first-line options.'
+    ))
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('contraindication_mismatch')
+  })
+
+  it('rejects generated cards whose back does not overlap the tested concept', () => {
+    const r = validateClinicalCard({
+      front: 'In Multiple sclerosis, what clinical mechanism explains McDonald criteria?',
+      back: 'NMO causes severe attacks predominantly of optic nerves and spinal cord.',
+      testedConcept: 'Multiple sclerosis McDonald criteria disseminated space time',
+    })
+    expect(r.valid).toBe(false)
+    expect(r.reasons).toContain('concept_answer_mismatch')
   })
 })
 
@@ -170,6 +225,25 @@ describe('validateClinicalCard — dangling reference (unresolved pronoun)', () 
     ))
     expect(r.valid).toBe(false)
     expect(r.reasons).toContain('dangling_reference')
+  })
+
+  it('rejects copied exam-stem prompts instead of concept prompts', () => {
+    const badPrompts = [
+      'Which management approach is most appropriate?',
+      'What is the most likely mechanism for his cardiac findings?',
+      'Which of the following best explains the blood pressure difference?',
+      'What is the best next step in management?',
+    ]
+
+    for (const front of badPrompts) {
+      const result = validateClinicalCard({
+        front,
+        back: 'A specific clinical mechanism causes the finding through a defined pathway.',
+      })
+
+      expect(result.valid, front).toBe(false)
+      expect(result.reasons).toContain('copied_question_stem')
+    }
   })
 
   it('rejects "What explains this presentation?" — dangling presentation reference', () => {
