@@ -36,6 +36,27 @@ const USMLE_SYSTEM_YIELD_MAP = {
   'Dermatology':           { weight: 0.85, testedAs: 'Classic presentations, autoimmune skin conditions, and skin cancers.' },
 }
 
+const USMLE_CONTENT_YIELD_MAP = {
+  'Cardiovascular System': { weight: 1.25, testedAs: 'Mechanisms, pharmacotherapy, hemodynamics, and clinical vignettes.' },
+  'Renal & Urinary System': { weight: 1.20, testedAs: 'Acid-base, electrolytes, renal physiology, and diuretic pharmacology.' },
+  'Respiratory System': { weight: 1.15, testedAs: 'Gas exchange, obstructive/restrictive disease, and pulmonary pathology.' },
+  'Nervous System & Special Senses': { weight: 1.15, testedAs: 'Neuroanatomy, localization, sensory systems, and neuropathology.' },
+  'Immune System': { weight: 1.20, testedAs: 'Immune mechanisms, hypersensitivity, immunodeficiency, and autoimmunity.' },
+  'Blood & Lymphoreticular System': { weight: 1.20, testedAs: 'Anemia, coagulation, heme malignancy, and lymphoid disorders.' },
+  'Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature': { weight: 1.10, testedAs: 'Study design, risk, bias, and interpretation of medical literature.' },
+}
+
+const PHYSICIAN_TASK_YIELD_MAP = {
+  'Medical Knowledge: Applying Foundational Science Concepts': { weight: 1.25, testedAs: 'Foundational science mechanisms applied to clinical vignettes.' },
+  'Patient Care: Diagnosis': { weight: 1.20, testedAs: 'Pattern recognition, localization, and selecting the most likely diagnosis.' },
+  'Patient Care: Laboratory and Diagnostic Studies': { weight: 1.15, testedAs: 'Interpreting labs, imaging, pathology, and diagnostic test results.' },
+  'Patient Care: Pharmacotherapy': { weight: 1.20, testedAs: 'Drug choice, mechanism, contraindications, adverse effects, and interactions.' },
+  'Patient Care: Health Maintenance and Disease Prevention': { weight: 1.05, testedAs: 'Screening, vaccines, prevention, and risk reduction.' },
+  'Professionalism, Legal, and Ethical Principles': { weight: 1.00, testedAs: 'Ethics, consent, confidentiality, and professional conduct.' },
+  'Systems-Based Practice and Patient Safety': { weight: 1.00, testedAs: 'Quality, safety, errors, systems thinking, and handoffs.' },
+  'Practice-Based Learning and Improvement': { weight: 1.05, testedAs: 'Evidence interpretation, study design, bias, and research ethics.' },
+}
+
 export function buildAnalyticsData() {
   const rawHistory = getSessionHistory()
   const lastPractice = getLastPracticeResults()
@@ -50,8 +71,10 @@ export function buildAnalyticsData() {
   const overview = _computeOverview(sessions)
   const subjectBreakdown = _aggregateSubjects(sessions)
   const systemBreakdown = _aggregateSystems(sessions)
+  const usmleContentBreakdown = _aggregateNamedBreakdown(sessions, 'usmleContentBreakdown')
+  const physicianTaskBreakdown = _aggregateNamedBreakdown(sessions, 'physicianTaskBreakdown')
   const topicBreakdown = _aggregateTopics(sessions)
-  const weaknesses = _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown)
+  const weaknesses = _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown, usmleContentBreakdown, physicianTaskBreakdown)
   const mistakeDiagnosis = _diagnoseMistakes(sessions)
   const studyPrescription = _prescribeStudy(weaknesses, overview)
   const sessionComparison = _compareSessions(sessions)
@@ -70,6 +93,8 @@ export function buildAnalyticsData() {
     overview: { ...overview, studyStreak, flashcardsDue: flashcardsData.due },
     subjectBreakdown,
     systemBreakdown,
+    usmleContentBreakdown,
+    physicianTaskBreakdown,
     topicBreakdown,
     weaknesses,
     mistakeDiagnosis,
@@ -181,6 +206,26 @@ function _aggregateSystems(sessions) {
     .sort((a, b) => b.total - a.total)
 }
 
+function _aggregateNamedBreakdown(sessions, key) {
+  const map = {}
+  for (const s of sessions) {
+    for (const bd of (s[key] || [])) {
+      if (!bd?.name) continue
+      if (!map[bd.name]) map[bd.name] = { correct: 0, total: 0 }
+      map[bd.name].correct += bd.correct
+      map[bd.name].total   += bd.total
+    }
+  }
+  return Object.entries(map)
+    .map(([name, d]) => ({
+      name,
+      correct: d.correct,
+      total: d.total,
+      percentage: d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0,
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
 function _aggregateTopics(sessions) {
   const map = {}
   for (const s of sessions) {
@@ -197,7 +242,7 @@ function _aggregateTopics(sessions) {
     .sort((a, b) => b.missed - a.missed)
 }
 
-function _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown) {
+function _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown, usmleContentBreakdown = [], physicianTaskBreakdown = []) {
   const critical = []
   const moderate = []
   const mild = []
@@ -205,6 +250,8 @@ function _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown) {
   const allAreas = [
     ...subjectBreakdown.filter(x => x.total >= 3).map(x => ({ ...x, category: 'Subject', type: 'subject' })),
     ...systemBreakdown.filter(x => x.total >= 3).map(x => ({ ...x, category: 'System', type: 'system' })),
+    ...usmleContentBreakdown.filter(x => x.total >= 3).map(x => ({ ...x, category: 'USMLE Area', type: 'usmleContent' })),
+    ...physicianTaskBreakdown.filter(x => x.total >= 3).map(x => ({ ...x, category: 'Physician Task', type: 'physicianTask' })),
   ]
 
   for (const a of allAreas) {
@@ -445,12 +492,18 @@ function _prescribeStudy(weaknesses, overview) {
 
   const items = allWeakAreas.map(w => {
     const isSubject = w.type === 'subject'
+    const isSystem = w.type === 'system'
+    const isUsmleContent = w.type === 'usmleContent'
+    const isPhysicianTask = w.type === 'physicianTask'
     const discEntry = isSubject ? USMLE_STEP1_YIELD_MAP[w.name] : null
-    const sysEntry  = !isSubject ? USMLE_SYSTEM_YIELD_MAP[w.name] : null
+    const sysEntry  = isSystem ? USMLE_SYSTEM_YIELD_MAP[w.name] : null
+    const contentEntry = isUsmleContent ? USMLE_CONTENT_YIELD_MAP[w.name] : null
+    const taskEntry = isPhysicianTask ? PHYSICIAN_TASK_YIELD_MAP[w.name] : null
 
     const priorityScore = _computePriorityScore(
       w.percentage, w.total,
-      discEntry?.weight, sysEntry?.weight
+      discEntry?.weight || taskEntry?.weight,
+      sysEntry?.weight || contentEntry?.weight
     )
     const priority = priorityScore >= 75 ? 1 : priorityScore >= 55 ? 2 : 3
 
@@ -469,15 +522,17 @@ function _prescribeStudy(weaknesses, overview) {
       // enriched
       topic: w.name,
       discipline: isSubject ? w.name : null,
-      system: !isSubject ? w.name : null,
+      system: isSystem ? w.name : null,
+      usmleContentArea: isUsmleContent ? w.name : null,
+      physicianTask: isPhysicianTask ? w.name : null,
       accuracy: w.percentage,
       priorityScore,
       usmleImportance: {
-        disciplineWeight: discEntry?.weight || 1.0,
-        systemWeight:     sysEntry?.weight  || 1.0,
-        reason: discEntry?.reason || sysEntry?.reason
-          || `${isSubject ? 'Subject' : 'System'} performance affects multiple Step 1 question domains.`,
-        testedAs: sysEntry?.testedAs
+        disciplineWeight: discEntry?.weight || taskEntry?.weight || 1.0,
+        systemWeight:     sysEntry?.weight || contentEntry?.weight || 1.0,
+        reason: discEntry?.reason || sysEntry?.reason || contentEntry?.testedAs || taskEntry?.testedAs
+          || `${w.category} performance affects multiple Step 1 question domains.`,
+        testedAs: sysEntry?.testedAs || contentEntry?.testedAs || taskEntry?.testedAs
           || 'Mechanisms, pathophysiology, clinical vignettes, and pharmacology.',
         medicaRationale: `Improving ${w.name} from ${w.percentage}% to 70%+ can meaningfully increase your Step 1 readiness score.`,
       },

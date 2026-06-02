@@ -1,4 +1,4 @@
-import { normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
+import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
 
 /**
  * @param {{
@@ -9,7 +9,7 @@ import { normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormali
 export default function CoachExplanationPanel({ question, userAnswer }) {
   const options = normalizeOptions(question.options)
 
-  const normalizedCorrect    = normalizeAnswerLetter(question.correctAnswer ?? question.correct)
+  const normalizedCorrect    = getQuestionCorrectLetter(question)
   const normalizedUserAnswer = normalizeAnswerLetter(userAnswer)
   const hasAnswer = normalizedUserAnswer !== ''
   const isCorrect = hasAnswer && normalizedUserAnswer === normalizedCorrect

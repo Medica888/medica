@@ -27,7 +27,7 @@ function measureMockGeneration(config) {
 
   // Replicate the logic of createQuizSession / generateMockQuestions.
   // Pool size reflects topic filter: a non-empty topic narrows to matching questions.
-  const topicSet = (config.topic || config.coachSpecificTopic || '').trim()
+  const topicSet = (config.topic || '').trim()
   const isTopicFiltered = Boolean(topicSet)   // any non-empty topic activates the filter
   let bankSize
   if (config.mode === 'coach') {

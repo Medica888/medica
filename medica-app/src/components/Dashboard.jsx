@@ -74,11 +74,10 @@ function buildRecommendedConfig(ns) {
     mode,
     subject:            matchedSubject || 'All Subjects',
     system:             matchedSystem  || 'All Systems',
-    topic:              (!matchedSystem && !matchedSubject && area) ? area : '',
-    difficulty:         ns.difficulty  || 'Balanced',
-    questionCount:      10,
-    clinicalFocus:      '',
-    coachSpecificTopic: mode === 'coach' ? (area || '') : '',
+    topic:         mode === 'coach' ? (area || '') : ((!matchedSystem && !matchedSubject && area) ? area : ''),
+    difficulty:    ns.difficulty  || 'Balanced',
+    questionCount: 10,
+    clinicalFocus: '',
   }
 }
 

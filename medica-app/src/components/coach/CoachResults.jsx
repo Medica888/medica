@@ -30,8 +30,7 @@ export default function CoachResults({ results, session, onNewQuiz, onBackToBuil
     setFcState({ added, skipped: cards.length - added, total: cards.length })
   }
 
-  const sessionTopic = session?.config?.coachSpecificTopic
-    || session?.config?.topic
+  const sessionTopic = session?.config?.topic
     || session?.config?.subject
     || 'Coach Session'
 

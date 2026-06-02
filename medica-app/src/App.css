@@ -1,4 +1,4 @@
-/* ── TOKENS ─────────────────────────────────────────────────────── */
+/* -- TOKENS ------------------------------------------------------- */
 :root {
   --bg:         #EEF3FA;
   --card:       #FFFFFF;
@@ -43,7 +43,7 @@
   --hdr: 54px;
 }
 
-/* ── DARK MODE TOKENS ────────────────────────────────────────────── */
+/* -- DARK MODE TOKENS ---------------------------------------------- */
 .dark {
   --bg:         #07111F;
   --card:       #0F1C2E;
@@ -86,7 +86,7 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── APP SHELL ──────────────────────────────────────────────────── */
+/* -- APP SHELL ---------------------------------------------------- */
 .app {
   display: grid;
   grid-template-rows: var(--hdr) 1fr;
@@ -94,7 +94,7 @@ html, body, #root {
   height: 100vh;
 }
 
-/* ── HEADER ─────────────────────────────────────────────────────── */
+/* -- HEADER ------------------------------------------------------- */
 .header {
   grid-column: 1 / -1;
   background: var(--nav);
@@ -106,7 +106,7 @@ html, body, #root {
   z-index: 30;
 }
 
-/* Shield home button — occupies the sidebar width slot */
+/* Shield home button - occupies the sidebar width slot */
 .hdr-home {
   display: flex; align-items: center; justify-content: center;
   width: var(--sidebar); flex-shrink: 0;
@@ -164,7 +164,7 @@ html, body, #root {
 }
 .dark-toggle:hover { background: rgba(255,255,255,.13); color: #fff; }
 
-/* ── SIDEBAR ────────────────────────────────────────────────────── */
+/* -- SIDEBAR ------------------------------------------------------ */
 .sidebar {
   background: var(--nav2);
   border-right: 1px solid var(--nav-line);
@@ -248,10 +248,10 @@ html, body, #root {
 }
 .btn-new:hover { background: rgba(46,100,200,.3); border-color: rgba(46,100,200,.6); color: #fff; }
 
-/* ── MAIN ───────────────────────────────────────────────────────── */
+/* -- MAIN --------------------------------------------------------- */
 .main { display: flex; flex-direction: column; overflow: hidden; }
 
-/* ── DASHBOARD ──────────────────────────────────────────────────── */
+/* -- DASHBOARD ---------------------------------------------------- */
 .view-home {
   flex: 1; overflow-y: auto; display: flex; flex-direction: column;
   scrollbar-width: thin; scrollbar-color: var(--border) transparent;
@@ -337,7 +337,7 @@ html, body, #root {
   border: 1px solid color-mix(in srgb, var(--accent, var(--blue)) 22%, transparent);
 }
 
-/* ── WORKSPACE ──────────────────────────────────────────────────── */
+/* -- WORKSPACE ---------------------------------------------------- */
 .workspace {
   flex: 1; display: flex; flex-direction: column; overflow: hidden;
 }
@@ -434,7 +434,7 @@ html, body, #root {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Right panel — output */
+/* Right panel - output */
 .ws-out-panel {
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--bg);
@@ -510,7 +510,7 @@ html, body, #root {
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* ── MCQ VIEW ────────────────────────────────────────────────────── */
+/* -- MCQ VIEW ------------------------------------------------------ */
 .mcq-header { margin-bottom: 20px; }
 .mcq-title { font-size: 15px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
 .mcq-count { font-size: 11.5px; color: var(--t3); }
@@ -587,9 +587,9 @@ html, body, #root {
 }
 .mcq-pearl strong { color: var(--blue); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    QUIZ BUILDER  (Phase 2)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .qb-page {
   flex: 1; overflow-y: auto; padding: 40px 40px 64px;
@@ -607,7 +607,7 @@ html, body, #root {
   pointer-events: none; z-index: 0;
 }
 
-/* Inner width constraint — prevents the layout from stretching on wide monitors */
+/* Inner width constraint - prevents the layout from stretching on wide monitors */
 .qb-inner {
   max-width: 1320px;
   margin: 0 auto;
@@ -691,7 +691,7 @@ html, body, #root {
 /* Coach topic field accent */
 .qb-field-coach { background: rgba(107,63,189,.03); border-left: 2px solid rgba(107,63,189,.2); }
 
-/* Mode selector — segmented control */
+/* Mode selector - segmented control */
 .qb-modes {
   display: flex; background: var(--bg); border-radius: 11px;
   padding: 3px; gap: 2px; border: 1.5px solid var(--border);
@@ -760,8 +760,10 @@ html, body, #root {
 .qb-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .qb-pill {
   display: inline-flex; align-items: center;
+  min-height: 34px; max-width: 100%;
   padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 24px;
   font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 500;
+  line-height: 1.25; text-align: center;
   color: var(--t2); background: #fff; cursor: pointer; transition: all .14s;
 }
 .qb-pill:hover:not(.active) { border-color: var(--blue-20); color: var(--blue); background: var(--blue-10); }
@@ -840,6 +842,25 @@ html, body, #root {
   border-radius: 8px; font-size: 11px; color: #CC3A3A; line-height: 1.5;
 }
 
+.qb-difficulty-warning {
+  margin: 10px 28px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(224,123,32,.24);
+  background: rgba(224,123,32,.08);
+}
+.qb-difficulty-warning-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--orange);
+  margin-bottom: 3px;
+}
+.qb-difficulty-warning-copy {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--t3);
+}
+
 .qb-save-msg {
   display: flex; align-items: center; justify-content: center; gap: 5px;
   margin-top: 10px; font-size: 11px; color: var(--green);
@@ -850,9 +871,9 @@ html, body, #root {
   margin-top: 12px; letter-spacing: .02em;
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   QUIZ BUILDER — LOCKED / STANDARDIZED PANEL
-   ───────────────────────────────────────────────────────────────── */
+/* -----------------------------------------------------------------
+   QUIZ BUILDER - LOCKED / STANDARDIZED PANEL
+   ----------------------------------------------------------------- */
 
 .qb-locked-panel {
   display: flex;
@@ -909,9 +930,9 @@ html, body, #root {
   border-color: rgba(23,105,200,.28);
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    LIVE PREVIEW PANEL  (Phase 2)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .lp-panel {
   background: #fff;
@@ -977,7 +998,7 @@ html, body, #root {
   font-size: 10.5px; color: var(--t2); line-height: 1.6;
 }
 
-/* ── DARK MODE COMPONENT OVERRIDES ─────────────────────────── */
+/* -- DARK MODE COMPONENT OVERRIDES --------------------------- */
 .dark .qb-page {
   background: linear-gradient(145deg, #0C1929 0%, #09141F 45%, #0B1826 100%);
 }
@@ -1044,9 +1065,9 @@ html, body, #root {
   font-style: italic;
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    EXAM LOADING SCREEN  (Phase 3)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .els-overlay {
   position: absolute; inset: 0;
@@ -1137,7 +1158,7 @@ html, body, #root {
   text-align: center; width: 100%;
 }
 
-/* Progress row — bar + percentage side by side */
+/* Progress row - bar + percentage side by side */
 .els-bar-row {
   width: 100%; display: flex; align-items: center;
   gap: 10px; margin-bottom: 24px;
@@ -1160,7 +1181,7 @@ html, body, #root {
   font-variant-numeric: tabular-nums; flex-shrink: 0;
   transition: color 0.3s;
 }
-/* Green when complete — class toggled via JS */
+/* Green when complete - class toggled via JS */
 .els-percent-done { color: #3FE8A0; }
 
 .els-footer {
@@ -1202,9 +1223,9 @@ html, body, #root {
 }
 .els-err-btn.secondary:hover { border-color: #3D5C7A; color: #98B0CA; }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    QUIZ SESSION SHELL  (Phase 3)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .qs-page {
   flex: 1;
@@ -1482,11 +1503,11 @@ html, body, #root {
 .dark .qs-coach-actions { background: var(--card); border-top-color: var(--border); }
 .dark .qs-coach-btn { background: var(--card); border-color: var(--border); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    PRACTICE MODE  (Phase 5)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
-/* ── Practice Interface page shell ──────────────────────────────── */
+/* -- Practice Interface page shell -------------------------------- */
 .pi-page {
   flex: 1;
   display: flex; flex-direction: column;
@@ -1558,7 +1579,7 @@ html, body, #root {
   max-width: 860px; margin: 0 auto;
 }
 
-/* ── Question ────────────────────────────────────────────────────── */
+/* -- Question ------------------------------------------------------ */
 .pi-question { display: flex; flex-direction: column; gap: 16px; }
 
 .pi-q-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1646,7 +1667,7 @@ html, body, #root {
   padding: 10px 0;
 }
 
-/* ── Explanation panel ───────────────────────────────────────────── */
+/* -- Explanation panel --------------------------------------------- */
 .pi-exp {
   border-radius: 14px; border: 1px solid var(--border);
   overflow: hidden;
@@ -1703,14 +1724,14 @@ html, body, #root {
 }
 .pi-pearl p { font-size: 12.5px; color: var(--t2); line-height: 1.65; margin: 0; }
 
-/* Dark mode — explanation */
+/* Dark mode - explanation */
 .dark .pi-exp-verdict { background: var(--card); border-bottom-color: var(--border); }
 .dark .pi-exp-answer-row { background: var(--card); border-bottom-color: var(--border); }
 .dark .pi-exp-body { background: var(--bg); }
 .dark .pi-exp-ans-badge.wrong   { background: rgba(204,58,58,.12); }
 .dark .pi-exp-ans-badge.correct { background: rgba(15,173,111,.1); }
 
-/* ── Practice navigation footer ─────────────────────────────────── */
+/* -- Practice navigation footer ----------------------------------- */
 .pi-nav {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 20px;
@@ -1753,16 +1774,16 @@ html, body, #root {
 .pi-dot.answered { background: rgba(15,173,111,.35); }
 .pi-dot.active   { background: var(--green); transform: scale(1.35); }
 
-/* Dark mode — practice page */
+/* Dark mode - practice page */
 .dark .pi-hdr { background: var(--card); border-bottom-color: var(--border); }
 .dark .pi-exit-btn { border-color: var(--border); }
 .dark .pi-stem { background: var(--card); border-color: var(--border); }
 .dark .pi-option { background: var(--card); border-color: var(--border); }
 .dark .pi-nav { background: var(--card); border-top-color: var(--border); }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    PRACTICE RESULTS  (Phase 5)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .pr-page {
   flex: 1; display: flex; flex-direction: column;
@@ -1924,7 +1945,7 @@ html, body, #root {
 }
 .pr-btn.ghost:hover { color: var(--t1); }
 
-/* Dark mode — results */
+/* Dark mode - results */
 .dark .pr-hero-card,
 .dark .pr-section { background: var(--card); border-color: var(--border); }
 .dark .pr-hero-top { border-bottom-color: var(--border); }
@@ -1940,9 +1961,9 @@ html, body, #root {
   .pr-scroll { padding: 20px 14px 48px; }
 }
 
-/* ─────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------
    PRACTICE REVIEW  (Phase 5)
-   ───────────────────────────────────────────────────────────────── */
+   ----------------------------------------------------------------- */
 
 .prv-page {
   flex: 1; display: flex; flex-direction: column;
@@ -2120,7 +2141,7 @@ html, body, #root {
 }
 .prv-pearl p { font-size: 12px; color: var(--t2); line-height: 1.65; margin: 0; }
 
-/* Dark mode — review */
+/* Dark mode - review */
 .dark .prv-page { background: var(--bg); }
 .dark .prv-hdr { background: var(--card); border-bottom-color: var(--border); }
 .dark .prv-filters { background: var(--card); border-bottom-color: var(--border); }
@@ -2473,7 +2494,7 @@ html, body, #root {
 .cr-scroll::-webkit-scrollbar { width: 4px; }
 .cr-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
 
-/* ── Hero header ──────────────────────────────────────────── */
+/* -- Hero header -------------------------------------------- */
 .cr-hero {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 32px; padding: 36px 40px 32px;
@@ -2505,7 +2526,7 @@ html, body, #root {
 .cr-kpi--score    .cr-kpi-num  { color: #F4F6FA; }
 .cr-kpi--readiness .cr-kpi-num { color: #88B4F0; }
 
-/* ── Two-column body ──────────────────────────────────────── */
+/* -- Two-column body ---------------------------------------- */
 .cr-body-grid {
   display: grid; grid-template-columns: 1fr 320px;
   gap: 0; align-items: start;
@@ -2526,6 +2547,51 @@ html, body, #root {
   font-size: 9px; font-weight: 700; letter-spacing: .15em;
   text-transform: uppercase; color: rgba(244,246,250,.38);
   margin-bottom: 12px;
+}
+.er-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.er-review-tile {
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: rgba(255,255,255,.035);
+  color: rgba(244,246,250,.86);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.er-review-tile:hover {
+  border-color: rgba(95,143,230,.5);
+  background: rgba(46,100,200,.12);
+  transform: translateY(-1px);
+}
+.er-review-tile--wrong:hover { border-color: rgba(232,99,118,.55); background: rgba(204,58,58,.1); }
+.er-review-tile--marked:hover { border-color: rgba(224,123,32,.55); background: rgba(224,123,32,.1); }
+.er-review-tile--skip:hover { border-color: rgba(160,170,190,.4); background: rgba(255,255,255,.06); }
+.er-review-tile-num {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 800;
+  color: #F4F6FA;
+  font-variant-numeric: tabular-nums;
+}
+.er-review-tile-lbl {
+  display: block;
+  max-width: 100%;
+  font-size: 11.5px;
+  line-height: 1.25;
+  font-weight: 650;
+  color: rgba(244,246,250,.62);
+  white-space: normal;
 }
 .cr-rec-text {
   font-size: 13.5px; color: rgba(244,246,250,.82);
@@ -2623,7 +2689,7 @@ html, body, #root {
   .cr-hero-kpis { gap: 0; flex-wrap: wrap; }
 }
 
-/* inner scroll wrapper — prevents flex children from shrinking */
+/* inner scroll wrapper - prevents flex children from shrinking */
 .cr-scroll {
   flex: 1;
   overflow-y: auto;
@@ -2778,7 +2844,7 @@ html, body, #root {
 }
 
 /* ============================================================
-   COACH EXPLANATION PANEL — Chunk B teaching sections  ci-exp-*
+   COACH EXPLANATION PANEL - Chunk B teaching sections  ci-exp-*
    ============================================================ */
 
 /* Shared section label used across teaching panels */
@@ -2837,13 +2903,13 @@ html, body, #root {
   font-size: 12.5px; line-height: 1.65; color: var(--t2); margin: 0;
 }
 
-/* Shared section label — correct variant */
+/* Shared section label - correct variant */
 .ci-exp-section-lbl--correct { color: var(--green); }
 
 /* Empty/fallback text */
 .ci-exp-empty { font-style: italic; color: var(--t3); font-size: 12px; }
 
-/* Option row body — stacks text + explanation */
+/* Option row body - stacks text + explanation */
 .ci-opt-row-body {
   display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;
 }
@@ -2856,7 +2922,7 @@ html, body, #root {
 .ci-opt-row.correct .ci-opt-option-expl { color: var(--t2); }
 .ci-opt-row.wrong   .ci-opt-option-expl { color: var(--t2); }
 
-/* Common trap — prominent variant on wrong answers */
+/* Common trap - prominent variant on wrong answers */
 .ci-exp-trap--prominent {
   background: rgba(239,68,68,.07);
   border-left: 3px solid var(--red);
@@ -2882,11 +2948,11 @@ html, body, #root {
 .ci-exp-weakspot--alert .ci-exp-weakspot-label { color: var(--red); }
 .ci-exp-weakspot--alert .ci-exp-weakspot-cat   { color: var(--t1); }
 
-/* High-yield pearl — extends ci-pearl */
+/* High-yield pearl - extends ci-pearl */
 .ci-exp-highyield { align-items: flex-start; font-size: 12.5px; line-height: 1.6; font-weight: 500; color: var(--t1); }
 
 /* ============================================================
-   COACH RESULTS — Chunk B  cr-wsd-*  cr-bd-*  cr-flashcard-*
+   COACH RESULTS - Chunk B  cr-wsd-*  cr-bd-*  cr-flashcard-*
    ============================================================ */
 
 /* WeakSpotDiagnosis */
@@ -2943,7 +3009,7 @@ html, body, #root {
   font-size: 11px; color: var(--t4); text-align: center; margin: 4px 0 0;
 }
 
-/* ── Question stem card ─────────────────────────────────────── */
+/* -- Question stem card --------------------------------------- */
 .ci-question-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -2954,7 +3020,7 @@ html, body, #root {
 }
 .ci-question-card .ci-stem { padding: 0; margin: 0; }
 
-/* ── Check area ─────────────────────────────────────────────── */
+/* -- Check area ----------------------------------------------- */
 .ci-check-area {
   display: flex;
   align-items: center;
@@ -2969,20 +3035,20 @@ html, body, #root {
   font-style: italic;
 }
 
-/* ── Nav dot states ─────────────────────────────────────────── */
+/* -- Nav dot states ------------------------------------------- */
 .ci-dot.selected  { background: rgba(245,158,11,.4); border-color: rgba(245,158,11,.65); }
 .ci-dot.explained { background: var(--green); border-color: var(--green); opacity: .7; }
 .ci-dot.active.explained { background: var(--blue); border-color: var(--blue); opacity: 1; }
 .ci-dot.active.selected  { background: var(--blue); border-color: var(--blue); opacity: 1; }
 
-/* ── Explained count label ──────────────────────────────────── */
+/* -- Explained count label ------------------------------------ */
 .ci-explained-lbl {
   font-size: 10.5px;
   color: var(--t4);
   white-space: nowrap;
 }
 
-/* ── Weak spot overflow chip ────────────────────────────────── */
+/* -- Weak spot overflow chip ---------------------------------- */
 .cr-wsd-more {
   font-size: 10px;
   color: var(--t4);
@@ -2993,7 +3059,7 @@ html, body, #root {
   line-height: 1.5;
 }
 
-/* ── Flashcard result copy ──────────────────────────────────── */
+/* -- Flashcard result copy ------------------------------------ */
 .cr-fc-desc {
   font-size: 12.5px;
   color: var(--t3);
@@ -3012,7 +3078,7 @@ html, body, #root {
   margin: 0;
 }
 
-/* ── Dark mode additions ────────────────────────────────────── */
+/* -- Dark mode additions -------------------------------------- */
 .dark .ci-question-card { background: var(--card); border-color: var(--border); }
 
 @media (max-width: 600px) {
@@ -3036,7 +3102,7 @@ html, body, #root {
   background: var(--bg);
 }
 
-/* inner scroll wrapper — children must not shrink, so they overflow and scroll */
+/* inner scroll wrapper - children must not shrink, so they overflow and scroll */
 .an-scroll {
   flex: 1;
   overflow-y: auto;
@@ -3187,7 +3253,7 @@ html, body, #root {
 .an-wk-name { flex: 1; color: var(--t2); }
 .an-wk-pct { font-weight: 600; flex-shrink: 0; }
 
-/* ── Mistake Intelligence ── */
+/* -- Mistake Intelligence -- */
 .an-diag-header {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; margin-bottom: 14px;
@@ -3265,7 +3331,7 @@ html, body, #root {
   .an-diag-header { flex-wrap: wrap; gap: 8px; }
 }
 
-/* ── Study Priorities — premium priority cards ── */
+/* -- Study Priorities - premium priority cards -- */
 .an-rx-list { display: grid; gap: 10px; }
 
 .an-rx-item {
@@ -3432,7 +3498,7 @@ html, body, #root {
   margin-bottom: 2px;
 }
 
-/* ── Analytics Intelligence layout ──────────────────────────── */
+/* -- Analytics Intelligence layout ---------------------------- */
 .an-intel-hdr {
   display: flex;
   align-items: flex-start;
@@ -3562,7 +3628,7 @@ html, body, #root {
 .an-subj-badge--reinforced { background: color-mix(in srgb, var(--status-stable)   12%, transparent); color: var(--status-stable); }
 .an-subj-badge--ontrack    { background: var(--blue-10); color: var(--blue); }
 
-/* Readiness estimate — dark card */
+/* Readiness estimate - dark card */
 .an-readiness-card {
   background: #0B1220;
   border-radius: 12px;
@@ -3590,7 +3656,7 @@ html, body, #root {
   font-size: 13px; font-weight: 700; color: #F4F6FA;
   order: 2; margin-bottom: 2px;
 }
-/* Reorder: label → val → bar */
+/* Reorder: label -> val -> bar */
 .an-readiness-row { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 2px 0; }
 .an-readiness-row-label { grid-column: 1; grid-row: 1; }
 .an-readiness-row-val   { grid-column: 2; grid-row: 1; font-size: 12px; }
@@ -3696,7 +3762,7 @@ html, body, #root {
   gap: 14px;
 }
 
-/* Card header row — title + optional action button side by side */
+/* Card header row - title + optional action button side by side */
 .an-card-hdr-row {
   display: flex;
   justify-content: space-between;
@@ -3748,7 +3814,7 @@ html, body, #root {
 .an-weakest-name { flex: 1; color: var(--t2); }
 .an-weakest-pct  { font-weight: 600; flex-shrink: 0; }
 
-/* Tab bar — segmented control */
+/* Tab bar - segmented control */
 .an-tab-bar {
   display: flex;
   gap: 0;
@@ -3932,7 +3998,7 @@ html, body, #root {
 .an-trend-tt-lbl   { font-size: 11.5px; color: var(--t3); flex: 1; }
 .an-trend-tt-val   { font-size: 12.5px; font-weight: 700; color: var(--t1); }
 
-/* Improving topics — Top 5 Progress Gains */
+/* Improving topics - Top 5 Progress Gains */
 .an-improve-list { display: flex; flex-direction: column; gap: 8px; }
 .an-improve-row  {
   display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
@@ -3958,7 +4024,7 @@ html, body, #root {
 .an-improve-bar { height: 100%; background: var(--green); border-radius: 2px; opacity: .65; transition: width .45s cubic-bezier(.4,0,.2,1); }
 .an-improve-empty { font-size: 12px; color: var(--t4); line-height: 1.65; text-align: center; padding: 18px 12px; margin: 0; }
 
-/* ── Progress Gains Chart ── */
+/* -- Progress Gains Chart -- */
 .an-progress-chart { display: flex; flex-direction: column; }
 .an-progress-row {
   padding: 12px 0;
@@ -4048,14 +4114,14 @@ html, body, #root {
 /* Muted secondary text */
 .an-muted { font-size: 11.5px; color: var(--t4); }
 
-/* ── Session Trajectory label ── */
+/* -- Session Trajectory label -- */
 .an-traj-label {
   font-size: 10.5px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .6px; padding: 2px 8px; border-radius: 4px;
   margin-bottom: 3px;
 }
 
-/* ── Next Best Action — repair row ── */
+/* -- Next Best Action - repair row -- */
 .an-rec-repair {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 10px; background: var(--border-s);
@@ -4067,7 +4133,7 @@ html, body, #root {
 }
 .an-rec-repair-val { font-size: 12px; color: var(--t2); }
 
-/* ── Benchmark Intelligence ── */
+/* -- Benchmark Intelligence -- */
 .an-bench-card { gap: 14px; }
 .an-bench-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .an-bench-sub { font-size: 11.5px; color: var(--t4); margin-top: 2px; }
@@ -4100,7 +4166,7 @@ html, body, #root {
   .an-bench-stat:nth-child(2) { border-right: none; }
 }
 
-/* ── Clinical Reasoning Pattern ── */
+/* -- Clinical Reasoning Pattern -- */
 .an-crp-card { gap: 10px; }
 .an-crp-signal { margin-bottom: 2px; }
 .an-crp-badge {
@@ -4173,7 +4239,7 @@ html, body, #root {
 .an-kpi-val--blue   { color: var(--blue); }
 .an-kpi-val--small  { font-size: 13px; font-weight: 700; letter-spacing: 0; line-height: 1.3; }
 
-/* System breakdown — radial SVGs */
+/* System breakdown - radial SVGs */
 .an-sys-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
@@ -4230,7 +4296,7 @@ html, body, #root {
 }
 
 /* ============================================================
-   QUIZ SESSION — mark button  qs-mark-btn
+   QUIZ SESSION - mark button  qs-mark-btn
    ============================================================ */
 
 .qs-mark-btn {
@@ -4602,7 +4668,7 @@ html, body, #root {
 .erv-filter-count.marked  { background: rgba(224,123,32,.1); color: var(--orange); }
 .erv-filter-count.skipped { background: var(--border-s); color: var(--t4); }
 
-/* Card list — scrollable */
+/* Card list - scrollable */
 .erv-list {
   flex: 1;
   overflow-y: auto;
@@ -4836,7 +4902,7 @@ html, body, #root {
    FLASHCARDS PAGE  fc-
    ============================================================ */
 
-/* ── Shell ───────────────────────────────────────────────────── */
+/* -- Shell ----------------------------------------------------- */
 .fc-page {
   flex: 1; display: flex; flex-direction: column;
   background: var(--bg); overflow: hidden;
@@ -4853,7 +4919,7 @@ html, body, #root {
   display: flex; flex-direction: column; gap: 20px;
 }
 
-/* ── Page header ─────────────────────────────────────────────── */
+/* -- Page header ----------------------------------------------- */
 .fc-page-hdr {
   display: flex; align-items: flex-start;
   justify-content: space-between; gap: 16px; flex-wrap: wrap;
@@ -4862,7 +4928,7 @@ html, body, #root {
 .fc-page-sub   { font-size: 12px; color: var(--t3); margin: 3px 0 0; }
 .fc-page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* ── Action buttons ──────────────────────────────────────────── */
+/* -- Action buttons -------------------------------------------- */
 .fc-action-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 9px 18px; border-radius: 10px; border: 1.5px solid var(--border);
@@ -4890,7 +4956,7 @@ html, body, #root {
 }
 .fc-action-btn.failed:hover { background: rgba(204,58,58,.12); }
 
-/* ── Stats grid ──────────────────────────────────────────────── */
+/* -- Stats grid ------------------------------------------------ */
 .fc-stats-grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
 }
@@ -4902,7 +4968,7 @@ html, body, #root {
 .fc-stat-num { font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -.8px; color: var(--t1); }
 .fc-stat-lbl { font-size: 10.5px; color: var(--t3); font-weight: 500; }
 
-/* ── Banner ──────────────────────────────────────────────────── */
+/* -- Banner ---------------------------------------------------- */
 .fc-banner {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; border-radius: 10px;
@@ -4915,7 +4981,7 @@ html, body, #root {
 }
 .fc-banner-left { display: flex; align-items: center; gap: 8px; }
 
-/* ── Filters ─────────────────────────────────────────────────── */
+/* -- Filters --------------------------------------------------- */
 .fc-filters { display: flex; flex-direction: column; gap: 10px; }
 .fc-filters-row { display: flex; gap: 8px; align-items: center; }
 .fc-search-wrap { position: relative; flex: 1; }
@@ -4972,7 +5038,7 @@ html, body, #root {
   background: var(--bg);
 }
 
-/* ── Card library ────────────────────────────────────────────── */
+/* -- Card library ---------------------------------------------- */
 .fc-library { display: flex; flex-direction: column; gap: 6px; }
 .fc-library-hdr {
   display: flex; align-items: center; justify-content: space-between;
@@ -5000,7 +5066,7 @@ html, body, #root {
 
 .fc-card-item-btn {
   width: 100%; display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; padding: 13px 14px 13px 0;
+  gap: 14px; padding: 14px 14px 14px 0;
   background: none; border: none; cursor: pointer; text-align: left;
 }
 .fc-card-item-left { display: flex; align-items: stretch; flex: 1; min-width: 0; }
@@ -5011,22 +5077,23 @@ html, body, #root {
 }
 .fc-card-item-body { flex: 1; min-width: 0; padding-top: 1px; }
 .fc-card-front {
-  font-size: 13px; font-weight: 600; color: var(--t1);
-  margin: 0 0 3px; line-height: 1.5;
+  font-size: 13.5px; font-weight: 600; color: var(--t1);
+  margin: 0 0 5px; line-height: 1.45;
 }
 .fc-card-back-preview {
-  font-size: 11.5px; color: var(--t3); margin: 0;
-  line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  font-size: 11.8px; color: var(--t3); margin: 0;
+  line-height: 1.5; white-space: normal; overflow: hidden;
 }
-.fc-card-item-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.fc-card-item-right { display: flex; align-items: flex-start; gap: 8px; flex-shrink: 0; padding-top: 2px; }
 .fc-chevron { color: var(--t3); transition: transform .18s; flex-shrink: 0; }
 .fc-chevron.open { transform: rotate(180deg); }
 
-.fc-card-item-answer { padding: 0 14px 14px 16px; }
+.fc-card-item-answer { padding: 0 16px 15px 16px; }
 .fc-card-item-divider { height: 1px; background: var(--border); margin-bottom: 12px; }
-.fc-card-back-full { font-size: 13px; color: var(--t2); margin: 0; line-height: 1.65; }
+.fc-card-back-full { font-size: 13.5px; color: var(--t2); margin: 0; line-height: 1.65; }
 
-/* ── Tag badge / Status pill ─────────────────────────────────── */
+/* -- Tag badge / Status pill ----------------------------------- */
 .fc-tag-badge {
   display: inline-flex; padding: 2px 8px; border-radius: 20px;
   font-size: 9.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
@@ -5037,7 +5104,7 @@ html, body, #root {
   letter-spacing: .2px; flex-shrink: 0;
 }
 
-/* ── Empty state ─────────────────────────────────────────────── */
+/* -- Empty state ----------------------------------------------- */
 .fc-empty {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -5049,7 +5116,7 @@ html, body, #root {
   font-size: 13.5px; color: var(--t3); max-width: 360px; line-height: 1.65; margin: 0;
 }
 
-/* ── Review mode header ──────────────────────────────────────── */
+/* -- Review mode header ---------------------------------------- */
 .fc-rev-hdr {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 24px; height: 72px; flex-shrink: 0;
@@ -5076,7 +5143,7 @@ html, body, #root {
   color: #4A90D9;
 }
 
-/* ── Review mode body ────────────────────────────────────────── */
+/* -- Review mode body ------------------------------------------ */
 .fc-rev-body {
   flex: 1; overflow-y: auto; display: flex; flex-direction: column;
   padding: 40px 20px 48px; background: #080F1C;
@@ -5145,7 +5212,7 @@ html, body, #root {
 .fc-rev-divider { height: 1px; background: rgba(255,255,255,.07); margin: 40px 0 32px; }
 .fc-rev-answer  { font-size: 18px; font-weight: 600; color: rgba(244,246,250,.88); line-height: 1.7; margin: 0 0 28px; }
 
-/* ── Ease buttons ────────────────────────────────────────────── */
+/* -- Ease buttons ---------------------------------------------- */
 .fc-ease-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .fc-ease-btn {
   flex: 1; min-width: 80px; padding: 13px 10px;
@@ -5166,7 +5233,7 @@ html, body, #root {
 .fc-ease-btn--easy  { color: #88B4F0; border-color: rgba(46,100,200,.4); }
 .fc-ease-btn--easy:hover  { background: rgba(46,100,200,.18); border-color: rgba(46,100,200,.7); transform: translateY(-1px); }
 
-/* ── Tag badge inside review card — larger pill ─────────────────── */
+/* -- Tag badge inside review card - larger pill ------------------- */
 .fc-rev-card .fc-tag-badge {
   height: 26px; padding: 0 12px; border-radius: 999px;
   font-size: 11px; font-weight: 700; display: inline-flex; align-items: center;
@@ -5175,7 +5242,7 @@ html, body, #root {
   border: 1px solid rgba(255,255,255,.12);
 }
 
-/* ── Session done screen ─────────────────────────────────────── */
+/* -- Session done screen --------------------------------------- */
 .fc-done-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
 .fc-done-card {
   background: var(--card); border: 1px solid var(--border); border-radius: 16px;
@@ -5192,7 +5259,7 @@ html, body, #root {
 .fc-done-sub   { font-size: 13px; color: var(--t3); margin: 0 0 4px; }
 .fc-done-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 
-/* ── Stat cards — clickable ──────────────────────────────────── */
+/* -- Stat cards - clickable ------------------------------------ */
 .fc-stat-card {
   cursor: pointer; transition: border-color .14s, background .14s;
   /* button element reset */
@@ -5201,13 +5268,13 @@ html, body, #root {
 .fc-stat-card:hover   { border-color: var(--blue-20); }
 .fc-stat-card.active  { border-color: var(--blue); background: var(--blue-10); }
 
-/* ── Card metadata line ──────────────────────────────────────── */
+/* -- Card metadata line ---------------------------------------- */
 .fc-meta-line {
   font-size: 10.5px; color: var(--t3); margin: 3px 0 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 
-/* ── Review nav buttons ──────────────────────────────────────── */
+/* -- Review nav buttons ---------------------------------------- */
 .fc-review-nav {
   display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 0;
 }
@@ -5237,7 +5304,7 @@ html, body, #root {
 .fc-rev-nav-btn:hover:not(:disabled) { border-color: rgba(255,255,255,.24); color: rgba(244,246,250,.85); background: rgba(255,255,255,.08); }
 .fc-rev-nav-btn:disabled { opacity: .25; cursor: default; }
 
-/* ── Session summary grid ────────────────────────────────────── */
+/* -- Session summary grid -------------------------------------- */
 .fc-summary-grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
   margin: 16px 0 4px; width: 100%;
@@ -5250,7 +5317,7 @@ html, body, #root {
 .fc-summary-num { font-size: 22px; font-weight: 800; line-height: 1; letter-spacing: -.5px; }
 .fc-summary-lbl { font-size: 10.5px; color: var(--t3); font-weight: 500; }
 
-/* ── Clear Deck button ───────────────────────────────────────── */
+/* -- Clear Deck button ----------------------------------------- */
 .fc-clear-deck-btn {
   padding: 7px 14px; border-radius: 9px;
   border: 1.5px solid rgba(204,58,58,.3); background: transparent;
@@ -5260,12 +5327,12 @@ html, body, #root {
 }
 .fc-clear-deck-btn:hover { background: rgba(204,58,58,.08); border-color: rgba(204,58,58,.5); }
 
-/* ── Subject/System/Topic filter dropdowns ───────────────────── */
+/* -- Subject/System/Topic filter dropdowns --------------------- */
 .fc-filter-dropdowns {
   display: flex; flex-wrap: wrap; gap: 8px;
 }
 
-/* ── Dark mode ───────────────────────────────────────────────── */
+/* -- Dark mode ------------------------------------------------- */
 .dark .fc-stat-card        { background: var(--card); }
 .dark .fc-stat-card.active { background: rgba(23,105,200,.15); }
 .dark .fc-card-item        { background: var(--card); }
@@ -5282,7 +5349,7 @@ html, body, #root {
 .dark .fc-rev-subject      { background: rgba(255,255,255,.06); border-color: var(--border); }
 .dark .fc-rev-divider      { background: var(--border); }
 
-/* ── Responsive ──────────────────────────────────────────────── */
+/* -- Responsive ------------------------------------------------ */
 @media (max-width: 600px) {
   .fc-scroll              { padding: 20px 14px 48px; }
   .fc-stats-grid          { grid-template-columns: repeat(2, 1fr); }
@@ -5310,11 +5377,11 @@ html, body, #root {
   .fc-clear-deck-btn      { font-size: 11px; padding: 6px 10px; }
 }
 
-/* ──────────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------
    CUSTOM FLASHCARD GROUPS  (fc-custom-groups, fc-bulk, fc-modal)
-   ────────────────────────────────────────────────────────────────── */
+   ------------------------------------------------------------------ */
 
-/* ── Custom Groups section ───────────────────────────────────────── */
+/* -- Custom Groups section ----------------------------------------- */
 .fc-custom-groups {
   display: flex; flex-direction: column; gap: 10px;
   background: var(--card); border: 1px solid var(--border);
@@ -5347,7 +5414,7 @@ html, body, #root {
 }
 .fc-new-group-btn:hover { background: rgba(23,105,200,.15); border-color: var(--blue); }
 
-/* ── Group chip row ──────────────────────────────────────────────── */
+/* -- Group chip row ------------------------------------------------ */
 .fc-custom-group-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .fc-custom-group-chip-wrap { display: flex; align-items: center; gap: 2px; }
 .fc-custom-group-chip {
@@ -5372,7 +5439,7 @@ html, body, #root {
   background: rgba(23,105,200,.2); color: var(--blue);
 }
 
-/* ── Group chip management buttons (rename/delete) ───────────────── */
+/* -- Group chip management buttons (rename/delete) ----------------- */
 .fc-group-mgmt-btns {
   display: flex; align-items: center; gap: 1px;
   opacity: 0; transition: opacity .14s; pointer-events: none;
@@ -5392,7 +5459,7 @@ html, body, #root {
 .fc-group-mgmt-btn:hover { border-color: var(--t3); color: var(--t2); background: var(--hover); }
 .fc-group-mgmt-btn.danger:hover { border-color: rgba(204,58,58,.5); color: var(--red); background: rgba(204,58,58,.07); }
 
-/* ── Bulk action bar ─────────────────────────────────────────────── */
+/* -- Bulk action bar ----------------------------------------------- */
 .fc-bulk-bar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 10px 14px; border-radius: 10px;
@@ -5406,7 +5473,7 @@ html, body, #root {
 .fc-bulk-remove-btn { color: var(--red) !important; border-color: rgba(204,58,58,.35) !important; }
 .fc-bulk-remove-btn:hover { background: rgba(204,58,58,.07) !important; border-color: rgba(204,58,58,.5) !important; }
 
-/* ── Card selection checkbox ─────────────────────────────────────── */
+/* -- Card selection checkbox --------------------------------------- */
 .fc-card-item { position: relative; }
 .fc-card-item.in-select-mode .fc-card-item-btn { padding-left: 40px; }
 .fc-card-select {
@@ -5424,7 +5491,7 @@ html, body, #root {
   background: linear-gradient(135deg, var(--blue-10) 0%, var(--card) 60%);
 }
 
-/* ── Group badges on cards ───────────────────────────────────────── */
+/* -- Group badges on cards ----------------------------------------- */
 .fc-group-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .fc-group-badge {
   display: inline-flex; align-items: center;
@@ -5440,7 +5507,7 @@ html, body, #root {
   background: var(--hover); color: var(--t3); border: 1px solid var(--border);
 }
 
-/* ── Modal overlay ───────────────────────────────────────────────── */
+/* -- Modal overlay ------------------------------------------------- */
 .fc-modal-overlay {
   position: fixed; inset: 0; z-index: 200;
   background: rgba(0,0,0,.45); backdrop-filter: blur(3px);
@@ -5470,7 +5537,7 @@ html, body, #root {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;
 }
 
-/* ── Group picker list ───────────────────────────────────────────── */
+/* -- Group picker list --------------------------------------------- */
 .fc-group-picker-list {
   display: flex; flex-direction: column; gap: 4px;
   max-height: 240px; overflow-y: auto;
@@ -5485,7 +5552,7 @@ html, body, #root {
 .fc-group-picker-item:hover { border-color: var(--blue); background: var(--blue-10); }
 .fc-group-picker-count { font-size: 11px; color: var(--t3); }
 
-/* ── Add confirm toast ───────────────────────────────────────────── */
+/* -- Add confirm toast --------------------------------------------- */
 .fc-add-confirm {
   position: fixed; bottom: 24px; right: 24px; z-index: 300;
   display: flex; align-items: center; gap: 8px;
@@ -5501,7 +5568,7 @@ html, body, #root {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Dark mode overrides ─────────────────────────────────────────── */
+/* -- Dark mode overrides ------------------------------------------- */
 .dark .fc-custom-groups    { background: var(--card); }
 .dark .fc-group-modal      { background: var(--card); }
 .dark .fc-group-input      { background: var(--card); }
@@ -5516,7 +5583,7 @@ html, body, #root {
 .dark .fc-group-mgmt-btn   { background: var(--card); }
 .dark .fc-group-badge      { background: rgba(23,105,200,.15); }
 
-/* ── Responsive ──────────────────────────────────────────────────── */
+/* -- Responsive ---------------------------------------------------- */
 @media (max-width: 600px) {
   .fc-custom-groups              { padding: 12px 12px; }
   .fc-custom-groups-hdr,
@@ -5527,11 +5594,11 @@ html, body, #root {
   .fc-add-confirm                { bottom: 12px; right: 12px; left: 12px; font-size: 12px; }
 }
 
-/* ──────────────────────────────────────────────────────────────────
-   FLASHCARDS PAGE  Phase 6 — Command UI
-   ────────────────────────────────────────────────────────────────── */
+/* ------------------------------------------------------------------
+   FLASHCARDS PAGE  Phase 6 - Command UI
+   ------------------------------------------------------------------ */
 
-/* ── 1. Command Header ───────────────────────────────────────────── */
+/* -- 1. Command Header --------------------------------------------- */
 .fc-command-header {
   display: flex; align-items: flex-start;
   justify-content: space-between; gap: 16px; flex-wrap: wrap;
@@ -5554,7 +5621,7 @@ html, body, #root {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 4px;
 }
 
-/* ── 2. Review Queue Card ────────────────────────────────────────── */
+/* -- 2. Review Queue Card ------------------------------------------ */
 .fc-review-queue {
   background: #0B1220;
   border: 1px solid rgba(255,255,255,.07);
@@ -5601,7 +5668,7 @@ html, body, #root {
 .fc-rqs-num { font-size: 20px; font-weight: 800; line-height: 1; letter-spacing: -.4px; }
 .fc-rqs-lbl { font-size: 10px; color: rgba(244,246,250,.4); font-weight: 500; }
 
-/* ── 3. Topic Intelligence ───────────────────────────────────────── */
+/* -- 3. Topic Intelligence ----------------------------------------- */
 .fc-topic-intel {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 16px; overflow: hidden; box-shadow: var(--sh-card);
@@ -5645,7 +5712,7 @@ html, body, #root {
 }
 .fc-topic-chip.active .fc-topic-chip-count { background: rgba(255,255,255,.22); }
 
-/* ── 5. Toolbar Card ─────────────────────────────────────────────── */
+/* -- 5. Toolbar Card ----------------------------------------------- */
 .fc-toolbar-card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 14px; padding: 12px 14px;
@@ -5691,7 +5758,7 @@ html, body, #root {
   padding-top: 8px; border-top: 1px solid var(--border-s);
 }
 
-/* ── 6. Library Header ───────────────────────────────────────────── */
+/* -- 6. Library Header --------------------------------------------- */
 .fc-library-header {
   display: flex; align-items: center;
   justify-content: space-between; gap: 10px; margin-bottom: 6px;
@@ -5703,7 +5770,7 @@ html, body, #root {
   padding: 2px 8px; border-radius: 20px; background: var(--border-s);
 }
 
-/* ── Review header center + topic label ──────────────────────────── */
+/* -- Review header center + topic label ---------------------------- */
 .fc-rev-hdr-center {
   position: absolute; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 5px;
@@ -5715,13 +5782,13 @@ html, body, #root {
   max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ── Session done recommendation text ───────────────────────────── */
+/* -- Session done recommendation text ----------------------------- */
 .fc-done-rec {
   font-size: 12.5px; color: var(--t3); margin: 0;
   line-height: 1.55; text-align: center;
 }
 
-/* ── Dark mode overrides ─────────────────────────────────────────── */
+/* -- Dark mode overrides ------------------------------------------- */
 .dark .fc-review-queue          { background: var(--card); }
 .dark .fc-review-queue-stats    { background: rgba(255,255,255,.03); border-color: var(--border); }
 .dark .fc-topic-intel           { background: var(--card); }
@@ -5735,7 +5802,7 @@ html, body, #root {
 .dark .fc-filter-chip           { background: var(--card); border-color: var(--border); }
 .dark .fc-command-icon          { background: rgba(23,105,200,.15); border-color: rgba(23,105,200,.25); }
 
-/* ── Responsive ──────────────────────────────────────────────────── */
+/* -- Responsive ---------------------------------------------------- */
 @media (max-width: 760px) {
   .fc-review-queue-main   { flex-direction: column; align-items: flex-start; }
   .fc-review-queue-stats  { width: 100%; justify-content: space-between; }
@@ -5750,9 +5817,9 @@ html, body, #root {
   .fc-header-actions      { gap: 6px; }
 }
 
-/* ──────────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------
    STUDENT HOME DASHBOARD  (db-)
-   ────────────────────────────────────────────────────────────────── */
+   ------------------------------------------------------------------ */
 
 .db-scroll {
   flex: 1;
@@ -6158,7 +6225,7 @@ html, body, #root {
 .db-plan-text { font-size: 12.5px; font-weight: 500; color: var(--t2); line-height: 1.4; }
 .db-plan-item--done .db-plan-text { text-decoration: line-through; color: var(--t4); }
 
-/* ── Welcome brand ───────────────────────────────────────────── */
+/* -- Welcome brand --------------------------------------------- */
 .db-welcome-brand {
   display: flex;
   align-items: center;
@@ -6174,7 +6241,7 @@ html, body, #root {
   opacity: .85;
 }
 
-/* ── Focus card ──────────────────────────────────────────────── */
+/* -- Focus card ------------------------------------------------ */
 .db-focus-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -6254,14 +6321,14 @@ html, body, #root {
   max-width: 340px;
 }
 
-/* ── Lower grid left column stacker ─────────────────────────── */
+/* -- Lower grid left column stacker --------------------------- */
 .db-lower-left {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-/* ── Strategic Study Priority ────────────────────────────────── */
+/* -- Strategic Study Priority ---------------------------------- */
 .db-priority-list { display: flex; flex-direction: column; gap: 13px; }
 .db-priority-row {
   display: flex;
@@ -6315,7 +6382,7 @@ html, body, #root {
 .db-priority-tag--focus      { background: color-mix(in srgb, var(--status-warn)     12%, transparent); color: var(--status-warn); }
 .db-priority-tag--reinforced { background: color-mix(in srgb, var(--status-stable)   12%, transparent); color: var(--status-stable); }
 
-/* ── Today's Queue ───────────────────────────────────────────── */
+/* -- Today's Queue --------------------------------------------- */
 .db-queue-list { display: flex; flex-direction: column; gap: 4px; }
 .db-queue-item {
   display: flex;
@@ -6404,7 +6471,7 @@ html, body, #root {
 .dark .db-queue-item { background: var(--card); border-color: var(--border); }
 .dark .db-coach-card { background: #060D18; }
 
-/* ── KPI Strip ───────────────────────────────────────────────── */
+/* -- KPI Strip ------------------------------------------------- */
 .db-kpi-strip {
   display: flex;
   align-items: stretch;
@@ -6460,7 +6527,7 @@ html, body, #root {
   .db-kpi-divider { width: auto; height: 1px; }
 }
 
-/* ── Intelligence Briefing hero ──────────────────────────────── */
+/* -- Intelligence Briefing hero -------------------------------- */
 .db-briefing {
   background: #0B1220;
   border-radius: 14px;
@@ -6545,7 +6612,7 @@ html, body, #root {
 }
 .db-briefing-start:hover { background: #0D3F6E; }
 
-/* ── Dark mode ───────────────────────────────────────────────── */
+/* -- Dark mode ------------------------------------------------- */
 .dark .db-btn--ghost   { background: var(--card); border-color: var(--border); }
 .dark .db-hero         { background: var(--card); }
 .dark .db-qa-card      { background: var(--card); }
@@ -6558,7 +6625,7 @@ html, body, #root {
 .dark .db-focus-card   { background: var(--card); border-color: var(--border); }
 .dark .db-focus-empty  { background: var(--card); border-color: var(--border); }
 
-/* ── Responsive ──────────────────────────────────────────────── */
+/* -- Responsive ------------------------------------------------ */
 @media (max-width: 1100px) {
   .db-qa-grid    { grid-template-columns: repeat(2, 1fr); }
   .db-snap-grid  { grid-template-columns: repeat(2, 1fr); }
@@ -6582,9 +6649,9 @@ html, body, #root {
   .db-focus-area { font-size: 16px; }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   DASHBOARD V2  —  Paper Design Match
-   ═══════════════════════════════════════════════════════════════ */
+/* ===============================================================
+   DASHBOARD V2  -  Paper Design Match
+   =============================================================== */
 
 .db2-scroll {
   flex: 1; overflow-y: auto; height: 100%;
@@ -6599,7 +6666,7 @@ html, body, #root {
   display: flex; flex-direction: column; gap: 20px;
 }
 
-/* ── Header ─────────────────────────────────────────────────── */
+/* -- Header --------------------------------------------------- */
 .db2-hdr {
   display: flex; align-items: flex-end;
   justify-content: space-between; gap: 16px;
@@ -6629,7 +6696,7 @@ html, body, #root {
 }
 .db2-start-btn:hover { background: #0D3F6E; }
 
-/* ── Hero Panel ─────────────────────────────────────────────── */
+/* -- Hero Panel ----------------------------------------------- */
 .db2-hero {
   display: grid; grid-template-columns: 340px 1fr; gap: 20px;
 }
@@ -6708,7 +6775,7 @@ html, body, #root {
 }
 .db2-adaptive-btn:hover { background: #142B47; }
 
-/* ── Metrics Strip ──────────────────────────────────────────── */
+/* -- Metrics Strip -------------------------------------------- */
 .db2-metrics {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
 }
@@ -6729,7 +6796,7 @@ html, body, #root {
 .db2-metric-sub--down { color: #DC2626; font-weight: 600; }
 .db2-metric-sub--warn { color: #D97706; }
 
-/* ── Bottom Grid ────────────────────────────────────────────── */
+/* -- Bottom Grid ---------------------------------------------- */
 .db2-bottom {
   display: grid; grid-template-columns: 1fr 320px;
   gap: 20px; align-items: start;
@@ -6787,7 +6854,7 @@ html, body, #root {
   font-size: 12.5px; color: var(--t4); text-align: center; padding: 20px 0;
 }
 
-/* ── Dark mode ──────────────────────────────────────────────── */
+/* -- Dark mode ------------------------------------------------ */
 .dark .db2-readiness   { background: #060E1C; }
 .dark .db2-adaptive-btn { background: #0D1D30; }
 .dark .db2-adaptive-btn:hover { background: #162B42; }
@@ -6797,7 +6864,7 @@ html, body, #root {
 .dark .db2-chart-card  { background: var(--card); border-color: var(--border); }
 .dark .db2-weakest-card { background: var(--card); border-color: var(--border); }
 
-/* ── Responsive ─────────────────────────────────────────────── */
+/* -- Responsive ----------------------------------------------- */
 @media (max-width: 1100px) {
   .db2-hero    { grid-template-columns: 1fr; }
   .db2-metrics { grid-template-columns: repeat(2, 1fr); }
@@ -6811,7 +6878,7 @@ html, body, #root {
   .db2-metrics  { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ── PHASE 3.4 — MASTERY PANEL ─────────────────────────────── */
+/* -- PHASE 3.4 - MASTERY PANEL ------------------------------- */
 
 .mp-panel { display: flex; flex-direction: column; gap: 14px; }
 
@@ -6895,7 +6962,7 @@ html, body, #root {
 }
 @keyframes mp-shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
 
-/* Subject breakdown rows (Row 3 of MasteryPanel) — interactive buttons */
+/* Subject breakdown rows (Row 3 of MasteryPanel) - interactive buttons */
 .mp-subject-row {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 0; border-bottom: 1px solid var(--border-s);
@@ -6907,7 +6974,7 @@ html, body, #root {
 .mp-subject-row:hover { background: var(--bg); }
 .mp-subject-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ── CONCEPT DETAIL MODAL ──────────────────────────────────── */
+/* -- CONCEPT DETAIL MODAL ------------------------------------ */
 
 .cdm-overlay {
   position: fixed; inset: 0; z-index: 200;
@@ -6968,8 +7035,26 @@ html, body, #root {
 .cdm-readiness-score   { font-size: 20px; font-weight: 700; color: var(--t1); }
 .cdm-readiness-status  { font-size: 11px; font-weight: 600; color: var(--t3); }
 .cdm-readiness-rec     { font-size: 11px; color: var(--t3); line-height: 1.5; margin: 0; }
+.cdm-history-section  { display: flex; flex-direction: column; gap: 8px; }
+.cdm-history-hdr      { display: flex; justify-content: space-between; align-items: baseline; }
+.cdm-history-count    { font-size: 11px; color: var(--t3); }
+.cdm-history-meta     { display: flex; gap: 16px; flex-wrap: wrap; }
+.cdm-history-meta-item { display: flex; flex-direction: column; gap: 3px; }
+.cdm-history-meta-key  { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t4); }
+.cdm-history-meta-val  { font-size: 13px; font-weight: 600; color: var(--t1); }
+.cdm-history-timeline  { display: flex; flex-direction: column; }
+.cdm-history-entry     { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-s); }
+.cdm-history-entry:last-child { border-bottom: none; }
+.cdm-history-date      { font-size: 11px; color: var(--t3); min-width: 52px; }
+.cdm-history-result    { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 2px 7px; border-radius: 20px; }
+.cdm-result--again     { background: rgba(123,58,74,.12);  color: var(--status-critical); }
+.cdm-result--hard      { background: rgba(122,87,40,.12);  color: var(--status-warn);     }
+.cdm-result--good      { background: rgba(45,106,92,.12);  color: var(--status-stable);   }
+.cdm-result--easy      { background: var(--blue-10);        color: var(--blue);            }
+.cdm-history-interval  { font-size: 10.5px; color: var(--t4); margin-left: auto; }
+.cdm-history-empty     { font-size: 11.5px; color: var(--t4); font-style: italic; margin: 0; }
 
-/* ── SETTINGS PAGE ─────────────────────────────────────────── */
+/* -- SETTINGS PAGE ------------------------------------------- */
 
 .stg-page  { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 .stg-scroll {
@@ -7046,7 +7131,7 @@ html, body, #root {
 .stg-info-val   { color: var(--t1); font-weight: 500; }
 .stg-info-val--on { color: var(--status-stable); }
 
-/* ── ADAPTIVE FLASHCARD CTA ────────────────────────────────── */
+/* -- ADAPTIVE FLASHCARD CTA ---------------------------------- */
 
 .fc-ai-cta {
   display: flex; flex-direction: column; gap: 12px;
@@ -7078,7 +7163,7 @@ html, body, #root {
 .fc-ai-strip-label { font-size: 12.5px; font-weight: 600; color: var(--blue); }
 .fc-ai-strip-sub   { font-size: 11px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ── ADAPTIVE EXAM PREVIEW (QuizBuilder) ───────────────────── */
+/* -- ADAPTIVE EXAM PREVIEW (QuizBuilder) --------------------- */
 
 .qb-adaptive {
   border-radius: 9px; padding: 14px 16px;
@@ -7102,14 +7187,14 @@ html, body, #root {
 }
 .qb-adaptive-chip--dim { background: var(--bg); color: var(--t4); border-color: var(--border-s); }
 
-/* ── MASTERY TIMELINE CHART (Phase 3.7) ────────────────────── */
+/* -- MASTERY TIMELINE CHART (Phase 3.7) ---------------------- */
 
 .mtc-empty {
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; color: var(--t4); text-align: center; padding: 0 16px;
 }
 
-/* ── PROGRESS TREND PANEL (Phase 3.7) ──────────────────────── */
+/* -- PROGRESS TREND PANEL (Phase 3.7) ------------------------ */
 
 .ptp-panel { display: flex; flex-direction: column; gap: 16px; }
 
@@ -7150,7 +7235,7 @@ html, body, #root {
 }
 .ptp-delta--flat { background: var(--border-s); color: var(--t4); }
 
-/* ── PROGRESS PANEL (Phase 3.6) ────────────────────────────── */
+/* -- PROGRESS PANEL (Phase 3.6) ------------------------------ */
 
 .pp-panel { display: flex; flex-direction: column; gap: 16px; }
 
@@ -7188,7 +7273,7 @@ html, body, #root {
 .pp-chart-wrap  { margin-top: 4px; }
 .pp-chart-label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t4); margin-bottom: 8px; }
 
-/* ── STUDY PRESCRIPTION PANEL (Phase 3.5) ──────────────────── */
+/* -- STUDY PRESCRIPTION PANEL (Phase 3.5) -------------------- */
 
 .spp-panel { display: flex; flex-direction: column; gap: 16px; }
 
@@ -7255,7 +7340,7 @@ html, body, #root {
 
 .spp-attempts { font-size: 10.5px; color: var(--t4); white-space: nowrap; }
 
-/* Subject chip — shown above concept name when subject is present */
+/* Subject chip - shown above concept name when subject is present */
 .spp-subject-chip {
   display: inline-block;
   font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
@@ -7340,3 +7425,42 @@ html, body, #root {
 .spp-ease-label   { font-size: 9.5px; font-weight: 700; line-height: 1.2; }
 .spp-ease-interval { font-size: 8.5px; color: var(--t4); line-height: 1.3; }
 .spp-ease-error   { font-size: 10px; color: var(--status-critical); padding-top: 3px; }
+
+/* Question quality reporting */
+.question-report-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0 16px;
+}
+.question-report-select {
+  height: 30px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--t2);
+  border-radius: 6px; padding: 0 8px; font-size: 12px;
+}
+.question-report-btn {
+  height: 30px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--t2);
+  border-radius: 6px; padding: 0 10px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.question-report-btn:hover { color: var(--t1); border-color: var(--accent); }
+.question-report-status { color: var(--good); font-size: 12px; font-weight: 700; }
+
+/* Question report analytics */
+.an-report-card { display: flex; flex-direction: column; gap: 12px; }
+.an-report-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.an-report-total {
+  min-width: 38px; height: 34px; display: grid; place-items: center;
+  border-radius: 6px; background: var(--bg); border: 1px solid var(--border-s);
+  color: var(--status-critical); font-size: 18px; font-weight: 800;
+}
+.an-report-reasons { display: grid; gap: 6px; }
+.an-report-reason-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 9px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border-s);
+  font-size: 12px; color: var(--t2);
+}
+.an-report-reason-row strong { color: var(--t1); }
+.an-report-section { display: grid; gap: 6px; }

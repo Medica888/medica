@@ -19,7 +19,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const [currentIndex, setCurrentIndex] = useState(0)
   // answers: Record<questionId, OptionLetter>
   const [answers, setAnswers] = useState({})
-  // revealed: Record<questionId, boolean> — explanation shown
+  // revealed: Record<questionId, boolean> - explanation shown
   const [revealed, setRevealed] = useState({})
 
   const questions  = session.questions

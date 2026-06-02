@@ -1,4 +1,4 @@
-import { normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
+import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
 
 /**
  * @param {{
@@ -9,7 +9,7 @@ import { normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormali
  */
 export default function PracticeExplanationPanel({ question, answered, isCorrect }) {
   const options = normalizeOptions(question.options)
-  const normalizedCorrect  = normalizeAnswerLetter(question.correctAnswer ?? question.correct)
+  const normalizedCorrect  = getQuestionCorrectLetter(question)
   const normalizedAnswered = normalizeAnswerLetter(answered)
   const answeredOption = options.find(o => o.letter === normalizedAnswered)
   const correctOption  = options.find(o => o.letter === normalizedCorrect)
