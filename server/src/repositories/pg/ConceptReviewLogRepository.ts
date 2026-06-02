@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { ReviewStats } from '../../types/index.js';
+import type { ReviewStats, ConceptReviewEntry } from '../../types/index.js';
 import type { IConceptReviewLogRepository } from '../interfaces.js';
 
 export class PgConceptReviewLogRepository implements IConceptReviewLogRepository {
@@ -128,6 +128,32 @@ export class PgConceptReviewLogRepository implements IConceptReviewLogRepository
       goalProgress:       Number(row.today_total),
       activity30Days:     row.activity_json ?? [],
     };
+  }
+
+  async getConceptHistory(
+    userId:    string,
+    conceptId: string,
+    limit = 50,
+  ): Promise<ConceptReviewEntry[]> {
+    const res = await this.pool.query<{
+      result:          string;
+      reviewed_at:     Date;
+      interval_before: number;
+      interval_after:  number;
+    }>(
+      `SELECT result, reviewed_at, interval_before, interval_after
+       FROM concept_review_log
+       WHERE user_id = $1 AND concept_id = $2
+       ORDER BY reviewed_at DESC
+       LIMIT $3`,
+      [userId, conceptId, limit],
+    );
+    return res.rows.map((r) => ({
+      result:         r.result as ConceptReviewEntry['result'],
+      reviewedAt:     r.reviewed_at.toISOString(),
+      intervalBefore: Number(r.interval_before),
+      intervalAfter:  Number(r.interval_after),
+    }));
   }
 }
 

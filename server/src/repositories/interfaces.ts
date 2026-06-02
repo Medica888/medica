@@ -10,6 +10,7 @@ import type {
   UserConceptMastery,
   MasterySnapshot,
   ReviewStats,
+  ConceptReviewEntry,
   PaginationParams,
   PaginatedResult,
 } from '../types/index.js';
@@ -133,8 +134,12 @@ export interface IMasterySnapshotsRepository {
     }[],
   ): Promise<void>;
 
-  /** All snapshots for a user, ordered by created_at ASC. */
-  findByUserId(userId: string): Promise<MasterySnapshot[]>;
+  /**
+   * All snapshots for a user, ordered by created_at ASC.
+   * `limit` caps the result to the most recent rows (default 5000).
+   * This prevents unbounded memory allocation for power users with many sessions.
+   */
+  findByUserId(userId: string, limit?: number): Promise<MasterySnapshot[]>;
 
   /**
    * Session IDs with snapshots, oldest to newest.
@@ -193,4 +198,14 @@ export interface IConceptReviewLogRepository {
   }, tx?: unknown): Promise<void>;
 
   getStats(userId: string): Promise<ReviewStats>;
+
+  /**
+   * Returns SRS review history for one concept, newest first.
+   * Capped at `limit` entries (default 50).
+   */
+  getConceptHistory(
+    userId:    string,
+    conceptId: string,
+    limit?:    number,
+  ): Promise<ConceptReviewEntry[]>;
 }

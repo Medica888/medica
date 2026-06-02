@@ -93,3 +93,10 @@ export function useDueReviews() {
 export function useReviewStats() {
   return useApiCall(() => masteryApi.reviewStats())
 }
+
+export function useConceptReviews(conceptId) {
+  return useApiCall(
+    () => (conceptId ? masteryApi.conceptReviews(conceptId) : Promise.resolve(null)),
+    [conceptId],
+  )
+}

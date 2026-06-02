@@ -30,10 +30,12 @@ export class InMemoryMasterySnapshotsRepository implements IMasterySnapshotsRepo
     }
   }
 
-  async findByUserId(userId: string): Promise<MasterySnapshot[]> {
-    return this.rows
+  async findByUserId(userId: string, limit = 5000): Promise<MasterySnapshot[]> {
+    const all = this.rows
       .filter((r) => r.user_id === userId)
       .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+    // Return the most recent `limit` rows, preserving ASC order within the window.
+    return all.length <= limit ? all : all.slice(all.length - limit);
   }
 
   async findBatchIds(userId: string): Promise<string[]> {

@@ -109,6 +109,9 @@ export const mastery = {
   reviewConcept: (conceptId, result) =>
     request('POST', `/api/mastery/concept/${conceptId}/review`, { result }),
 
+  conceptReviews: (id) =>
+    request('GET', `/api/mastery/concept/${id}/reviews`),
+
   dueReviews: () =>
     request('GET', '/api/mastery/reviews/due'),
 

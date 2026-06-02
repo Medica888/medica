@@ -45,18 +45,88 @@ const RANDOM_PRESCRIPTION: StudyPrescription = {
   recommendedFlashcards: 10,
 };
 
+// ── Deterministic USMLE taxonomy inference from concept metadata ──────────────
+// Ordered pairs (substring-to-match, canonical-area). System is checked first
+// (more specific), subject second.  No AI calls, no extra queries.
+
+const SYSTEM_TO_CONTENT_AREA: [string, string][] = [
+  ['cardiovascular', 'Cardiovascular System'],
+  ['respiratory',    'Respiratory System'],
+  ['pulmonary',      'Respiratory System'],
+  ['gastrointestinal', 'Gastrointestinal System'],
+  ['renal',          'Renal & Urinary System'],
+  ['urinary',        'Renal & Urinary System'],
+  ['nervous',        'Nervous System & Special Senses'],
+  ['neurolog',       'Nervous System & Special Senses'],
+  ['musculoskeletal','Musculoskeletal System'],
+  ['skin',           'Skin & Subcutaneous Tissue'],
+  ['endocrine',      'Endocrine System'],
+  ['hematol',        'Blood & Lymphoreticular System'],
+  ['immune',         'Immune System'],
+  ['reproductive',   'Female and Transgender Reproductive System & Breast'],
+  ['pregnancy',      'Pregnancy, Childbirth, & the Puerperium'],
+  ['behavioral',     'Behavioral Health'],
+  ['psychiatric',    'Behavioral Health'],
+];
+
+const SUBJECT_TO_CONTENT_AREA: [string, string][] = [
+  ['cardiol',         'Cardiovascular System'],
+  ['pulmonol',        'Respiratory System'],
+  ['gastroenterol',   'Gastrointestinal System'],
+  ['nephrol',         'Renal & Urinary System'],
+  ['neurol',          'Nervous System & Special Senses'],
+  ['endocrinol',      'Endocrine System'],
+  ['hematol',         'Blood & Lymphoreticular System'],
+  ['immunol',         'Immune System'],
+  ['dermatol',        'Skin & Subcutaneous Tissue'],
+  ['psychiatr',       'Behavioral Health'],
+  ['microbiol',       'Multisystem Processes & Disorders'],
+  ['biochem',         'Multisystem Processes & Disorders'],
+  ['genetic',         'Multisystem Processes & Disorders'],
+  ['oncol',           'Multisystem Processes & Disorders'],
+  ['biostatist',      'Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature'],
+  ['epidemiol',       'Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature'],
+];
+
+function conceptContentArea(concept: Concept): string {
+  const sys = (concept.system  || '').toLowerCase();
+  const sub = (concept.subject || '').toLowerCase();
+  for (const [key, area] of SYSTEM_TO_CONTENT_AREA) { if (sys.includes(key)) return area; }
+  for (const [key, area] of SUBJECT_TO_CONTENT_AREA) { if (sub.includes(key)) return area; }
+  return '';
+}
+
+function conceptPhysicianTask(concept: Concept): string {
+  const sub  = (concept.subject || '').toLowerCase();
+  const name = (concept.name    || '').toLowerCase();
+  if (sub.includes('pharmacol') || name.includes('pharmacol') || name.includes('medication') || name.includes('adverse') || name.includes('drug '))
+    return 'Patient Care: Pharmacotherapy';
+  if (name.includes('diagnos') || name.includes('identif'))
+    return 'Patient Care: Diagnosis';
+  if (name.includes(' lab') || name.includes('imaging') || name.includes('interpret') || name.includes('ecg') || name.includes('ekg'))
+    return 'Patient Care: Laboratory and Diagnostic Studies';
+  if (name.includes('complicat') || name.includes('prognos') || name.includes('outcome'))
+    return 'Patient Care: Prognosis and Outcome';
+  if (name.includes('prevent') || name.includes('screen') || name.includes('vaccine'))
+    return 'Patient Care: Health Maintenance and Disease Prevention';
+  return 'Medical Knowledge: Applying Foundational Science Concepts';
+}
+
+// recent_incorrect_count is a lifetime cumulative total (attempts − correct), not a
+// windowed recent count. Thresholds here are calibrated for cumulative totals.
 function makeRecommendation(
   row:  UserConceptMastery,
   tier: 'priority' | 'focus' | 'reinforced',
 ): string {
   if (tier === 'priority') {
-    if (row.recent_incorrect_count >= 3) return 'Repeated errors — immediate targeted review needed';
+    if (row.recent_incorrect_count >= 5) return 'Persistent weak area — review core mechanisms';
+    if (row.recent_incorrect_count >= 3) return 'Recurring errors — address weak points before they solidify';
     if (row.confidence_score < 0.4)      return 'Build foundational understanding — review core mechanisms';
     if (row.mastery_score === 0)          return 'Never answered correctly — start from basics';
     return 'Below passing threshold — prioritize in next session';
   }
   if (tier === 'focus') {
-    if (row.recent_incorrect_count >= 2) return 'Close to passing — address recurring errors';
+    if (row.recent_incorrect_count >= 4) return 'Recurring errors — address weak points with targeted practice';
     return 'Developing — reinforce with targeted practice questions';
   }
   return 'Solid understanding — maintain with spaced review';
@@ -92,25 +162,36 @@ function tierFor(score: number): ReviewTier {
   return 'ontrack';
 }
 
+// recent_incorrect_count is cumulative lifetime total — threshold of 3 avoids
+// flagging every concept that has ever been answered wrong even once.
 function dailyReason(row: UserConceptMastery): string {
   if (row.next_review_at && row.next_review_at.getTime() <= Date.now()) return 'Due for spaced review';
-  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count > 0 && row.confidence_score < 0.5) {
-    return 'Low mastery, low confidence, and recent incorrect answers';
+  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count >= 3 && row.confidence_score < 0.5) {
+    return 'Low mastery, low confidence, and accumulated wrong answers';
   }
-  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count > 0) {
-    return 'Low mastery and recent incorrect answers';
+  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count >= 3) {
+    return 'Low mastery with accumulated wrong answers';
   }
   if (row.mastery_score < TIER_PRIORITY_MAX) return 'Low mastery needs targeted review';
   if (row.confidence_score < 0.5) return 'Developing concept with low confidence';
-  if (row.recent_incorrect_count > 0) return 'Recent incorrect answers need reinforcement';
+  if (row.recent_incorrect_count >= 3) return 'Wrong answers recorded — reinforce with practice';
+  if (row.recent_incorrect_count > 0)  return 'Recent wrong answers — reinforce to prevent regression';
   return 'Developing concept needs spaced reinforcement';
 }
 
 function summarizeDailyPlan(reviews: DailyPlanConceptReview[]): string {
   if (!reviews.length) return 'No urgent concept reviews today. Maintain progress with light mixed practice.';
   const subjects = [...new Set(reviews.map((r) => r.subject).filter(Boolean))];
-  const primary = subjects.slice(0, 2).join(' and ');
+  const areas    = [...new Set(reviews.flatMap((r) => r.usmleContentArea ? [r.usmleContentArea] : []))];
+  const tasks    = [...new Set(reviews.flatMap((r) => r.physicianTask    ? [r.physicianTask]    : []))];
+  const primary  = subjects.slice(0, 2).join(' and ');
   const priorityCount = reviews.filter((r) => r.priority === 'priority').length;
+  // Use richer summary only when taxonomy is unambiguous (single area + single task)
+  if (areas.length === 1 && tasks.length === 1 && priorityCount > 0) {
+    const areaLabel = areas[0]!.replace(/ System$/i, '').replace(/ & Special Senses$/i, '');
+    const taskLabel = tasks[0]!.replace(/^Patient Care:\s*/i, '').replace(/^Medical Knowledge:\s*/i, '');
+    return `Focus today on ${areaLabel.toLowerCase()} ${taskLabel.toLowerCase()} — priority items need attention.`;
+  }
   if (primary && priorityCount > 0) return `Focus today on weak ${primary} concepts.`;
   if (primary) return `Reinforce developing ${primary} concepts today.`;
   return 'Focus today on your weakest tracked concepts.';
@@ -158,9 +239,14 @@ export class StudyPrescriptionService {
         reason:    dailyReason(row),
         nextReviewAt: row.next_review_at ? row.next_review_at.toISOString() : null,
         reviewIntervalDays: row.review_interval_days,
+        usmleContentArea: conceptContentArea(concept) || undefined,
+        physicianTask:    conceptPhysicianTask(concept) || undefined,
       }));
 
     const focusSubjects = [...new Set(conceptReviews.map((r) => r.subject).filter(Boolean))].slice(0, 3);
+    const focusUsmleContentAreas = [...new Set(conceptReviews.flatMap((r) => r.usmleContentArea ? [r.usmleContentArea] : []))].slice(0, 3);
+    const focusPhysicianTasks    = [...new Set(conceptReviews.flatMap((r) => r.physicianTask    ? [r.physicianTask]    : []))].slice(0, 3);
+
     const estimatedMinutes =
       rx.recommendedQuestions  * MIN_PER_QUESTION +
       rx.recommendedFlashcards * MIN_PER_FLASHCARD +
@@ -174,6 +260,8 @@ export class StudyPrescriptionService {
       recommendedFlashcards: rx.recommendedFlashcards,
       conceptReviews,
       focusSubjects,
+      focusUsmleContentAreas,
+      focusPhysicianTasks,
       summary:               summarizeDailyPlan(conceptReviews),
     };
   }

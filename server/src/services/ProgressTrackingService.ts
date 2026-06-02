@@ -20,6 +20,10 @@ const W_CONSISTENCY = 0.15;
 // Maximum meaningful improvement rate per session (±10%). Values outside this band are clamped.
 const TREND_BAND = 0.10;
 
+// Status is capped at 'Developing' until the user has tracked enough concepts to
+// produce a meaningful readiness signal. Matches MIN_FOR_ADAPTIVE in adaptiveMasteryUtils.ts.
+const MIN_CONCEPTS_FOR_READINESS = 20;
+
 export function readinessStatus(score: number): ReadinessStatus {
   if (score >= 85) return 'Exam Ready';
   if (score >= 70) return 'Approaching Readiness';
@@ -138,14 +142,23 @@ export class ProgressTrackingService {
     };
   }
 
-  /** Chronological trend of aggregate mastery per exam batch. */
+  /**
+   * Chronological trend of aggregate mastery per exam batch.
+   * Uses 2 queries (findBatchIds + findByUserId) and groups in memory — no N+1.
+   */
   async getMasteryTrend(userId: string): Promise<MasteryTrendPoint[]> {
-    const batchIds = await this.snapshots.findBatchIds(userId);
+    const [batchIds, allSnapshots] = await Promise.all([
+      this.snapshots.findBatchIds(userId),
+      this.snapshots.findByUserId(userId),
+    ]);
     if (!batchIds.length) return [];
-    const batches = await Promise.all(
-      batchIds.map((id) => this.snapshots.findByBatch(userId, id)),
-    );
-    return batchIds.map((id, i) => batchToTrendPoint(id, batches[i]!));
+    const bySession = new Map<string, MasterySnapshot[]>();
+    for (const snap of allSnapshots) {
+      const arr = bySession.get(snap.session_id) ?? [];
+      arr.push(snap);
+      bySession.set(snap.session_id, arr);
+    }
+    return batchIds.map((id) => batchToTrendPoint(id, bySession.get(id) ?? []));
   }
 
   /** Per-session weak (priority+focus) and priority concept counts. */
@@ -234,9 +247,17 @@ export class ProgressTrackingService {
     const raw = cMastery + cConfidence + cTrend + cConsistency;
     const overallReadiness = Math.min(100, Math.max(0, Math.round(raw * 100)));
 
+    // Cap status at 'Developing' when fewer than MIN_CONCEPTS_FOR_READINESS are tracked.
+    // The numeric score is still computed normally for trend comparisons.
+    const rawStatus = readinessStatus(overallReadiness);
+    const status: ReadinessStatus =
+      n < MIN_CONCEPTS_FOR_READINESS && rawStatus !== 'Needs Intensive Review'
+        ? 'Developing'
+        : rawStatus;
+
     return {
       overallReadiness,
-      status:     readinessStatus(overallReadiness),
+      status,
       components: {
         mastery:     round4(cMastery * 100),
         confidence:  round4(cConfidence * 100),

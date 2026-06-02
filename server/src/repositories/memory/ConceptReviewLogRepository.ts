@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { ReviewStats } from '../../types/index.js';
+import type { ReviewStats, ConceptReviewEntry } from '../../types/index.js';
 import type { IConceptReviewLogRepository } from '../interfaces.js';
 
 interface LogRow {
@@ -90,6 +90,23 @@ export class InMemoryConceptReviewLogRepository implements IConceptReviewLogRepo
       goalProgress:       todayRows.length,
       activity30Days,
     };
+  }
+
+  async getConceptHistory(
+    userId:    string,
+    conceptId: string,
+    limit = 50,
+  ): Promise<ConceptReviewEntry[]> {
+    return this.rows
+      .filter((r) => r.user_id === userId && r.concept_id === conceptId)
+      .sort((a, b) => b.reviewed_at.getTime() - a.reviewed_at.getTime())
+      .slice(0, limit)
+      .map((r) => ({
+        result:         r.result,
+        reviewedAt:     r.reviewed_at.toISOString(),
+        intervalBefore: r.interval_before,
+        intervalAfter:  r.interval_after,
+      }));
   }
 
   _clear(): void { this.rows = []; }

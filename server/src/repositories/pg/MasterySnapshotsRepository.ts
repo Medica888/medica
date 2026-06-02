@@ -56,12 +56,14 @@ export class PgMasterySnapshotsRepository implements IMasterySnapshotsRepository
     );
   }
 
-  async findByUserId(userId: string): Promise<MasterySnapshot[]> {
+  async findByUserId(userId: string, limit = 5000): Promise<MasterySnapshot[]> {
+    // Fetch the most recent `limit` rows (DESC), then reverse to return ASC order.
+    // The LIMIT prevents unbounded memory allocation for users with many sessions.
     const res = await this.pool.query<SnapshotRow>(
-      'SELECT * FROM mastery_snapshots WHERE user_id = $1 ORDER BY created_at ASC',
-      [userId],
+      'SELECT * FROM mastery_snapshots WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [userId, limit],
     );
-    return res.rows.map(toSnapshot);
+    return res.rows.map(toSnapshot).reverse();
   }
 
   async findBatchIds(userId: string): Promise<string[]> {

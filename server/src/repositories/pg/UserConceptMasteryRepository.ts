@@ -46,9 +46,9 @@ const INSERT_INTERVAL_SQL = `
   END
 `;
 
-const UPDATE_INTERVAL_SQL = `
+// Mastery-based interval derived from cumulative score — used in GREATEST below.
+const MASTERY_INTERVAL_SQL = `
   CASE
-    WHEN EXCLUDED.correct < EXCLUDED.attempts THEN 1
     WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
          ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
           (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.65 THEN 1
@@ -59,6 +59,17 @@ const UPDATE_INTERVAL_SQL = `
          ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
           (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.85 THEN 4
     ELSE 7
+  END
+`;
+
+// Any wrong answer in the batch resets the interval to 1 (objective exam failure is authoritative).
+// All-correct batches keep the GREATER of the SRS-scheduled interval and the mastery-computed
+// interval — preserving any user-expanded interval set via scheduleReview(). This prevents exam
+// submissions from silently reducing a hard-earned 'easy' SRS schedule.
+const UPDATE_INTERVAL_SQL = `
+  CASE
+    WHEN EXCLUDED.correct < EXCLUDED.attempts THEN 1
+    ELSE GREATEST(user_concept_mastery.review_interval_days, ${MASTERY_INTERVAL_SQL})
   END
 `;
 

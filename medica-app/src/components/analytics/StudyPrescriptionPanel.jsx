@@ -172,6 +172,20 @@ function DailyPlanSummary({ plan, dueData }) {
           ))}
         </div>
       )}
+      {plan.focusUsmleContentAreas?.length > 0 && (
+        <div className="cdm-chips" aria-label="USMLE content areas">
+          {plan.focusUsmleContentAreas.map(area => (
+            <span key={area} className="spp-subject-chip spp-usmle-chip">{area}</span>
+          ))}
+        </div>
+      )}
+      {plan.focusPhysicianTasks?.length > 0 && (
+        <div className="cdm-chips" aria-label="Physician tasks">
+          {plan.focusPhysicianTasks.map(task => (
+            <span key={task} className="spp-subject-chip spp-task-chip">{task}</span>
+          ))}
+        </div>
+      )}
       {visibleQueue.length === 0 && Object.values(sessionBreakdown).some(c => c > 0) && (
         <div className="spp-review-summary">
           <span className="spp-review-summary-label">Session complete</span>

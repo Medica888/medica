@@ -166,11 +166,16 @@ router.get('/timeline', async (req: AuthRequest, res: Response) => {
   try {
     const { userConceptMastery, masterySnapshots } = getRepositories();
     const svc   = new ProgressTrackingService(userConceptMastery, masterySnapshots);
+    // Fetch trend once; derive weakConceptTrend in-process — no second getMasteryTrend call.
     const trend = await svc.getMasteryTrend(req.userId!);
-    const weak  = await svc.getWeakConceptTrend(req.userId!);
     // Add 1-based sessionNumber for frontend chart x-axis labelling
     const trendWithNumbers = trend.map((p, i) => ({ ...p, sessionNumber: i + 1 }));
-    const weakWithNumbers  = weak.map((p, i) => ({ ...p, sessionNumber: i + 1 }));
+    const weakWithNumbers  = trend.map((p, i) => ({
+      date:          p.date,
+      weakCount:     p.priorityCount + p.focusCount,
+      priorityCount: p.priorityCount,
+      sessionNumber: i + 1,
+    }));
     res.json({
       trend:            trendWithNumbers,
       weakConceptTrend: weakWithNumbers,
@@ -242,6 +247,28 @@ router.get('/concept/:id', async (req: AuthRequest, res: Response) => {
     const data = await getService().getConceptDetail(req.userId!, id);
     if (!data) return res.status(404).json({ error: 'Concept not found' });
     res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/concept/:id/reviews', async (req: AuthRequest, res: Response) => {
+  const id = String(req.params['id']);
+  if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Concept not found' });
+  try {
+    const { reviewLog, userConceptMastery } = getRepositories();
+    const [reviews, masteryRow] = await Promise.all([
+      reviewLog.getConceptHistory(req.userId!, id, 50),
+      userConceptMastery.findByUserAndConcept(req.userId!, id),
+    ]);
+    res.json({
+      conceptId:           id,
+      totalReviews:        reviews.length,
+      currentIntervalDays: masteryRow?.review_interval_days ?? null,
+      nextReviewAt:        masteryRow?.next_review_at?.toISOString() ?? null,
+      lastReview:          reviews[0] ?? null,
+      reviews,
+    });
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

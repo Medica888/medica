@@ -9,12 +9,29 @@ function computeScores(attempts: number, correct: number) {
   };
 }
 
-function intervalFor(masteryScore: number, batchAttempted: number, batchCorrect: number): number {
-  if (batchCorrect < batchAttempted) return 1;
+function masteryBasedInterval(masteryScore: number): number {
   if (masteryScore < 0.65) return 1;
   if (masteryScore < 0.75) return 2;
   if (masteryScore < 0.85) return 4;
   return 7;
+}
+
+function intervalFor(masteryScore: number, batchAttempted: number, batchCorrect: number): number {
+  if (batchCorrect < batchAttempted) return 1;
+  return masteryBasedInterval(masteryScore);
+}
+
+// Any wrong answer in the batch resets the interval to 1.
+// All-correct batches keep the GREATER of the stored SRS interval and the
+// mastery-computed interval — preserving any user-expanded schedule from scheduleReview().
+function intervalForUpdate(
+  masteryScore:        number,
+  batchAttempted:      number,
+  batchCorrect:        number,
+  existingIntervalDays: number,
+): number {
+  if (batchCorrect < batchAttempted) return 1;
+  return Math.max(existingIntervalDays, masteryBasedInterval(masteryScore));
 }
 
 function addDays(date: Date, days: number): Date {
@@ -37,7 +54,9 @@ export class InMemoryUserConceptMasteryRepository implements IUserConceptMastery
         const newAttempts = existing.attempts + rec.attempted;
         const newCorrect  = existing.correct  + rec.correct;
         const scores = computeScores(newAttempts, newCorrect);
-        const reviewInterval = intervalFor(scores.mastery_score, rec.attempted, rec.correct);
+        const reviewInterval = intervalForUpdate(
+          scores.mastery_score, rec.attempted, rec.correct, existing.review_interval_days,
+        );
         this.store.set(key, {
           ...existing,
           attempts: newAttempts,

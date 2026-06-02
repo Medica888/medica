@@ -159,7 +159,7 @@ const DAILY_PLAN_DATA = {
       name: 'ACE Inhibitors',
       subject: 'Pharmacology',
       priority: 'priority',
-      reason: 'Low mastery and recent incorrect answers',
+      reason: 'Low mastery with accumulated wrong answers',
       nextReviewAt: '2026-05-31T00:00:00.000Z',
       reviewIntervalDays: 1,
     },
@@ -406,7 +406,7 @@ describe('StudyPrescriptionPanel daily plan render', () => {
     await waitFor(() => expect(screen.getByText('Today')).toBeTruthy())
     expect(screen.getByText('Focus today on weak pharmacology concepts.')).toBeTruthy()
     expect(screen.getAllByText('ACE Inhibitors').length).toBeGreaterThan(0)
-    expect(screen.getByText('Low mastery and recent incorrect answers')).toBeTruthy()
+    expect(screen.getByText('Low mastery with accumulated wrong answers')).toBeTruthy()
     expect(screen.getByText(/Interval 1 day/)).toBeTruthy()
   })
 

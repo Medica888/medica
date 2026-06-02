@@ -330,17 +330,21 @@ export interface DailyPlanConceptReview {
   reason:             string;
   nextReviewAt?:      string | null;
   reviewIntervalDays: number;
+  usmleContentArea?:  string;
+  physicianTask?:     string;
 }
 
 export interface DailyStudyPlan {
-  date:                  string; // YYYY-MM-DD
-  readinessStatus:       ReadinessStatus;
-  estimatedMinutes:      number;
-  recommendedQuestions:  number;
-  recommendedFlashcards: number;
-  conceptReviews:        DailyPlanConceptReview[];
-  focusSubjects:         string[];
-  summary:               string;
+  date:                    string; // YYYY-MM-DD
+  readinessStatus:         ReadinessStatus;
+  estimatedMinutes:        number;
+  recommendedQuestions:    number;
+  recommendedFlashcards:   number;
+  conceptReviews:          DailyPlanConceptReview[];
+  focusSubjects:           string[];
+  focusUsmleContentAreas?: string[];
+  focusPhysicianTasks?:    string[];
+  summary:                 string;
 }
 
 export interface ReviewStats {
@@ -364,4 +368,22 @@ export interface AdaptiveFlashcardPlan {
   targetConcepts:       string[]; // top MAX_TARGET_CONCEPTS from weakConcepts
   recommendedCardCount: number;   // targetConcepts.length * 2, max 20
   promptFocusText:      string;   // server-internal, injected into AI prompt
+}
+
+// ── Concept review history ────────────────────────────────────────────────────
+
+export interface ConceptReviewEntry {
+  result:         'again' | 'hard' | 'good' | 'easy';
+  reviewedAt:     string; // ISO timestamp
+  intervalBefore: number; // SRS interval in days before this review
+  intervalAfter:  number; // SRS interval in days after this review
+}
+
+export interface ConceptReviewHistory {
+  conceptId:           string;
+  totalReviews:        number; // count of returned entries (capped at 50)
+  currentIntervalDays: number | null; // null when no mastery row exists
+  nextReviewAt:        string | null; // ISO; null when no review scheduled
+  lastReview:          ConceptReviewEntry | null; // reviews[0], or null
+  reviews:             ConceptReviewEntry[];      // newest first, max 50
 }

@@ -480,3 +480,75 @@ describe('StudyPrescriptionPanel — retention layer (Phase 5.6)', () => {
     expect(document.querySelector('.spp-activity-strip')).toBeNull()
   })
 })
+
+describe('StudyPrescriptionPanel — USMLE taxonomy chips', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiClient.getAuthToken.mockReturnValue('test-token')
+    useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
+    useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
+    useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)
+  })
+
+  it('renders without taxonomy chips when focusUsmleContentAreas and focusPhysicianTasks are absent', () => {
+    // DAILY_PLAN_WITH_REVIEW has no taxonomy fields — existing plan should look identical
+    useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
+    setup()
+    expect(document.querySelector('[aria-label="USMLE content areas"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Physician tasks"]')).toBeNull()
+    // Existing subject chips still render (may appear more than once — in focusSubjects + concept row)
+    expect(screen.getAllByText('Pharmacology').length).toBeGreaterThan(0)
+  })
+
+  it('renders USMLE content area chips when focusUsmleContentAreas is present', () => {
+    useMasteryModule.useDailyStudyPlan.mockReturnValue({
+      data: {
+        ...DAILY_PLAN_WITH_REVIEW.data,
+        focusUsmleContentAreas: ['Cardiovascular System', 'Renal & Urinary System'],
+      },
+      loading: false, error: null,
+    })
+    setup()
+    expect(screen.getByText('Cardiovascular System')).toBeTruthy()
+    expect(screen.getByText('Renal & Urinary System')).toBeTruthy()
+    expect(document.querySelector('[aria-label="USMLE content areas"]')).toBeTruthy()
+  })
+
+  it('renders physician task chips when focusPhysicianTasks is present', () => {
+    useMasteryModule.useDailyStudyPlan.mockReturnValue({
+      data: {
+        ...DAILY_PLAN_WITH_REVIEW.data,
+        focusPhysicianTasks: ['Patient Care: Pharmacotherapy'],
+      },
+      loading: false, error: null,
+    })
+    setup()
+    expect(screen.getByText('Patient Care: Pharmacotherapy')).toBeTruthy()
+    expect(document.querySelector('[aria-label="Physician tasks"]')).toBeTruthy()
+  })
+
+  it('renders all three chip groups when all taxonomy fields are present', () => {
+    useMasteryModule.useDailyStudyPlan.mockReturnValue({
+      data: {
+        ...DAILY_PLAN_WITH_REVIEW.data,
+        focusUsmleContentAreas: ['Cardiovascular System'],
+        focusPhysicianTasks:    ['Patient Care: Pharmacotherapy'],
+      },
+      loading: false, error: null,
+    })
+    setup()
+    // Subject chip appears in focusSubjects row and concept review row
+    expect(screen.getAllByText('Pharmacology').length).toBeGreaterThan(0)
+    expect(screen.getByText('Cardiovascular System')).toBeTruthy()
+    expect(screen.getByText('Patient Care: Pharmacotherapy')).toBeTruthy()
+  })
+
+  it('does not render USMLE chips when focusUsmleContentAreas is empty', () => {
+    useMasteryModule.useDailyStudyPlan.mockReturnValue({
+      data: { ...DAILY_PLAN_WITH_REVIEW.data, focusUsmleContentAreas: [] },
+      loading: false, error: null,
+    })
+    setup()
+    expect(document.querySelector('[aria-label="USMLE content areas"]')).toBeNull()
+  })
+})

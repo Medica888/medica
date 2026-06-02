@@ -179,6 +179,40 @@ describe('ProgressTrackingService.getMasteryTrend', () => {
     expect(trend[0]!.sessionId).toBe('sess-t1');
     expect(trend[1]!.sessionId).toBe('sess-t2');
   });
+
+  it('groups all concepts from the same session into one trend point', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'mg-c1');
+    const c2 = await seedConcept(concepts, 'mg-c2');
+    await seedMastery(mastery, USER, c1, 2, 2); // mastery 1.0
+    await seedMastery(mastery, USER, c2, 2, 0); // mastery 0.0
+
+    const svc = makeService(mastery, snapshots);
+    await svc.takeSnapshot(USER, 'sess-mg1');
+
+    const trend = await svc.getMasteryTrend(USER);
+    expect(trend).toHaveLength(1);
+    expect(trend[0]!.totalConcepts).toBe(2);
+    expect(trend[0]!.avgMastery).toBe(0.5); // (1.0 + 0.0) / 2
+  });
+
+  it('preserves chronological ordering across multiple sessions', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const c1 = await seedConcept(concepts, 'ord-c1');
+    await seedMastery(mastery, USER, c1, 2, 1);
+
+    const svc = makeService(mastery, snapshots);
+    await svc.takeSnapshot(USER, 'sess-ord-a');
+    await svc.takeSnapshot(USER, 'sess-ord-b');
+    await svc.takeSnapshot(USER, 'sess-ord-c');
+
+    const trend = await svc.getMasteryTrend(USER);
+    expect(trend.map((t) => t.sessionId)).toEqual(['sess-ord-a', 'sess-ord-b', 'sess-ord-c']);
+  });
 });
 
 // ── getImprovementRate / getLearningVelocity ──────────────────────────────────
@@ -281,17 +315,70 @@ describe('ProgressTrackingService.getReadiness', () => {
     expect(r.overallReadiness).toBeGreaterThanOrEqual(0);
   });
 
-  it('returns Exam Ready for strong all-correct mastery', async () => {
+  it('returns Exam Ready for strong all-correct mastery with adequate concept coverage', async () => {
     const mastery   = new InMemoryUserConceptMasteryRepository();
     const snapshots = new InMemoryMasterySnapshotsRepository();
     const concepts  = new InMemoryConceptsRepository();
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 20; i++) {
       const id = await seedConcept(concepts, `strong-${i}`);
       await seedMastery(mastery, USER, id, 5, 5); // mastery 1.0, confidence 1.0
     }
     const r = await makeService(mastery, snapshots).getReadiness(USER);
     expect(r.status).toBe('Exam Ready');
     expect(r.overallReadiness).toBeGreaterThanOrEqual(85);
+  });
+
+  it('caps status at Developing when fewer than 20 concepts are tracked — even with perfect mastery', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `early-${i}`);
+      await seedMastery(mastery, USER, id, 5, 5); // mastery 1.0
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    // numeric score is still high, but status is capped
+    expect(r.overallReadiness).toBeGreaterThanOrEqual(85);
+    expect(r.status).not.toBe('Exam Ready');
+    expect(r.status).not.toBe('Approaching Readiness');
+    expect(r.status).toBe('Developing');
+  });
+
+  it('caps status at Developing at the boundary of 19 concepts', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 19; i++) {
+      const id = await seedConcept(concepts, `boundary-${i}`);
+      await seedMastery(mastery, USER, id, 5, 5);
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    expect(r.status).toBe('Developing');
+  });
+
+  it('allows normal status at exactly 20 concepts', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 20; i++) {
+      const id = await seedConcept(concepts, `min-${i}`);
+      await seedMastery(mastery, USER, id, 5, 5);
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    // 20 concepts — cap no longer applies; strong mastery should reach Exam Ready
+    expect(r.status).toBe('Exam Ready');
+  });
+
+  it('does not cap Needs Intensive Review — low mastery stays low regardless of count', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    for (let i = 0; i < 5; i++) {
+      const id = await seedConcept(concepts, `low-${i}`);
+      await seedMastery(mastery, USER, id, 2, 0); // mastery 0
+    }
+    const r = await makeService(mastery, snapshots).getReadiness(USER);
+    expect(r.status).toBe('Needs Intensive Review');
   });
 
   it('returns Needs Intensive Review for all-zero mastery', async () => {
@@ -428,5 +515,68 @@ describe('ProgressTrackingService.getTopicReadiness', () => {
     const r = await makeService(mastery, snapshots).getTopicReadiness(USER, c1);
     expect(typeof r!.recommendation).toBe('string');
     expect(r!.recommendation.length).toBeGreaterThan(0);
+  });
+});
+
+// ── MasterySnapshotsRepository — findByUserId limit ──────────────────────────
+
+describe('InMemoryMasterySnapshotsRepository.findByUserId — limit', () => {
+  it('returns all rows when total is below the limit', async () => {
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 's1', masteryScore: 0.5, confidence: 0.5, attemptCount: 2 },
+      { userId: USER, conceptId: 'c2', sessionId: 's1', masteryScore: 0.6, confidence: 0.6, attemptCount: 3 },
+    ]);
+    const rows = await snapshots.findByUserId(USER, 100);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('returns the most recent rows when limit is smaller than total', async () => {
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    // Insert 3 batches of 2 concepts each = 6 rows total
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 's-old-1', masteryScore: 0.3, confidence: 0.3, attemptCount: 1 },
+      { userId: USER, conceptId: 'c2', sessionId: 's-old-1', masteryScore: 0.4, confidence: 0.4, attemptCount: 1 },
+    ]);
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 's-old-2', masteryScore: 0.5, confidence: 0.5, attemptCount: 2 },
+      { userId: USER, conceptId: 'c2', sessionId: 's-old-2', masteryScore: 0.6, confidence: 0.6, attemptCount: 2 },
+    ]);
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 's-new', masteryScore: 0.7, confidence: 0.7, attemptCount: 3 },
+      { userId: USER, conceptId: 'c2', sessionId: 's-new', masteryScore: 0.8, confidence: 0.8, attemptCount: 3 },
+    ]);
+    // Limit to 3 most recent rows
+    const rows = await snapshots.findByUserId(USER, 3);
+    expect(rows).toHaveLength(3);
+    // Result is ASC ordered — oldest of the returned window is first
+    const sessionIds = rows.map((r) => r.session_id);
+    // The newest batch (s-new) must be included; the oldest (s-old-1) may be truncated
+    expect(sessionIds).toContain('s-new');
+    expect(sessionIds).not.toContain('s-old-1');
+  });
+
+  it('returns results in created_at ASC order', async () => {
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 'first', masteryScore: 0.3, confidence: 0.3, attemptCount: 1 },
+    ]);
+    await snapshots.insertBatch([
+      { userId: USER, conceptId: 'c1', sessionId: 'last', masteryScore: 0.8, confidence: 0.8, attemptCount: 3 },
+    ]);
+    const rows = await snapshots.findByUserId(USER, 5000);
+    expect(rows[0]!.session_id).toBe('first');
+    expect(rows[rows.length - 1]!.session_id).toBe('last');
+  });
+
+  it('default limit of 5000 does not truncate a normal-sized dataset', async () => {
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const batch = Array.from({ length: 50 }, (_, i) => ({
+      userId: USER, conceptId: `c${i}`, sessionId: 'big-session',
+      masteryScore: 0.5, confidence: 0.5, attemptCount: 1,
+    }));
+    await snapshots.insertBatch(batch);
+    const rows = await snapshots.findByUserId(USER); // no limit arg — uses default 5000
+    expect(rows).toHaveLength(50);
   });
 });

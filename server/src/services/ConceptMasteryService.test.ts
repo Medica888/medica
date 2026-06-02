@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConceptMasteryService } from './ConceptMasteryService.js';
 import { InMemoryUserConceptMasteryRepository } from '../repositories/memory/UserConceptMasteryRepository.js';
 import { InMemoryConceptReviewLogRepository } from '../repositories/memory/ConceptReviewLogRepository.js';
@@ -438,6 +438,65 @@ describe('scheduleReview', () => {
   });
 });
 
+// ── SRS interval preservation across exam submissions ────────────────────────
+
+describe('SRS interval preservation (Fix 5)', () => {
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+
+  beforeEach(() => {
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+  });
+
+  it('scheduleReview easy sets a longer interval than mastery-computed default', async () => {
+    const conceptId = 'srs-p-easy';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]); // interval 7
+    const result = await masteryRepo.scheduleReview(USER_A, conceptId, 'easy'); // → 14
+    expect(result!.reviewIntervalDays).toBe(14);
+    const row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.review_interval_days).toBe(14);
+  });
+
+  it('all-correct exam submission does not reduce an SRS-expanded interval', async () => {
+    const conceptId = 'srs-p-preserve';
+    // Establish mastery 1.0 → mastery-based interval = 7
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    // User clicks 'easy' in review panel → interval expands to 14
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy');
+    const before = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(before!.review_interval_days).toBe(14);
+
+    // User takes an exam and answers the concept correctly — all-correct batch
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 1, correct: 1 }]);
+    const after = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    // Mastery-computed interval would be 7, but GREATEST keeps 14
+    expect(after!.review_interval_days).toBe(14);
+  });
+
+  it('wrong answer in exam resets interval to 1 even if SRS had expanded it', async () => {
+    const conceptId = 'srs-p-reset';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 5, correct: 5 }]);
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy'); // interval → 14
+
+    // User gets it wrong in an exam — objective failure resets to 1
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 1, correct: 0 }]);
+    const row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.review_interval_days).toBe(1);
+  });
+
+  it('mastery_score, attempts, and correct still update correctly after a preserved-interval exam', async () => {
+    const conceptId = 'srs-p-fields';
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 4, correct: 4 }]);
+    await masteryRepo.scheduleReview(USER_A, conceptId, 'easy');
+
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 1, correct: 1 }]);
+    const row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);
+    expect(row!.attempts).toBe(5);
+    expect(row!.correct).toBe(5);
+    expect(row!.mastery_score).toBe(1);
+    expect(row!.review_interval_days).toBe(14); // preserved
+  });
+});
+
 // ── ConceptReviewLogRepository ────────────────────────────────────────────────
 
 describe('ConceptReviewLogRepository', () => {
@@ -597,5 +656,110 @@ describe('ConceptReviewLogRepository', () => {
 
     const statsA = await log.getStats(USER_A);
     expect(statsA.activity30Days[0]!.reviews).toBe(1); // only USER_A's row
+  });
+});
+
+// ── getConceptHistory ─────────────────────────────────────────────────────────
+
+describe('ConceptReviewLogRepository.getConceptHistory', () => {
+  let log: InMemoryConceptReviewLogRepository;
+
+  beforeEach(() => {
+    log = new InMemoryConceptReviewLogRepository();
+  });
+
+  const C1 = 'concept-hist-1';
+  const C2 = 'concept-hist-2';
+
+  it('returns empty array when no reviews exist for the concept', async () => {
+    const result = await log.getConceptHistory(USER_A, C1);
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array when reviews exist for a different concept', async () => {
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'good', intervalBefore: 1, intervalAfter: 2 });
+    const result = await log.getConceptHistory(USER_A, C1);
+    expect(result).toEqual([]);
+  });
+
+  it('isolates results by concept_id', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_A, conceptId: C2, result: 'again', intervalBefore: 2, intervalAfter: 1 });
+
+    const result = await log.getConceptHistory(USER_A, C1);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.result).toBe('good');
+  });
+
+  it('isolates results by user_id', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+    await log.insert({ userId: USER_B, conceptId: C1, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+    const resultA = await log.getConceptHistory(USER_A, C1);
+    const resultB = await log.getConceptHistory(USER_B, C1);
+
+    expect(resultA).toHaveLength(1);
+    expect(resultA[0]!.result).toBe('good');
+    expect(resultB).toHaveLength(1);
+    expect(resultB[0]!.result).toBe('again');
+  });
+
+  it('returns entries newest-first using controlled timestamps', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-05-31T10:00:00Z'));
+      await log.insert({ userId: USER_A, conceptId: C1, result: 'again', intervalBefore: 1, intervalAfter: 1 });
+
+      vi.setSystemTime(new Date('2026-06-01T10:00:00Z'));
+      await log.insert({ userId: USER_A, conceptId: C1, result: 'good',  intervalBefore: 1, intervalAfter: 2 });
+
+      const result = await log.getConceptHistory(USER_A, C1);
+      expect(result).toHaveLength(2);
+      // Newest first: Jun-1 'good' before May-31 'again'
+      expect(result[0]!.result).toBe('good');
+      expect(result[1]!.result).toBe('again');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('respects the limit parameter', async () => {
+    for (let i = 0; i < 5; i++) {
+      await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: i, intervalAfter: i + 1 });
+    }
+    const result = await log.getConceptHistory(USER_A, C1, 3);
+    expect(result).toHaveLength(3);
+  });
+
+  it('returns all four result values correctly', async () => {
+    const entries = [
+      { result: 'again' as const, intervalBefore: 1, intervalAfter: 1 },
+      { result: 'hard'  as const, intervalBefore: 1, intervalAfter: 1 },
+      { result: 'good'  as const, intervalBefore: 1, intervalAfter: 2 },
+      { result: 'easy'  as const, intervalBefore: 2, intervalAfter: 4 },
+    ];
+    for (const e of entries) {
+      await log.insert({ userId: USER_A, conceptId: C1, ...e });
+    }
+    const result = await log.getConceptHistory(USER_A, C1);
+    const resultSet = new Set(result.map((r) => r.result));
+    expect(resultSet).toContain('again');
+    expect(resultSet).toContain('hard');
+    expect(resultSet).toContain('good');
+    expect(resultSet).toContain('easy');
+  });
+
+  it('returns correct intervalBefore and intervalAfter for each entry', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'good', intervalBefore: 3, intervalAfter: 5 });
+    const result = await log.getConceptHistory(USER_A, C1);
+    expect(result[0]!.intervalBefore).toBe(3);
+    expect(result[0]!.intervalAfter).toBe(5);
+  });
+
+  it('includes reviewedAt as an ISO string', async () => {
+    await log.insert({ userId: USER_A, conceptId: C1, result: 'easy', intervalBefore: 4, intervalAfter: 8 });
+    const result = await log.getConceptHistory(USER_A, C1);
+    expect(typeof result[0]!.reviewedAt).toBe('string');
+    expect(() => new Date(result[0]!.reviewedAt)).not.toThrow();
   });
 });

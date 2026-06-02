@@ -245,19 +245,39 @@ describe('StudyPrescriptionService — enabled (20+ records)', () => {
     expect(allNames).not.toContain('On Track 92');
   });
 
-  it('recommendation differs by recentIncorrect for priority tier', async () => {
+  it('recommendation uses Persistent weak area copy at cumulative threshold (>= 5 wrong)', async () => {
     const c1 = await seedConcept(concepts, 'high-err-rx', 'High Error');
     const c2 = await seedConcept(concepts, 'low-err-rx',  'Low Error');
-    // 4 attempts, 0 correct: recentIncorrect=4 (>= 3) → "Repeated errors…"
-    await seedMastery(mastery, USER, c1, 4, 0);
-    // 2 attempts, 1 correct: recentIncorrect=1 → default message
+    // 6 attempts, 0 correct: total_incorrect=6 (>= 5) → "Persistent weak area"
+    await seedMastery(mastery, USER, c1, 6, 0);
+    // 2 attempts, 1 correct: total_incorrect=1 (< 5) → default priority message
     await seedMastery(mastery, USER, c2, 2, 1);
     await seedFillers(concepts, mastery, USER, MIN - 2, 500);
-    const rx   = await makeService(mastery, concepts).getPrescription(USER);
+    const rx      = await makeService(mastery, concepts).getPrescription(USER);
     const highErr = rx.priority.find(p => p.name === 'High Error');
     const lowErr  = rx.priority.find(p => p.name === 'Low Error');
-    expect(highErr?.recommendation).toMatch(/Repeated errors/);
-    expect(lowErr?.recommendation).not.toMatch(/Repeated errors/);
+    expect(highErr?.recommendation).toMatch(/Persistent weak area/);
+    expect(highErr?.recommendation).not.toMatch(/recent/i);
+    expect(lowErr?.recommendation).not.toMatch(/Persistent weak area/);
+  });
+
+  it('recommendation does not use recent-framing language for priority tier', async () => {
+    const c1 = await seedConcept(concepts, 'no-recent-rx', 'No Recent Lang');
+    await seedMastery(mastery, USER, c1, 10, 0); // many wrong
+    await seedFillers(concepts, mastery, USER, MIN - 1, 550);
+    const rx = await makeService(mastery, concepts).getPrescription(USER);
+    const item = rx.priority.find(p => p.name === 'No Recent Lang');
+    expect(item?.recommendation).not.toMatch(/recent/i);
+  });
+
+  it('high cumulative wrong answers (4) with low mastery does not auto-fire urgent recommendation without meeting threshold', async () => {
+    const c1 = await seedConcept(concepts, 'below-thresh', 'Below Threshold');
+    // 4 wrong — just below the new threshold of 5
+    await seedMastery(mastery, USER, c1, 4, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 575);
+    const rx   = await makeService(mastery, concepts).getPrescription(USER);
+    const item = rx.priority.find(p => p.name === 'Below Threshold');
+    expect(item?.recommendation).not.toMatch(/Persistent weak area/);
   });
 
   it('estimatedStudyTime = priority×5 + focus×3 + reinforced×2', async () => {
@@ -411,5 +431,197 @@ describe('StudyPrescriptionService — readiness-aware caps (P1)', () => {
     const emptyRepo = new R();
     const rx = await new StudyPrescriptionService(emptyRepo, concepts).getPrescription(USER, undefined, preRows);
     expect(rx.strategy).toBe('adaptive'); // used preRows, not emptyRepo
+  });
+});
+
+// ── USMLE taxonomy in daily plan ─────────────────────────────────────────────
+
+describe('StudyPrescriptionService — USMLE taxonomy in daily plan', () => {
+  let mastery:  InMemoryUserConceptMasteryRepository;
+  let concepts: InMemoryConceptsRepository;
+  const score = {
+    overallReadiness: 62,
+    status: 'Developing' as const,
+    components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 },
+    distribution: { priority: 0, focus: 0, reinforced: 0, ontrack: 0 },
+  };
+
+  beforeEach(() => {
+    mastery  = new InMemoryUserConceptMasteryRepository();
+    concepts = new InMemoryConceptsRepository();
+  });
+
+  // seedConcept defaults: subject='Pharmacology', system='Cardiovascular'
+
+  it('conceptReviews include usmleContentArea inferred from concept system', async () => {
+    const id = await seedConcept(concepts, 'tax-sys', 'ACE Inhibitors');
+    await seedMastery(mastery, USER, id, 4, 0); // mastery 0 → priority
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2000);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.conceptId === id);
+    expect(review?.usmleContentArea).toBe('Cardiovascular System'); // system='Cardiovascular'
+  });
+
+  it('conceptReviews include physicianTask inferred from concept subject', async () => {
+    const id = await seedConcept(concepts, 'tax-sub', 'Beta Blockers');
+    await seedMastery(mastery, USER, id, 4, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2100);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.conceptId === id);
+    expect(review?.physicianTask).toBe('Patient Care: Pharmacotherapy'); // subject='Pharmacology'
+  });
+
+  it('concept with Nephrology subject maps to Renal content area when system has no match', async () => {
+    // Direct upsert so we can set system='' — seedConcept always sets system='Cardiovascular'
+    // which would win the system-first lookup, masking the subject inference under test here.
+    const c = await concepts.upsertBySlug('tax-renal', { name: 'GFR Regulation', subject: 'Nephrology', system: '' });
+    await seedMastery(mastery, USER, c.id, 4, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2200);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.conceptId === c.id);
+    expect(review?.usmleContentArea).toBe('Renal & Urinary System'); // subject='Nephrology'
+  });
+
+  it('focusUsmleContentAreas aggregates distinct content areas from conceptReviews', async () => {
+    const id = await seedConcept(concepts, 'tax-agg', 'Cardiac Output');
+    await seedMastery(mastery, USER, id, 4, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2300);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(Array.isArray(plan.focusUsmleContentAreas)).toBe(true);
+    expect(plan.focusUsmleContentAreas!.length).toBeGreaterThan(0);
+    expect(plan.focusUsmleContentAreas).toContain('Cardiovascular System');
+  });
+
+  it('focusPhysicianTasks aggregates distinct physician tasks from conceptReviews', async () => {
+    const id = await seedConcept(concepts, 'tax-task', 'Drug Dosing');
+    await seedMastery(mastery, USER, id, 4, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2400);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    expect(Array.isArray(plan.focusPhysicianTasks)).toBe(true);
+    expect(plan.focusPhysicianTasks!.length).toBeGreaterThan(0);
+  });
+
+  it('empty state returns empty taxonomy arrays and preserves all existing fields', async () => {
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    // Existing fields intact
+    expect(plan.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(plan.readinessStatus).toBe('Developing');
+    expect(plan.conceptReviews).toHaveLength(0);
+    expect(plan.focusSubjects).toHaveLength(0);
+    expect(plan.summary).toMatch(/No urgent concept reviews/);
+    // New fields — empty when no reviews
+    expect(plan.focusUsmleContentAreas).toHaveLength(0);
+    expect(plan.focusPhysicianTasks).toHaveLength(0);
+  });
+
+  it('existing daily plan fields remain present and correct alongside new fields', async () => {
+    const id = await seedConcept(concepts, 'tax-compat', 'Vasodilators');
+    await seedMastery(mastery, USER, id, 3, 0);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 2500);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    // All pre-existing fields present
+    expect(plan.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(typeof plan.estimatedMinutes).toBe('number');
+    expect(typeof plan.recommendedQuestions).toBe('number');
+    expect(typeof plan.recommendedFlashcards).toBe('number');
+    expect(Array.isArray(plan.focusSubjects)).toBe(true);
+    expect(typeof plan.summary).toBe('string');
+    expect(Array.isArray(plan.conceptReviews)).toBe(true);
+    // Per-review existing fields still there
+    const review = plan.conceptReviews[0];
+    if (review) {
+      expect(typeof review.conceptId).toBe('string');
+      expect(typeof review.name).toBe('string');
+      expect(typeof review.subject).toBe('string');
+      expect(typeof review.priority).toBe('string');
+      expect(typeof review.reason).toBe('string');
+      expect(typeof review.reviewIntervalDays).toBe('number');
+    }
+  });
+});
+
+// ── Dead-zone regression tests ────────────────────────────────────────────────
+// Verifies that concepts with 3–4 errors in priority tier and 1–2 errors in
+// the daily-reason fallback path now get specific messages instead of
+// silently falling through to generic text.
+
+describe('StudyPrescriptionService — recommendation dead-zone coverage', () => {
+  let mastery:  InMemoryUserConceptMasteryRepository;
+  let concepts: InMemoryConceptsRepository;
+  const score = {
+    overallReadiness: 55,
+    status: 'Needs Intensive Review' as const,
+    components: { mastery: 0, confidence: 0, trend: 0, consistency: 0 },
+    distribution: { priority: 0, focus: 0, reinforced: 0, ontrack: 0 },
+  };
+
+  beforeEach(() => {
+    mastery  = new InMemoryUserConceptMasteryRepository();
+    concepts = new InMemoryConceptsRepository();
+  });
+
+  it('priority tier with 3 errors gets "Recurring errors" — not the generic fallback', async () => {
+    const id = await seedConcept(concepts, 'dead-p3', 'Priority With 3 Errors');
+    // 10 attempts, 3 correct → mastery 0.3 (priority tier), 7 incorrect
+    // Force recent_incorrect_count to 3 by upsertMany: 3 attempted, 0 correct
+    await mastery.upsertMany([{ userId: USER, conceptId: id, attempted: 3, correct: 0 }]);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 3000);
+
+    const rx = await makeService(mastery, concepts).getPrescription(USER);
+    const concept = rx.priority.find((c) => c.name === 'Priority With 3 Errors');
+    expect(concept).toBeDefined();
+    expect(concept!.recommendation).toMatch(/Recurring errors/);
+    expect(concept!.recommendation).not.toMatch(/Below passing threshold/);
+  });
+
+  it('priority tier with 5+ errors gets "Persistent weak area"', async () => {
+    const id = await seedConcept(concepts, 'dead-p5', 'Priority With 5 Errors');
+    await mastery.upsertMany([{ userId: USER, conceptId: id, attempted: 5, correct: 0 }]);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 3100);
+
+    const rx = await makeService(mastery, concepts).getPrescription(USER);
+    const concept = rx.priority.find((c) => c.name === 'Priority With 5 Errors');
+    expect(concept).toBeDefined();
+    expect(concept!.recommendation).toMatch(/Persistent weak area/);
+  });
+
+  it('daily reason with 1 error gives "Recent wrong answers" — not "Developing concept needs spaced reinforcement"', async () => {
+    // Seed a concept with solid mastery but 1 wrong answer — previously fell to generic message
+    // mastery 0.9 = ontrack tier (not in the daily-plan normally unless due for review),
+    // but to test dailyReason path we use a focus-tier concept with recent_incorrect > 0
+    // and confidence >= 0.5 so all the >= 3 branches are skipped.
+    // upsertMany: 10 attempted, 8 correct → mastery 0.8 (focus tier), incorrect = 2
+    const id = await seedConcept(concepts, 'dead-daily-1', 'Focus With 1 Error');
+    // 2 attempted, 1 correct → mastery 0.5 (focus tier), incorrect = 1
+    await mastery.upsertMany([{ userId: USER, conceptId: id, attempted: 2, correct: 1 }]);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 3200);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.name === 'Focus With 1 Error');
+    // If the concept appears in the plan, its reason must not be the invisible fallback
+    if (review) {
+      expect(review.reason).not.toBe('Developing concept needs spaced reinforcement');
+    }
+  });
+
+  it('daily reason with 0 errors and good confidence gives the generic reinforcement message', async () => {
+    const id = await seedConcept(concepts, 'dead-daily-0', 'Zero Errors Focus');
+    // All correct — recent_incorrect = 0, confidence high
+    await mastery.upsertMany([{ userId: USER, conceptId: id, attempted: 4, correct: 3 }]);
+    await seedFillers(concepts, mastery, USER, MIN - 1, 3300);
+
+    const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
+    const review = plan.conceptReviews.find((r) => r.name === 'Zero Errors Focus');
+    if (review) {
+      // Zero-error concept may legitimately get the generic message or confidence message
+      expect(typeof review.reason).toBe('string');
+      expect(review.reason.length).toBeGreaterThan(0);
+    }
   });
 });

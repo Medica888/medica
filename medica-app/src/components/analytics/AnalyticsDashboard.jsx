@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { buildAnalyticsData } from '../../lib/analyticsEngine'
 import {
   ResponsiveContainer, AreaChart, Area,
@@ -9,6 +9,7 @@ import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 import ProgressPanel from './ProgressPanel'
 import ProgressTrendPanel from './ProgressTrendPanel'
 import { useReadiness, useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
+import { getQuestionReportAnalytics, subscribeQuestionReports } from '../../lib/storage'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
 
@@ -21,10 +22,15 @@ const SUBJECT_STATUS = (pct) => {
 
 export default function AnalyticsDashboard({ onNavigate }) {
   const data = useMemo(() => buildAnalyticsData(), [])
+  const [reportAnalytics, setReportAnalytics] = useState(() => getQuestionReportAnalytics())
   const [timeFilter, setTimeFilter] = useState('All time')
   const rdHook       = useReadiness()
   const progressHook = useMasteryProgress()
   const timelineHook = useMasteryTimeline()
+
+  useEffect(() => subscribeQuestionReports(() => {
+    setReportAnalytics(getQuestionReportAnalytics())
+  }), [])
 
   if (data.empty) {
     return (
@@ -211,6 +217,8 @@ export default function AnalyticsDashboard({ onNavigate }) {
               rdHook={rdHook}
             />
 
+            <ReportQualityCard analytics={reportAnalytics} />
+
             {/* Mistake Intelligence */}
             <div className="an-intel-card an-mistake-card">
               <div className="an-intel-card-title">Mistake Intelligence</div>
@@ -291,6 +299,50 @@ export default function AnalyticsDashboard({ onNavigate }) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function ReportQualityCard({ analytics }) {
+  if (!analytics?.total) {
+    return (
+      <div className="an-intel-card an-report-card">
+        <div className="an-intel-card-title">Question Reports</div>
+        <p className="an-intel-muted">No reported questions yet.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="an-intel-card an-report-card">
+      <div className="an-report-head">
+        <div>
+          <div className="an-intel-card-title">Question Reports</div>
+          <div className="an-intel-card-sub">Local quality feedback</div>
+        </div>
+        <div className="an-report-total">{analytics.total}</div>
+      </div>
+
+      <div className="an-report-reasons">
+        {analytics.reasons.map(item => (
+          <div key={item.reason} className="an-report-reason-row">
+            <span>{item.label}</span>
+            <strong>{item.count}</strong>
+          </div>
+        ))}
+      </div>
+
+      {analytics.topConcepts.length > 0 && (
+        <div className="an-report-section">
+          <div className="an-mistake-cluster-label">TOP FLAGGED CONCEPTS</div>
+          {analytics.topConcepts.map(item => (
+            <div key={item.name} className="an-mistake-cluster-row">
+              <span className="an-mistake-cluster-name">{item.name}</span>
+              <span className="an-mistake-cluster-count">{item.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function TrendBars({ pct, variant }) {
   const filled = pct >= 85 ? 4 : pct >= 75 ? 3 : pct >= 65 ? 2 : 1
