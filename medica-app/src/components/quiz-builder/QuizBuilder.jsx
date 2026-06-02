@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG } from '../../lib/quizTypes'
 import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
 import { buildTopicMetadata } from '../../lib/topicIntelligence'
 import { normalizeGenerationConfig } from '../../lib/generationScope'
+import { getDifficultyAvailability } from '../../lib/mockQuestions'
 import ModeSelector from './ModeSelector'
 import SubjectSelector from './SubjectSelector'
 import SystemSelector from './SystemSelector'
@@ -18,15 +19,14 @@ import LivePreview from '../layout/LivePreview'
 const STANDARDIZED_BLOCK = 'standardized-40-question-block'
 
 const LOCKED_CONFIG = {
-  mode:               'exam',
-  questionCount:      40,
-  subject:            'All',
-  system:             'All',
-  topic:              '',
-  clinicalFocus:      '',
-  coachSpecificTopic: '',
-  difficulty:         'standardized',
-  blockType:          STANDARDIZED_BLOCK,
+  mode:          'exam',
+  questionCount: 40,
+  subject:       'All',
+  system:        'All',
+  topic:         '',
+  clinicalFocus: '',
+  difficulty:    'standardized',
+  blockType:     STANDARDIZED_BLOCK,
 }
 
 /** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null }} props */
@@ -40,9 +40,11 @@ export default function QuizBuilder({ onStart, generationError = null }) {
   const [error, setError]               = useState(generationError)
 
   const isStandardized = config.blockType === STANDARDIZED_BLOCK
+  const difficultyAvailability = isStandardized ? null : getDifficultyAvailability(config)
+  const showDifficultyWarning = Boolean(difficultyAvailability?.requiresBackend)
 
   // Adaptive preview — shown only when backend+auth, non-standardized, global scope
-  const isGlobalScope = !config.topic && !config.clinicalFocus && !config.coachSpecificTopic
+  const isGlobalScope = !config.topic && !config.clinicalFocus
   const showAdaptive  = getAuthToken() && !isStandardized && isGlobalScope
   const adaptive      = useMasteryAdaptivePreview()
 
@@ -50,7 +52,7 @@ export default function QuizBuilder({ onStart, generationError = null }) {
     if (isStandardized) return
     setConfig(c => {
       const next = { ...c, [key]: val }
-      if (key === 'mode' && val !== 'coach') next.coachSpecificTopic = ''
+      // coachSpecificTopic removed — topic field is now shared across all modes
       return next
     })
     setSaved(false)
@@ -68,12 +70,9 @@ export default function QuizBuilder({ onStart, generationError = null }) {
       console.log("[QUIZBUILDER CONFIG BEFORE GENERATE]", effectiveConfig)
       const base = normalizeGenerationConfig({
         ...effectiveConfig,
-        topic:              effectiveConfig.topic.trim(),
-        clinicalFocus:      effectiveConfig.clinicalFocus.trim(),
-        coachSpecificTopic: effectiveConfig.mode === 'coach'
-          ? effectiveConfig.coachSpecificTopic.trim()
-          : '',
-        createdAt: new Date().toISOString(),
+        topic:         effectiveConfig.topic.trim(),
+        clinicalFocus: effectiveConfig.clinicalFocus.trim(),
+        createdAt:     new Date().toISOString(),
       })
       const topicMetadata = buildTopicMetadata(base)
       const final = {
@@ -162,6 +161,14 @@ export default function QuizBuilder({ onStart, generationError = null }) {
                   value={config.difficulty}
                   onChange={v => update('difficulty', v)}
                 />
+                {showDifficultyWarning && (
+                  <div className="qb-difficulty-warning" role="note">
+                    <div className="qb-difficulty-warning-title">Backend AI required for this difficulty</div>
+                    <div className="qb-difficulty-warning-copy">
+                      Local fallback has {difficultyAvailability.available}/{difficultyAvailability.target} target {config.difficulty} question{difficultyAvailability.available === 1 ? '' : 's'}; {config.questionCount} requested.
+                    </div>
+                  </div>
+                )}
 
                 <div className="qb-card-sec-hdr">Focus &amp; Context</div>
                 <ClinicalFocusInput
@@ -170,8 +177,8 @@ export default function QuizBuilder({ onStart, generationError = null }) {
                 />
                 {config.mode === 'coach' && (
                   <CoachTopicInput
-                    value={config.coachSpecificTopic}
-                    onChange={v => update('coachSpecificTopic', v)}
+                    value={config.topic}
+                    onChange={v => update('topic', v)}
                   />
                 )}
               </>

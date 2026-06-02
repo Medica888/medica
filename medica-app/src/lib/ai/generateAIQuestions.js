@@ -1,5 +1,12 @@
 import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } from '../questionDedup.js'
 import { getAuthToken } from '../apiClient.js'
+import { getQuestionCorrectLetter } from '../answerNormalize.js'
+import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
+import {
+  appendTrustedGeneratedQuestions,
+  filterReportedQuestions,
+  getTrustedGeneratedQuestionsForConfig,
+} from '../storage.js'
 
 /**
  * Calls the server-side AI question generation endpoint.
@@ -23,10 +30,20 @@ export async function generateAIQuestions(config, seenState = null) {
   } : null
 
   const controller = new AbortController()
-  const timeoutId  = setTimeout(() => controller.abort(), 180_000)
+  const timeoutId  = setTimeout(() => controller.abort(), getGenerationTimeoutMs(config))
 
   try {
-    const raw = await _attempt(config, exclude, controller.signal)
+    const trusted = _getReusableTrustedQuestions(config, seenState)
+    if (trusted.length >= config.questionCount) {
+      return _checkCount(trusted.slice(0, config.questionCount), config)
+    }
+
+    const remainingConfig = {
+      ...config,
+      questionCount: Math.max(1, config.questionCount - trusted.length),
+    }
+    const raw = await _attempt(remainingConfig, exclude, controller.signal)
+    const telemetry = raw.generationTelemetry ?? null
 
     const { unique, filtered } = _dedupQuestions(raw)
     if (filtered > 0) {
@@ -38,15 +55,65 @@ export async function generateAIQuestions(config, seenState = null) {
       console.warn(`[generateAIQuestions] filtered ${reused} previously seen question(s)`)
     }
 
-    const { valid, rejected, reasons } = _validateGeneratedQuestions(unseen, config)
+    const { questions: unreported, filtered: reported } = _filterReportedQuestions(unseen)
+    if (reported > 0) {
+      console.warn(`[generateAIQuestions] filtered ${reported} reported question(s)`)
+    }
+
+    const { valid, rejected, reasons } = _validateGeneratedQuestions(unreported, config)
     if (rejected > 0) {
       console.warn(`[generateAIQuestions] rejected ${rejected} invalid question(s): ${_formatRejectionReasons(reasons)}`)
     }
 
-    return _checkCount(valid, config)
+    const enrichedValid = valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
+    const enriched = _dedupQuestions([...trusted, ...enrichedValid]).unique
+    const checked = _checkCount(enriched, config)
+    attachGenerationTelemetry(checked, telemetry)
+    appendTrustedGeneratedQuestions(enrichedValid, config)
+    return checked
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw Object.assign(
+        new Error(getGenerationTimeoutMessage(config)),
+        { code: 'GENERATION_TIMEOUT' },
+      )
+    }
+    throw err
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+const NORMAL_GENERATION_TIMEOUT_MS = 180_000
+const HARD_SMALL_GENERATION_TIMEOUT_MS = 360_000
+const HARD_40Q_GENERATION_TIMEOUT_MS = 720_000
+
+export function isHardMedicalReviewGeneration(config) {
+  return ['NBME Difficult', 'UWorld Challenge'].includes(config?.difficulty)
+}
+
+export function getGenerationTimeoutMs(config) {
+  if (!isHardMedicalReviewGeneration(config)) return NORMAL_GENERATION_TIMEOUT_MS
+  return Number(config?.questionCount) >= 40
+    ? HARD_40Q_GENERATION_TIMEOUT_MS
+    : HARD_SMALL_GENERATION_TIMEOUT_MS
+}
+
+export function getGenerationTimeoutMessage(config) {
+  if (!isHardMedicalReviewGeneration(config)) {
+    return 'Question generation timed out. Please try again.'
+  }
+  return 'Hard-mode generation is taking longer than expected. These questions are medically reviewed, so a full 40-question block can take several minutes. Try fewer questions, or use the local NBME/UWorld bank while live generation is busy.'
+}
+
+export function formatGenerationErrorMessage(err, config) {
+  if (err?.code === 'GENERATION_TIMEOUT' || err?.name === 'AbortError') {
+    return getGenerationTimeoutMessage(config)
+  }
+  if (err?.code === 'AI_INSUFFICIENT_COUNT' && isHardMedicalReviewGeneration(config)) {
+    return `Hard-mode generation returned ${err.returned ?? 'fewer than requested'} medically approved questions out of ${err.requested ?? config.questionCount}. Try fewer questions or use the local NBME/UWorld bank while live generation is busy.`
+  }
+  return `Question generation failed: ${err?.message || 'Unknown error'}`
 }
 
 async function _attempt(config, exclude, signal) {
@@ -76,9 +143,20 @@ async function _attempt(config, exclude, signal) {
 
   if (data.telemetry) {
     console.log('[generateAIQuestions] server telemetry:', data.telemetry)
+    attachGenerationTelemetry(data.questions, data.telemetry)
   }
 
   return data.questions
+}
+
+function attachGenerationTelemetry(questions, telemetry) {
+  if (!Array.isArray(questions) || !telemetry) return questions
+  Object.defineProperty(questions, 'generationTelemetry', {
+    value: telemetry,
+    enumerable: false,
+    configurable: true,
+  })
+  return questions
 }
 
 /**
@@ -116,11 +194,51 @@ function _filterPreviouslySeenQuestions(questions, seenState) {
   return { questions: unseen, filtered: questions.length - unseen.length }
 }
 
+function _filterReportedQuestions(questions) {
+  const unreported = filterReportedQuestions(questions)
+  return { questions: unreported, filtered: questions.length - unreported.length }
+}
+
+function _getReusableTrustedQuestions(config, seenState) {
+  const trusted = getTrustedGeneratedQuestionsForConfig(config)
+  if (trusted.length === 0) return []
+
+  const { unique } = _dedupQuestions(trusted)
+  const { questions: unseen } = _filterPreviouslySeenQuestions(unique, seenState)
+  const { questions: unreported } = _filterReportedQuestions(unseen)
+  const { valid } = _validateGeneratedQuestions(unreported, config)
+
+  if (valid.length > 0) {
+    console.log(`[generateAIQuestions] reused ${valid.length} trusted generated question(s)`)
+  }
+  return valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
+}
+
 const STOP_WORDS = new Set([
   'the', 'and', 'with', 'without', 'from', 'that', 'this', 'these', 'those',
   'best', 'most', 'likely', 'primary', 'current', 'patient', 'presentation',
   'mechanism', 'diagnosis', 'treatment', 'disease', 'disorder', 'syndrome',
   'condition', 'effect', 'activity', 'function', 'process',
+])
+
+// Mirrors server/src/lib/questionValidator.ts MEDICAL_ABBREVIATIONS.
+// When the correct option text matches (case-insensitive via .toUpperCase()), the
+// answer-support check is bypassed — a clinically correct explanation need not
+// restate the abbreviation verbatim.
+const MEDICAL_ABBREVIATIONS = new Set([
+  'ATP', 'ADP', 'AMP', 'GTP', 'NADH', 'NADPH', 'FADH2',
+  'DNA', 'RNA', 'mRNA', 'tRNA', 'rRNA', 'miRNA',
+  'Na', 'K', 'Ca', 'Mg', 'Cl', 'Fe', 'Zn', 'Cu', 'Phos',
+  'TSH', 'LH', 'FSH', 'ADH', 'PTH', 'PTHrP', 'GH', 'ACTH', 'CRH', 'TRH', 'GnRH',
+  'T3', 'T4', 'PRL', 'MSH', 'DHEA', 'IGF',
+  'GFR', 'BUN',
+  'IgA', 'IgG', 'IgM', 'IgE', 'IgD', 'MHC', 'HLA', 'NK', 'TCR', 'BCR',
+  'HIV', 'HBV', 'HCV', 'HPV', 'HSV', 'CMV', 'EBV', 'VZV', 'RSV', 'HAV',
+  'ACE', 'ADA', 'ALP', 'ALT', 'AST', 'GGT', 'LDH', 'CK', 'BNP', 'PSA',
+  'INR', 'PT', 'PTT', 'ESR', 'CRP', 'CBC', 'WBC', 'RBC', 'HCG',
+  'CT', 'MRI', 'PET', 'MRA', 'ECG', 'EKG', 'EEG',
+  'MI', 'CHF', 'DVT', 'PE', 'COPD', 'ARDS', 'SIADH', 'DKA',
+  'CNS', 'PNS', 'CSF', 'BBB',
 ])
 
 function _meaningfulTokens(text) {
@@ -139,7 +257,7 @@ function _getOptionText(question, letter) {
 
 function _validateStructure(question) {
   const reasons = []
-  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+  const correct = getQuestionCorrectLetter(question)
 
   if (!String(question.stem || '').trim()) reasons.push('missing_stem')
   if (!['A', 'B', 'C', 'D'].includes(correct)) reasons.push('invalid_correct_answer')
@@ -155,7 +273,7 @@ function _validateStructure(question) {
 }
 
 function _supportsCorrectAnswer(question) {
-  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+  const correct = getQuestionCorrectLetter(question)
   const correctText = _getOptionText(question, correct)
   if (!correctText) return false
 
@@ -165,26 +283,35 @@ function _supportsCorrectAnswer(question) {
   ].filter(Boolean).join(' ').toLowerCase()
 
   if (!explanation.trim()) return false
+
+  if (MEDICAL_ABBREVIATIONS.has(correctText.trim().toUpperCase())) return true
+
   if (correctText.length >= 8 && explanation.includes(correctText.toLowerCase())) return true
 
   const tokens = _meaningfulTokens(correctText)
-  if (tokens.length === 0) return false
+  if (tokens.length === 0) return explanation.includes(correctText.toLowerCase())
   const matches = tokens.filter(t => explanation.includes(t)).length
   return matches >= Math.min(2, tokens.length)
 }
 
 function _contradictsCorrectAnswer(question) {
-  const correct = String(question.correct || '').trim().toUpperCase().charAt(0)
+  const correct = getQuestionCorrectLetter(question)
   const explanation = String(question.explanation || '').toLowerCase()
 
   return (question.options || []).some(opt => {
     if (!opt || opt.letter === correct) return false
     const text = String(opt.text || opt).toLowerCase().trim()
-    if (text.length < 8) return false
+    if (text.length < 6) return false
     return explanation.includes(`correct answer is ${text}`)
       || explanation.includes(`${text} is the correct answer`)
       || explanation.includes(`${text} is correct because`)
       || explanation.includes(`answer is ${text}`)
+      || explanation.includes(`the correct choice is ${text}`)
+      || explanation.includes(`the best answer is ${text}`)
+      || explanation.includes(`we select ${text}`)
+      || explanation.includes(`you should choose ${text}`)
+      || explanation.includes(`${text} should be selected`)
+      || explanation.includes(`${text} is therefore correct`)
   })
 }
 
@@ -251,4 +378,13 @@ function _checkCount(questions, config) {
     )
   }
   return questions
+}
+
+/**
+ * Runs the same structural + semantic validation used in generation against a
+ * single question. Returns an array of rejection reason strings (empty = valid).
+ * Exported for bank-wide test validation.
+ */
+export function validateBankQuestion(question, config) {
+  return _getQuestionRejectionReasons(question, config)
 }

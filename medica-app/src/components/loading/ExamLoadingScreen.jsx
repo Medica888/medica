@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { getGenerationTimeoutMs, isHardMedicalReviewGeneration } from '../../lib/ai/generateAIQuestions'
 
 const STAGES = [
   'Analyzing your configuration',
@@ -10,8 +11,6 @@ const STAGES = [
 
 const STAGE_DELAYS   = [100, 650, 1250, 1850, 2400]
 const COMPLETE_DELAY = 3000
-const TIMEOUT_MS     = 60_000
-
 const MODE_LABELS = { exam: 'Exam', practice: 'Practice', coach: 'Coach' }
 
 /**
@@ -30,6 +29,8 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
   const onCompleteRef  = useRef(onComplete)
   const onErrorRef     = useRef(onError)
   const completedRef   = useRef(false)
+  const isHardMode     = isHardMedicalReviewGeneration(config)
+  const timeoutMs      = getGenerationTimeoutMs(config)
   useEffect(() => {
     onCompleteRef.current = onComplete
     onErrorRef.current    = onError
@@ -47,10 +48,10 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
       if (!cancelled) setAnimDone(true)
     }, COMPLETE_DELAY)
 
-    // Hard timeout — prevents permanent freeze if AI call never resolves
+    // Aligns the visual timeout with the active generation request timeout.
     const failTimer = setTimeout(() => {
       if (!cancelled) setHasError(true)
-    }, TIMEOUT_MS)
+    }, timeoutMs)
 
     return () => {
       cancelled = true
@@ -58,7 +59,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
       clearTimeout(doneTimer)
       clearTimeout(failTimer)
     }
-  }, [])
+  }, [timeoutMs])
 
   // Fire onComplete exactly once when both animation and session are ready
   useEffect(() => {
@@ -99,8 +100,9 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
           </div>
           <div className="els-error-title">Unable to prepare exam block</div>
           <div className="els-error-msg">
-            Something went wrong while generating your quiz session.
-            Please try again or return to the builder.
+            {isHardMode
+              ? 'Hard-mode generation is taking longer than expected. These questions are medically reviewed, so a full block can take several minutes.'
+              : 'Something went wrong while generating your quiz session. Please try again or return to the builder.'}
           </div>
           <div className="els-error-actions">
             <button className="els-err-btn primary" onClick={() => onErrorRef.current?.()}>
@@ -176,7 +178,9 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
         {/* Finalizing state — animation done but session still arriving */}
         {waitingForSession && (
           <div className="els-finalizing" aria-live="polite">
-            Finalizing assessment&hellip;
+            {isHardMode
+              ? 'Building validated hard-mode questions. This can take several minutes.'
+              : 'Finalizing assessment&hellip;'}
           </div>
         )}
 
@@ -194,7 +198,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
           USMLE Step 1 · NBME-style · Clinical Vignettes
           {source && (
             <span className="els-source-tag" style={{ marginLeft: 8, opacity: 0.5, fontSize: '0.85em' }}>
-              · {source === 'ai' ? 'AI Engine' : 'Local Demo'}
+              · {source === 'ai' ? 'Live AI' : 'Validated Local Bank'}
             </span>
           )}
         </div>

@@ -5,8 +5,12 @@ import Workspace from './components/Workspace'
 import Dashboard from './components/Dashboard'
 import QuizBuilder from './components/quiz-builder/QuizBuilder'
 import ExamLoadingScreen from './components/loading/ExamLoadingScreen'
-import { createQuizSession } from './lib/mockQuestions'
-import { generateAIQuestions } from './lib/ai/generateAIQuestions'
+import { createQuizSession, getDifficultyAvailability } from './lib/mockQuestions'
+import {
+  formatGenerationErrorMessage,
+  generateAIQuestions,
+  isHardMedicalReviewGeneration,
+} from './lib/ai/generateAIQuestions'
 import { savePracticeResults, saveCoachResults, getSessionHistory, getFlashcards } from './lib/storage'
 import { saveSession as persistSession } from './lib/dataProvider'
 import { shuffleQuestionOptions } from './lib/questionNormalizer'
@@ -28,7 +32,28 @@ const AnalyticsDashboard = lazy(() => import('./components/analytics/AnalyticsDa
 const FlashcardsPage = lazy(() => import('./components/flashcards/FlashcardsPage'))
 const SettingsPage = lazy(() => import('./components/settings/SettingsPage'))
 
-const MOCK_FALLBACK_ALLOWED = import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
+const MOCK_FALLBACK_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
+
+export function shouldUseValidatedLocalFallback(aiErr, config) {
+  if (!isHardMedicalReviewGeneration(config)) return false
+
+  const recoverable = aiErr?.code === 'GENERATION_TIMEOUT'
+    || aiErr?.code === 'AI_INSUFFICIENT_COUNT'
+    || /connection error/i.test(aiErr?.message || '')
+    || /server returned empty question array/i.test(aiErr?.message || '')
+
+  if (!recoverable) return false
+
+  return getDifficultyAvailability(config).enoughForLocalFallback
+}
+
+function getValidatedLocalFallbackReason(aiErr) {
+  if (aiErr?.code === 'GENERATION_TIMEOUT') return 'live_ai_timeout'
+  if (aiErr?.code === 'AI_INSUFFICIENT_COUNT') return 'live_ai_low_yield'
+  if (/connection error/i.test(aiErr?.message || '')) return 'live_ai_connection_error'
+  if (/server returned empty question array/i.test(aiErr?.message || '')) return 'live_ai_empty_result'
+  return 'live_ai_unavailable'
+}
 
 function buildAISession(config, questions, seenState) {
   const validation = validateUniqueQuestions(questions)
@@ -48,6 +73,7 @@ function buildAISession(config, questions, seenState) {
     hasDuplicateQuestions:         !validation.valid,
     hasClonedQuestions:            false,
     hasReusedQuestions:            false,
+    generationTelemetry:           questions.generationTelemetry ?? null,
     generationConfigSnapshot:      config,
     excludedPreviousQuestionCount: seenState ? seenState.seenIds.size : 0,
   }
@@ -149,29 +175,37 @@ export default function App() {
     setGenerationError(null)
     setQuizPhase('loading')
 
+    let aiGenerationError = null
+    let useValidatedLocalFallback = false
+
     try {
       const questions = await generateAIQuestions(config, seenState)
       setQuizSession(buildAISession(config, questions, seenState))
       return
     } catch (aiErr) {
-      // AI backend is configured - surface every error directly.
-      // The mock bank is not a valid fallback when AI is the primary source.
-      if (aiErr.code !== 'BACKEND_DISABLED') {
+      aiGenerationError = aiErr
+      useValidatedLocalFallback = shouldUseValidatedLocalFallback(aiErr, config)
+      // In local/dev mode, allow the validated mock bank to keep quizzes usable
+      // when the backend generator is unavailable.
+      if (aiErr.code !== 'BACKEND_DISABLED' && !MOCK_FALLBACK_ALLOWED && !useValidatedLocalFallback) {
         if (IS_40Q_BLOCK) {
-          setGenerationError('A standardized 40 Question Block requires AI question generation. Please ensure the generation service is running.')
+          setGenerationError(formatGenerationErrorMessage(aiErr, config))
         } else {
-          setGenerationError(`Question generation failed: ${aiErr.message}`)
+          setGenerationError(formatGenerationErrorMessage(aiErr, config))
         }
         setQuizPhase('builder')
         return
       }
-      // BACKEND_DISABLED only - fall through to mock questions below
+      // BACKEND_DISABLED or allowed local fallback - fall through to mock questions below
     }
 
-    // Mock fallback - only reached when VITE_USE_BACKEND_API is not 'true'
-    if (MOCK_FALLBACK_ALLOWED) {
+    // Mock fallback - used when backend API is disabled or local fallback is allowed.
+    if (MOCK_FALLBACK_ALLOWED || shouldUseValidatedLocalFallback) {
       try {
-        const session = createQuizSession(config)
+        const fallbackConfig = shouldUseValidatedLocalFallback
+          ? { ...config, fallbackReason: getValidatedLocalFallbackReason(aiGenerationError) }
+          : config
+        const session = createQuizSession(fallbackConfig)
         setQuizSession(enrichSessionWithTopicMetadata(session, config))
       } catch (mockErr) {
         setGenerationError(mockErr.message)

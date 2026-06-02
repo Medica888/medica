@@ -3,7 +3,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Force VITE_USE_BACKEND_API=true for all tests in this file
 vi.stubEnv('VITE_USE_BACKEND_API', 'true')
 
-import { generateAIQuestions } from './generateAIQuestions.js'
+import {
+  formatGenerationErrorMessage,
+  generateAIQuestions,
+  getGenerationTimeoutMs,
+  getGenerationTimeoutMessage,
+  isHardMedicalReviewGeneration,
+} from './generateAIQuestions.js'
+import {
+  appendTrustedGeneratedQuestions,
+  getTrustedGeneratedQuestions,
+  saveQuestionReport,
+} from '../storage.js'
 
 const makeQuestion = (i, overrides = {}) => ({
   id:            `uuid-${i}`,            // server-assigned UUID format
@@ -37,15 +48,78 @@ function mockFetch(responses) {
 const baseConfig = { questionCount: 5, mode: 'practice' }
 
 beforeEach(() => { vi.stubEnv('VITE_USE_BACKEND_API', 'true') })
-afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
+afterEach(() => { localStorage.clear(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
+
+describe('generateAIQuestions - timeout policy', () => {
+  it('uses the normal timeout for Balanced generation', () => {
+    expect(getGenerationTimeoutMs({ ...baseConfig, difficulty: 'Balanced' })).toBe(180_000)
+    expect(isHardMedicalReviewGeneration({ difficulty: 'Balanced' })).toBe(false)
+  })
+
+  it('uses a medium timeout for smaller hard-mode sets', () => {
+    expect(getGenerationTimeoutMs({ ...baseConfig, difficulty: 'UWorld Challenge', questionCount: 10 })).toBe(360_000)
+    expect(getGenerationTimeoutMs({ ...baseConfig, difficulty: 'NBME Difficult', questionCount: 10 })).toBe(360_000)
+  })
+
+  it('uses a long timeout for hard 40Q blocks', () => {
+    expect(getGenerationTimeoutMs({ mode: 'exam', difficulty: 'UWorld Challenge', questionCount: 40 })).toBe(720_000)
+    expect(getGenerationTimeoutMs({ mode: 'exam', difficulty: 'NBME Difficult', questionCount: 40 })).toBe(720_000)
+  })
+
+  it('formats a friendly hard-mode timeout message', () => {
+    const msg = getGenerationTimeoutMessage({ mode: 'exam', difficulty: 'UWorld Challenge', questionCount: 40 })
+    expect(msg).toContain('Hard-mode generation')
+    expect(msg).toContain('medically reviewed')
+  })
+
+  it('formats hard-mode insufficient-count errors without raw technical wording', () => {
+    const err = { code: 'AI_INSUFFICIENT_COUNT', returned: 24, requested: 40 }
+    const msg = formatGenerationErrorMessage(err, { mode: 'exam', difficulty: 'NBME Difficult', questionCount: 40 })
+    expect(msg).toContain('24')
+    expect(msg).toContain('40')
+    expect(msg).toContain('medically approved')
+  })
+
+  it('turns fetch aborts into a friendly timeout error', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }))
+      })
+    })))
+
+    const pending = expect(
+      generateAIQuestions({ mode: 'exam', difficulty: 'UWorld Challenge', questionCount: 40 }),
+    ).rejects.toMatchObject({ code: 'GENERATION_TIMEOUT' })
+    await vi.advanceTimersByTimeAsync(720_000)
+
+    await pending
+    vi.useRealTimers()
+  })
+})
 
 // Core success path
 
 describe('generateAIQuestions - success path', () => {
   it('returns questions when server returns sufficient unique questions', async () => {
     vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(5) } }]))
-    const result = await generateAIQuestions(baseConfig)
+    const result = await generateAIQuestions({ ...baseConfig, system: 'Cardiovascular' })
     expect(result).toHaveLength(5)
+    expect(result[0].usmleContentArea).toBe('Cardiovascular System')
+    expect(result[0].physicianTask).toBeTruthy()
+  })
+
+  it('preserves server generation telemetry on the returned question array', async () => {
+    const telemetry = {
+      medicalReviewRequested: 12,
+      medicalReviewPassed: 8,
+      stoppedReason: 'requested_count_reached',
+    }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(5), telemetry } }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result.generationTelemetry).toMatchObject(telemetry)
   })
 
   it('returns partial questions when server returns fewer than requested', async () => {
@@ -262,5 +336,246 @@ describe('generateAIQuestions - medical consistency validation', () => {
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid_options=1'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('answer_not_supported=1'))
+  })
+})
+
+describe('generateAIQuestions - trusted generated question bank', () => {
+  it('stores validated generated questions for future reuse', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(5) } }]))
+
+    await generateAIQuestions(baseConfig)
+
+    const trusted = getTrustedGeneratedQuestions()
+    expect(trusted).toHaveLength(5)
+    expect(trusted[0]).toMatchObject({ source: 'ai', mode: 'practice' })
+    expect(trusted[0].usmleContentArea).toBeTruthy()
+    expect(trusted[0].physicianTask).toBeTruthy()
+  })
+
+  it('does not store rejected generated questions', async () => {
+    const unsupported = makeQuestion(0, {
+      explanation: 'This explanation discusses a different unrelated concept without supporting the answer.',
+    })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [unsupported, ...makeQuestions(4, 1)] } }]))
+
+    await generateAIQuestions(baseConfig)
+
+    const trusted = getTrustedGeneratedQuestions()
+    expect(trusted).toHaveLength(4)
+    expect(trusted.find(q => q.id === unsupported.id)).toBeUndefined()
+  })
+
+  it('reuses enough trusted questions without calling the AI endpoint', async () => {
+    appendTrustedGeneratedQuestions(makeQuestions(5), baseConfig)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(5)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('calls the AI endpoint only for the missing remainder when trusted questions are partial', async () => {
+    appendTrustedGeneratedQuestions(makeQuestions(2), baseConfig)
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return { ok: true, json: async () => ({ questions: makeQuestions(3, 2) }) }
+    }))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(5)
+    expect(bodies[0].config.questionCount).toBe(3)
+  })
+})
+
+describe('generateAIQuestions - reported question filtering', () => {
+  it('filters reported questions by id before returning a session', async () => {
+    const reported = makeQuestion(0)
+    saveQuestionReport(reported, 'wrong_answer', { mode: 'practice' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [reported, ...makeQuestions(4, 1)] } }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(4)
+    expect(result.find(q => q.id === reported.id)).toBeUndefined()
+  })
+
+  it('filters reported questions by fingerprint when the server rewrites the id', async () => {
+    const original = makeQuestion(0)
+    const rewritten = makeQuestion(0, { id: 'new-ai-id' })
+    saveQuestionReport(original, 'bad_explanation', { mode: 'practice' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [rewritten, ...makeQuestions(4, 1)] } }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(4)
+    expect(result.find(q => q.id === rewritten.id)).toBeUndefined()
+  })
+})
+
+// ── Validator sync: abbreviation allowlist + contradiction phrases ─────────────
+
+describe('generateAIQuestions — validator sync', () => {
+  // Reusable HIT fixture: Argatroban correct, 7-char wrong options (Heparin/Aspirin/Digoxin).
+  const hitBase = {
+    id: 'hit-q-001',
+    stem: 'A 58-year-old man with deep vein thrombosis presents with new thrombocytopenia three days after initiating unfractionated heparin. Platelet count has fallen from 285,000 to 43,000/μL. Which anticoagulant is most appropriate for continued therapy?',
+    correct: 'A',
+    options: [
+      { letter: 'A', text: 'Argatroban' },
+      { letter: 'B', text: 'Heparin' },
+      { letter: 'C', text: 'Aspirin' },
+      { letter: 'D', text: 'Digoxin' },
+    ],
+  }
+  // explanation that supports Argatroban (passes support check) — base for contradiction variants
+  const argatrobanSupport = 'Argatroban is a direct thrombin inhibitor used when HIT is suspected.'
+
+  // ── Medical abbreviation allowlist ─────────────────────────────────────────
+
+  it('does not reject ATP as correct answer when explanation describes the mechanism without spelling ATP', async () => {
+    const atpQuestion = {
+      id: 'atp-q-001',
+      stem: 'A 28-year-old man presents with exercise intolerance and muscle weakness. Electron microscopy reveals abnormal mitochondria. Biochemical testing shows a defect in Complex V. Which molecule is most directly underproduced?',
+      correct: 'A',
+      options: [
+        { letter: 'A', text: 'ATP' },
+        { letter: 'B', text: 'NADH' },
+        { letter: 'C', text: 'FADH2' },
+        { letter: 'D', text: 'Pyruvate' },
+      ],
+      explanation: 'A defect in the electron transport chain terminal enzyme reduces energy production in skeletal muscle, explaining the exercise intolerance and weakness seen in mitochondrial myopathy.',
+    }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [atpQuestion, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(5)
+    expect(result.find(q => q.id === 'atp-q-001')).toBeDefined()
+  })
+
+  it('still rejects unknown short answer XYZ when explanation does not support it', async () => {
+    const xyzQuestion = {
+      id: 'xyz-q-001',
+      stem: 'A 30-year-old man presents with a rare metabolic pathway deficiency confirmed on enzyme assay.',
+      correct: 'A',
+      options: [
+        { letter: 'A', text: 'XYZ' },
+        { letter: 'B', text: 'Femoral nerve' },
+        { letter: 'C', text: 'Sciatic nerve' },
+        { letter: 'D', text: 'Tibial nerve' },
+      ],
+      explanation: 'The common peroneal nerve winds around the fibular neck and is vulnerable to injury from fractures at this site.',
+    }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [xyzQuestion, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(4)
+    expect(result.find(q => q.id === 'xyz-q-001')).toBeUndefined()
+  })
+
+  // ── Contradiction threshold + new phrases ──────────────────────────────────
+
+  it('catches "Heparin is the correct answer" when Heparin is a wrong option (7-char threshold)', async () => {
+    const q = { ...hitBase, explanation: `${argatrobanSupport} Heparin is the correct answer for standard DVT, but in HIT argatroban is preferred.` }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(4)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeUndefined()
+  })
+
+  it('catches "the best answer is Aspirin" when Aspirin is a wrong option', async () => {
+    const q = { ...hitBase, explanation: `${argatrobanSupport} The best answer is aspirin for antiplatelet therapy in coronary artery disease.` }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(4)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeUndefined()
+  })
+
+  it('catches "you should choose Digoxin" when Digoxin is a wrong option', async () => {
+    const q = { ...hitBase, explanation: `${argatrobanSupport} You should choose digoxin for rate control in atrial fibrillation with heart failure.` }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(4)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeUndefined()
+  })
+
+  it('catches "Digoxin should be selected" when Digoxin is a wrong option', async () => {
+    const q = { ...hitBase, explanation: `${argatrobanSupport} Digoxin should be selected for rate control in heart failure with reduced ejection fraction.` }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(4)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeUndefined()
+  })
+
+  it('does not flag "Heparin is incorrect because..." when Heparin is a wrong option', async () => {
+    const q = { ...hitBase, explanation: `${argatrobanSupport} Heparin is incorrect because it triggers the PF4-heparin antibody complex that causes HIT.` }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(5)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeDefined()
+  })
+
+  it('does not flag when the endorsed option is the correct answer', async () => {
+    const q = { ...hitBase, explanation: 'Argatroban is the correct answer. It is a direct thrombin inhibitor that bypasses the heparin-PF4 antibody mechanism entirely, making it safe in HIT.' }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'practice' })
+    expect(result).toHaveLength(5)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeDefined()
+  })
+
+  it('skips contradiction and support checks in exam mode', async () => {
+    const q = { ...hitBase, explanation: 'You should choose digoxin for this patient. Heparin is the correct answer.' }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 20)] } }]))
+    const result = await generateAIQuestions({ questionCount: 5, mode: 'exam' })
+    expect(result).toHaveLength(5)
+    expect(result.find(r => r.id === 'hit-q-001')).toBeDefined()
+  })
+})
+
+// ── USMLE taxonomy preservation ───────────────────────────────────────────────
+
+describe('generateAIQuestions — USMLE taxonomy', () => {
+  it('preserves usmleContentArea when backend returns a valid official value', async () => {
+    const q = makeQuestion(0, { usmleContentArea: 'Cardiovascular System', system: 'Cardiovascular' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 30)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.find(r => r.id === 'uuid-0').usmleContentArea).toBe('Cardiovascular System')
+  })
+
+  it('preserves physicianTask when backend returns a valid official value', async () => {
+    const q = makeQuestion(0, { physicianTask: 'Patient Care: Diagnosis' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 30)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.find(r => r.id === 'uuid-0').physicianTask).toBe('Patient Care: Diagnosis')
+  })
+
+  it('preserves usmleSubdomain when backend returns it', async () => {
+    const q = makeQuestion(0, { usmleSubdomain: 'Heart Failure Pharmacology', usmleContentArea: 'Cardiovascular System' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 30)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.find(r => r.id === 'uuid-0').usmleSubdomain).toBe('Heart Failure Pharmacology')
+  })
+
+  it('falls back to inference when backend omits usmleContentArea', async () => {
+    const q = makeQuestion(0, { system: 'Renal' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 30)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.find(r => r.id === 'uuid-0').usmleContentArea).toBe('Renal & Urinary System')
+  })
+
+  it('falls back to system inference when backend returns an unrecognized usmleContentArea', async () => {
+    const q = makeQuestion(0, { usmleContentArea: 'not a valid area', system: 'Cardiovascular' })
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [q, ...makeQuestions(4, 30)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    // 'not a valid area' fails normalisation → falls through to system: 'Cardiovascular'
+    expect(result.find(r => r.id === 'uuid-0').usmleContentArea).toBe('Cardiovascular System')
+  })
+
+  it('assigns a non-empty usmleContentArea and physicianTask to every question', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(5) } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.every(q => q.usmleContentArea && q.usmleContentArea.length > 0)).toBe(true)
+    expect(result.every(q => q.physicianTask && q.physicianTask.length > 0)).toBe(true)
   })
 })

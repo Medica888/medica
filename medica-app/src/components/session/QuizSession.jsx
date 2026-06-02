@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { saveQuizSession } from '../../lib/storage'
+import { saveQuestionReport, saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
+import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
 
 // Normalize legacy or unexpected mode strings to the canonical three
 function normalizeMode(mode) {
@@ -9,6 +10,40 @@ function normalizeMode(mode) {
   if (mode === 'explanatory') return 'coach'
   if (['exam', 'practice', 'coach'].includes(mode)) return mode
   return 'exam'
+}
+
+function getSessionSourceLabel(session) {
+  if (session?.source === 'ai') return 'Live AI'
+  if (session?.source === 'mock-fallback') return 'Validated Local Bank'
+  return null
+}
+
+function formatFallbackReason(reason) {
+  const labels = {
+    live_ai_timeout:          'live AI timeout',
+    live_ai_low_yield:        'live AI low yield',
+    live_ai_connection_error: 'live AI connection issue',
+    live_ai_empty_result:     'live AI empty result',
+    live_ai_unavailable:      'live AI unavailable',
+  }
+  return labels[reason] || null
+}
+
+function formatStopReason(reason) {
+  const labels = {
+    requested_count_reached:     'target reached',
+    max_candidates_reached:      'candidate limit reached',
+    max_refill_rounds_reached:   'round limit reached',
+    generation_error:            'generation stopped',
+    rate_limited:                'rate limited',
+    unknown:                     'unknown stop',
+  }
+  return labels[reason] || null
+}
+
+function getMedicalReviewLabel(telemetry) {
+  if (!telemetry || !telemetry.medicalReviewRequested) return null
+  return `${telemetry.medicalReviewPassed}/${telemetry.medicalReviewRequested} medically reviewed`
 }
 
 /** @param {{ session: import('../../lib/quizTypes').QuizSession, onExit: () => void, onComplete?: (results: object) => void }} props */
@@ -27,6 +62,8 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
       : null
   )
   const [marked, setMarked] = useState({})
+  const [reportReason, setReportReason] = useState('wrong_answer')
+  const [reportedQuestionId, setReportedQuestionId] = useState(null)
   const timerRef      = useRef(null)
   const onCompleteRef = useRef(onComplete)
   const markedRef     = useRef({})
@@ -37,20 +74,24 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const isExam  = mode === 'exam'
   const totalQ  = questions?.length ?? 0
   const question = questions?.[currentIndex] ?? questions?.[0]
+  const sourceLabel = getSessionSourceLabel(initialSession)
+  const fallbackReasonLabel = formatFallbackReason(initialSession.config?.fallbackReason)
+  const medicalReviewLabel = getMedicalReviewLabel(initialSession.generationTelemetry)
+  const stopReasonLabel = formatStopReason(initialSession.generationTelemetry?.stoppedReason)
 
-  // Persist session on every state change — BEFORE early return
+  // Persist session on every state change - BEFORE early return
   useEffect(() => {
     saveQuizSession(session)
   }, [session])
 
-  // Timer countdown — only decrements, never submits directly
+  // Timer countdown - only decrements, never submits directly
   useEffect(() => {
     if (!isExam || examSubmitted || secondsLeft === null || secondsLeft <= 0) return
     timerRef.current = setTimeout(() => setSecondsLeft(s => s - 1), 1000)
     return () => clearTimeout(timerRef.current)
   }, [secondsLeft, examSubmitted, isExam])
 
-  // Auto-submit when timer reaches 0 (intentional setState in effect — timer-driven, not render-driven)
+  // Auto-submit when timer reaches 0 (intentional setState in effect - timer-driven, not render-driven)
   useEffect(() => {
     if (!isExam || examSubmitted || secondsLeft !== 0 || totalQ === 0) return
     clearTimeout(timerRef.current)
@@ -61,7 +102,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     onCompleteRef.current?.({ ...results, mode: 'exam' }, finalSession)
   }, [isExam, examSubmitted, secondsLeft, totalQ, session])
 
-  // Safety guard — AFTER all hooks
+  // Safety guard - AFTER all hooks
   if (!questions || questions.length === 0) {
     return (
       <div className="qs-page" style={{ alignItems: 'center', justifyContent: 'center', gap: 16 }}>
@@ -75,8 +116,10 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     )
   }
 
-  const answered  = answers[question.id]
-  const isCorrect = answered === question.correct
+  const answered = answers[question.id]
+  const correctLetter = getQuestionCorrectLetter(question)
+  const normalizedAnswer = normalizeAnswerLetter(answered)
+  const isCorrect = normalizedAnswer === correctLetter
 
   const updateSession = (patch) => setSession(s => ({ ...s, ...patch }))
 
@@ -102,6 +145,11 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     if (!isExam) setShowExpl(true)
   }
 
+  const handleReport = () => {
+    const saved = saveQuestionReport(question, reportReason, { mode })
+    if (saved) setReportedQuestionId(question.id)
+  }
+
   const allAnswered = Object.keys(answers).length === totalQ
 
   const handleNav = (dir) => {
@@ -118,7 +166,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   }
 
   const score = examSubmitted
-    ? questions.filter(q => answers[q.id] === q.correct).length
+    ? questions.filter(q => normalizeAnswerLetter(answers[q.id]) === getQuestionCorrectLetter(q)).length
     : null
 
   return (
@@ -136,9 +184,27 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
           <div className={`qs-mode-badge ${mode}`}>
             {mode === 'exam' ? 'Exam' : mode === 'practice' ? 'Practice' : 'Coach'} Mode
           </div>
-          {initialSession.source === 'mock-fallback' && (
+          {sourceLabel && (
+            <span
+              title={initialSession.config?.fallbackReason ? `Fallback reason: ${initialSession.config.fallbackReason}` : undefined}
+              style={{ fontSize: 10, color: 'var(--t3)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, letterSpacing: '0.04em', fontWeight: 500 }}
+            >
+              {sourceLabel}
+            </span>
+          )}
+          {fallbackReasonLabel && (
+            <span style={{ fontSize: 10, color: 'var(--status-warn)', background: 'rgba(230,170,60,.1)', padding: '2px 6px', borderRadius: 3, letterSpacing: '0.04em', fontWeight: 500 }}>
+              Fallback: {fallbackReasonLabel}
+            </span>
+          )}
+          {medicalReviewLabel && (
             <span style={{ fontSize: 10, color: 'var(--t3)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, letterSpacing: '0.04em', fontWeight: 500 }}>
-              Practice Bank
+              {medicalReviewLabel}
+            </span>
+          )}
+          {stopReasonLabel && (
+            <span style={{ fontSize: 10, color: 'var(--t3)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, letterSpacing: '0.04em', fontWeight: 500 }}>
+              {stopReasonLabel}
             </span>
           )}
         </div>
@@ -206,16 +272,33 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             <p>{question.stem}</p>
           </div>
 
+          <div className="question-report-row">
+            <select
+              className="question-report-select"
+              value={reportReason}
+              onChange={e => { setReportReason(e.target.value); setReportedQuestionId(null) }}
+              aria-label="Report question reason"
+            >
+              <option value="wrong_answer">Wrong answer</option>
+              <option value="bad_explanation">Bad explanation</option>
+              <option value="off_topic">Off topic</option>
+            </select>
+            <button type="button" className="question-report-btn" onClick={handleReport}>
+              Report
+            </button>
+            {reportedQuestionId === question.id && <span className="question-report-status">Saved</span>}
+          </div>
+
           {/* Options */}
           <div className="qs-options" role="group" aria-label="Answer choices">
             {question.options.map(opt => {
               let state = ''
               if (answered) {
                 if (isExam && !examSubmitted) {
-                  state = opt.letter === answered ? 'selected' : ''
+                  state = opt.letter === normalizedAnswer ? 'selected' : ''
                 } else {
-                  if (opt.letter === question.correct) state = 'correct'
-                  else if (opt.letter === answered && answered !== question.correct) state = 'wrong'
+                  if (opt.letter === correctLetter) state = 'correct'
+                  else if (opt.letter === normalizedAnswer && normalizedAnswer !== correctLetter) state = 'wrong'
                   else state = 'neutral'
                 }
               }
@@ -225,7 +308,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
                   className={`qs-option ${state}`}
                   onClick={() => handleAnswer(opt.letter)}
                   disabled={isExam ? examSubmitted : !!showExplanation}
-                  aria-pressed={answered === opt.letter}
+                  aria-pressed={normalizedAnswer === opt.letter}
                 >
                   <span className="qs-opt-letter">{opt.letter}</span>
                   <span className="qs-opt-text">{opt.text}</span>
@@ -249,6 +332,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             <ExplanationPanel
               question={question}
               answered={answered}
+              correctLetter={correctLetter}
               isCorrect={isCorrect}
               mode={mode}
             />
@@ -301,7 +385,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   )
 }
 
-function ExplanationPanel({ question, answered, isCorrect, mode }) {
+function ExplanationPanel({ question, answered, correctLetter, isCorrect, mode }) {
   return (
     <div className={`qs-explanation${isCorrect ? ' correct' : ' wrong'}`}>
       <div className="qs-exp-verdict">
@@ -311,7 +395,7 @@ function ExplanationPanel({ question, answered, isCorrect, mode }) {
               <circle cx="8" cy="8" r="7" fill="var(--green)" opacity=".15" />
               <path d="M4 8L6.5 10.5L12 5" stroke="var(--green)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="qs-exp-correct">Correct — {question.correct} is right</span>
+            <span className="qs-exp-correct">Correct - {correctLetter} is right</span>
           </>
         ) : (
           <>
@@ -320,7 +404,7 @@ function ExplanationPanel({ question, answered, isCorrect, mode }) {
               <path d="M5 5L11 11M11 5L5 11" stroke="var(--red)" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
             <span className="qs-exp-wrong">
-              Incorrect — you chose {answered}, correct answer is {question.correct}
+              Incorrect - you chose {normalizeAnswerLetter(answered)}, correct answer is {correctLetter}
             </span>
           </>
         )}
