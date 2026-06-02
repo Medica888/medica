@@ -6,6 +6,40 @@ import type { CreateSessionInput } from '../schemas/exam.js';
 import type { ConceptMappingService } from './ConceptMappingService.js';
 import type { ConceptMasteryService } from './ConceptMasteryService.js';
 
+const ANSWER_LETTERS = ['A', 'B', 'C', 'D'] as const;
+
+/**
+ * Resolves the correct answer from any of the three field aliases that exist
+ * across frontend payloads: correct_answer (canonical), correct (AI generation
+ * schema), or correctAnswer (camelCase legacy).  Returns '' when all are absent
+ * or null so callers never silently compare '' === ''.
+ */
+export function _getCorrectAnswer(q: Record<string, unknown>): string {
+  const raw = q['correct_answer'] ?? q['correct'] ?? q['correctAnswer'] ?? '';
+  return String(raw);
+}
+
+/**
+ * Coerces any answer representation to an uppercase letter A–D, or '' if invalid.
+ * Mirrors normalizeAnswerLetter() in medica-app/src/lib/answerNormalize.js.
+ *
+ * Handles:
+ *   'A' | 'a'            → 'A'
+ *   'A. option text'     → 'A'  (strips prefix — used in some legacy payloads)
+ *   ' b '               → 'B'  (trims whitespace)
+ *   0 | 1 | 2 | 3       → 'A' | 'B' | 'C' | 'D'
+ *   null | undefined | '' | 'X' → ''
+ *
+ * Exported with underscore prefix for direct unit-testing (same pattern as _fingerprint).
+ */
+export function _normalizeAnswerLetter(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return ANSWER_LETTERS[value] ?? '';
+  const raw = String(value).trim();
+  const letter = (raw[0] ?? '').toUpperCase();
+  return (ANSWER_LETTERS as readonly string[]).includes(letter) ? letter : '';
+}
+
 /**
  * Stable content-based identity for a question.
  * Uses SHA-256 of (normalizedStem + correctAnswer + subject + system) so that:
@@ -58,7 +92,7 @@ export class ExamService {
       if (this.questions) {
         for (let i = 0; i < input.questions.length; i++) {
           const q = input.questions[i]!;
-          const externalId = _fingerprint(q.text, q.correct_answer, q.subject ?? '', q.system ?? '');
+          const externalId = _fingerprint(q.text, _getCorrectAnswer(q as unknown as Record<string, unknown>), q.subject ?? '', q.system ?? '');
           if (!externalId) continue;
           const { id: dbId } = await this.questions.upsertByExternalId(
             externalId,
@@ -92,7 +126,7 @@ export class ExamService {
         const answered = input.questions
           .map((q) => ({
             questionDbId: questionRefMap.get(q.id) ?? '',
-            isCorrect:    (input.answers[q.id] ?? '').toUpperCase() === q.correct_answer.toUpperCase(),
+            isCorrect:    _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
           }))
           .filter((x) => x.questionDbId !== '');
         await this.conceptMastery.updateFromSession(userId, answered, tx);
@@ -112,7 +146,7 @@ export class ExamService {
         session_id:         s.id,
         question_id:        q.id,
         selected_answer:    input.answers[q.id] ?? '',
-        is_correct:         input.answers[q.id] === q.correct_answer,
+        is_correct:         _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
         time_spent_seconds: input.time_spent?.[q.id] ?? 0,
         attempted_at:       new Date(input.completed_at),
         question_ref_id:    questionRefMap.get(q.id),

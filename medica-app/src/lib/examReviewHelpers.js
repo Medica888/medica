@@ -1,37 +1,9 @@
-const LETTERS = ['A', 'B', 'C', 'D']
+import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from './answerNormalize.js'
 
-// Accepts: "A" | "a" | "A. Furosemide" | 0 | 1 | 2 | 3 | null | undefined → "A"–"D" | ""
-export function normalizeAnswerLetter(value) {
-  if (value === null || value === undefined) return ''
-  if (typeof value === 'number') return LETTERS[value] || ''
-  const raw = String(value).trim()
-  const letter = raw[0]?.toUpperCase() ?? ''
-  return LETTERS.includes(letter) ? letter : ''
-}
-
-// Normalizes mixed option shapes → [{letter, text}], A-D only, max 4
-// Supports: {letter,text} | {id,text} with string or numeric id | "A. text" strings
-export function normalizeOptions(options) {
-  if (!Array.isArray(options)) return []
-  return options.flatMap(opt => {
-    if (typeof opt === 'string') {
-      const m = opt.match(/^([A-Da-d])[.\s]\s*(.+)/)
-      return m ? [{ letter: m[1].toUpperCase(), text: m[2].trim() }] : []
-    }
-    const rawId =
-      opt.letter !== undefined && opt.letter !== null
-        ? opt.letter
-        : opt.id !== undefined && opt.id !== null
-          ? opt.id
-          : ''
-    const letter = normalizeAnswerLetter(rawId)
-    const text   = (opt.text ?? opt.label ?? '').toString()
-    return LETTERS.includes(letter) ? [{ letter, text }] : []
-  }).filter(o => LETTERS.includes(o.letter)).slice(0, 4)
-}
+export { normalizeAnswerLetter, normalizeOptions }
 
 export function getCorrectLetter(question) {
-  return normalizeAnswerLetter(question.correctAnswer ?? question.correct)
+  return getQuestionCorrectLetter(question)
 }
 
 export function getUserLetter(value) {

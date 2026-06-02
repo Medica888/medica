@@ -52,6 +52,9 @@ const sessionWithAnswers = {
       explanation: 'Classic MI presentation.',
       subject: 'Cardiology',
       system: 'Cardiovascular',
+      usmleContentArea: 'Cardiovascular System',
+      usmleSubdomain: 'Acute coronary syndrome',
+      physicianTask: 'Patient Care: Diagnosis',
       difficulty: 'Medium',
     },
   ],
@@ -88,6 +91,8 @@ describe('saveSession', () => {
     expect(payload.questions[0].text).toBe(sessionWithAnswers.questions[0].stem);
     expect(payload.questions[0].options).toEqual(['STEMI', 'NSTEMI', 'Angina', 'PE']);
     expect(payload.questions[0].correct_answer).toBe('A');
+    expect(payload.questions[0].usmleContentArea).toBe('Cardiovascular System');
+    expect(payload.questions[0].physicianTask).toBe('Patient Care: Diagnosis');
     expect(payload.answers).toEqual({ q1: 'A' });
   });
 
@@ -102,6 +107,34 @@ describe('saveSession', () => {
   it('marks correct answers as NOT missed', async () => {
     await saveSession(results, sessionWithAnswers);
     const payload = api.exams.create.mock.calls[0][0];
+    expect(payload.missed_questions).toHaveLength(0);
+  });
+
+  it('uses correctAnswer alias when correct is absent', async () => {
+    const session = {
+      ...sessionWithAnswers,
+      questions: [{ ...sessionWithAnswers.questions[0], correct: undefined, correctAnswer: 'B' }],
+      answers: { q1: 'b' },
+    };
+
+    await saveSession(results, session);
+
+    const payload = api.exams.create.mock.calls[0][0];
+    expect(payload.questions[0].correct_answer).toBe('B');
+    expect(payload.missed_questions).toHaveLength(0);
+  });
+
+  it('prefers correct over correctAnswer for backend missed question filtering', async () => {
+    const session = {
+      ...sessionWithAnswers,
+      questions: [{ ...sessionWithAnswers.questions[0], correct: 'C', correctAnswer: 'A' }],
+      answers: { q1: 'C' },
+    };
+
+    await saveSession(results, session);
+
+    const payload = api.exams.create.mock.calls[0][0];
+    expect(payload.questions[0].correct_answer).toBe('C');
     expect(payload.missed_questions).toHaveLength(0);
   });
 });

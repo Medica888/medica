@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ExamService, _fingerprint } from './ExamService.js';
+import { ExamService, _fingerprint, _normalizeAnswerLetter, _getCorrectAnswer } from './ExamService.js';
 import { InMemoryExamSessionsRepository } from '../repositories/memory/ExamSessionsRepository.js';
 import { InMemoryQuestionAttemptsRepository } from '../repositories/memory/QuestionAttemptsRepository.js';
 import { InMemoryQuestionsRepository } from '../repositories/memory/QuestionsRepository.js';
@@ -168,5 +168,179 @@ describe('ExamService — Phase 1 question bank', () => {
     // findByExternalId returns the same id for both
     const entry2 = questionsRepo._getEntry(fp);
     expect(entry2).toBeDefined();
+  });
+});
+
+// ── _normalizeAnswerLetter unit tests ─────────────────────────────────────────
+
+describe('_normalizeAnswerLetter', () => {
+  it('returns uppercase letter unchanged', () => {
+    expect(_normalizeAnswerLetter('A')).toBe('A');
+    expect(_normalizeAnswerLetter('D')).toBe('D');
+  });
+
+  it('uppercases a lowercase letter', () => {
+    expect(_normalizeAnswerLetter('a')).toBe('A');
+    expect(_normalizeAnswerLetter('b')).toBe('B');
+    expect(_normalizeAnswerLetter('c')).toBe('C');
+    expect(_normalizeAnswerLetter('d')).toBe('D');
+  });
+
+  it('strips "A. option text" prefix and returns letter', () => {
+    expect(_normalizeAnswerLetter('A. Aortic dissection')).toBe('A');
+    expect(_normalizeAnswerLetter('C. CT pulmonary angiography')).toBe('C');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(_normalizeAnswerLetter(' b ')).toBe('B');
+    expect(_normalizeAnswerLetter('  D  ')).toBe('D');
+  });
+
+  it('returns empty string for invalid answers', () => {
+    expect(_normalizeAnswerLetter('X')).toBe('');
+    expect(_normalizeAnswerLetter('E')).toBe('');
+    expect(_normalizeAnswerLetter('')).toBe('');
+    expect(_normalizeAnswerLetter(null)).toBe('');
+    expect(_normalizeAnswerLetter(undefined)).toBe('');
+  });
+
+  it('converts numeric indexes 0–3 to letters', () => {
+    expect(_normalizeAnswerLetter(0)).toBe('A');
+    expect(_normalizeAnswerLetter(1)).toBe('B');
+    expect(_normalizeAnswerLetter(2)).toBe('C');
+    expect(_normalizeAnswerLetter(3)).toBe('D');
+  });
+
+  it('returns empty string for out-of-range numeric index', () => {
+    expect(_normalizeAnswerLetter(4)).toBe('');
+    expect(_normalizeAnswerLetter(-1)).toBe('');
+  });
+});
+
+// ── Normalized is_correct on attempts ────────────────────────────────────────
+
+describe('ExamService — normalized answer comparison', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let service: ExamService;
+
+  const letterQuestion = {
+    ...sampleQuestion,
+    id: 'q-norm-001',
+    correct_answer: 'C',
+  };
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    service = new ExamService(sessionsRepo, attemptsRepo, questionsRepo);
+  });
+
+  it('marks attempt correct when user sends lowercase matching uppercase correct_answer', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': 'c' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(true);
+    expect(attempts[0]!.selected_answer).toBe('c'); // raw preserved
+  });
+
+  it('marks attempt correct when user sends "C. option text" and correct_answer is "C"', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': 'C. Some option text' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(true);
+    expect(attempts[0]!.selected_answer).toBe('C. Some option text');
+  });
+
+  it('marks attempt correct when user answer has surrounding whitespace', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': ' C ' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(true);
+  });
+
+  it('marks attempt incorrect for a wrong but valid letter', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': 'A' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(false);
+  });
+
+  it('marks attempt incorrect for an invalid/empty answer', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': 'X' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(false);
+  });
+
+  it('keeps selected_answer raw and does not mutate it', async () => {
+    const raw = 'c. Some option text';
+    const input = makeInput([letterQuestion], { 'q-norm-001': raw });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.selected_answer).toBe(raw);
+  });
+});
+
+// ── _getCorrectAnswer alias fallback ─────────────────────────────────────────
+
+describe('_getCorrectAnswer', () => {
+  it('returns correct_answer when present', () => {
+    expect(_getCorrectAnswer({ correct_answer: 'B' })).toBe('B');
+  });
+
+  it('falls back to correct when correct_answer is absent', () => {
+    expect(_getCorrectAnswer({ correct: 'C' })).toBe('C');
+  });
+
+  it('falls back to correctAnswer as last resort', () => {
+    expect(_getCorrectAnswer({ correctAnswer: 'D' })).toBe('D');
+  });
+
+  it('correct_answer takes priority over correct and correctAnswer', () => {
+    expect(_getCorrectAnswer({ correct_answer: 'A', correct: 'B', correctAnswer: 'C' })).toBe('A');
+  });
+
+  it('correct takes priority over correctAnswer', () => {
+    expect(_getCorrectAnswer({ correct: 'B', correctAnswer: 'C' })).toBe('B');
+  });
+
+  it('returns empty string when all aliases are absent', () => {
+    expect(_getCorrectAnswer({})).toBe('');
+  });
+
+  it('returns empty string when all aliases are null', () => {
+    expect(_getCorrectAnswer({ correct_answer: null, correct: null, correctAnswer: null })).toBe('');
+  });
+
+  it('_normalizeAnswerLetter of _getCorrectAnswer is non-empty when an alias is set', () => {
+    // Regression: without the helper, _normalizeAnswerLetter(undefined) = ''
+    // which falsely matches an unanswered question.
+    expect(_normalizeAnswerLetter(_getCorrectAnswer({ correct: 'A' }))).toBe('A');
+    expect(_normalizeAnswerLetter(_getCorrectAnswer({}))).toBe('');
+  });
+
+  it('createSession uses correct alias when question only has "correct" field', async () => {
+    const sessionsR  = new InMemoryExamSessionsRepository();
+    const attemptsR  = new InMemoryQuestionAttemptsRepository();
+    const questionsR = new InMemoryQuestionsRepository();
+    const svc = new ExamService(sessionsR, attemptsR, questionsR);
+
+    // Simulate a payload where correct_answer is missing but correct is present
+    const aliasQuestion = {
+      ...sampleQuestion,
+      id: 'q-alias-001',
+      correct_answer: undefined as any,
+      correct: 'C',
+    };
+    const input = {
+      ...makeInput([aliasQuestion as any], { 'q-alias-001': 'C' }),
+    };
+    const session = await svc.createSession('user-1', input as any);
+    const attempts = await attemptsR.findBySessionId(session.id);
+    // Answer 'C' matches correct 'C' — should be marked correct
+    expect(attempts[0]!.is_correct).toBe(true);
   });
 });

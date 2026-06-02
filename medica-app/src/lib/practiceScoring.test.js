@@ -104,4 +104,76 @@ describe('calculatePracticeResults', () => {
     const result = calculatePracticeResults(session);
     expect(result.missedQuestions).toHaveLength(1);
   });
+
+  it('tracks USMLE content and physician task breakdowns', () => {
+    const session = {
+      questions: [
+        makeQuestion('q1', 'A', 'Pharmacology', 'Cardiovascular', 'Balanced'),
+        makeQuestion('q2', 'A', 'Pharmacology', 'Cardiovascular', 'Balanced'),
+      ].map(q => ({
+        ...q,
+        usmleContentArea: 'Cardiovascular System',
+        physicianTask: 'Patient Care: Pharmacotherapy',
+      })),
+      answers: { q1: 'A', q2: 'B' },
+    };
+
+    const result = calculatePracticeResults(session);
+
+    expect(result.usmleContentBreakdown[0]).toMatchObject({
+      name: 'Cardiovascular System',
+      correct: 1,
+      total: 2,
+      percentage: 50,
+    });
+    expect(result.physicianTaskBreakdown[0]).toMatchObject({
+      name: 'Patient Care: Pharmacotherapy',
+      correct: 1,
+      total: 2,
+      percentage: 50,
+    });
+    expect(result.weakAreas.some(w => w.type === 'Physician Task' && w.name === 'Patient Care: Pharmacotherapy')).toBe(true);
+  });
+
+  it('preserves USMLE tags on missed questions', () => {
+    const session = {
+      questions: [{
+        ...makeQuestion('q1', 'A', 'Pathology', 'Renal / Urinary'),
+        usmleContentArea: 'Renal & Urinary System',
+        usmleSubdomain: 'Glomerular disease',
+        physicianTask: 'Patient Care: Laboratory and Diagnostic Studies',
+        questionAngle: 'lab-interpretation',
+      }],
+      answers: { q1: 'B' },
+    };
+
+    const result = calculatePracticeResults(session);
+
+    expect(result.missedQuestions[0]).toMatchObject({
+      usmleContentArea: 'Renal & Urinary System',
+      usmleSubdomain: 'Glomerular disease',
+      physicianTask: 'Patient Care: Laboratory and Diagnostic Studies',
+      questionAngle: 'lab-interpretation',
+    });
+  });
+
+  it('prefers correct over correctAnswer when both are present', () => {
+    const session = {
+      questions: [{ ...makeQuestion('q1', 'A'), correct: 'B' }],
+      answers: { q1: 'B' },
+    };
+    const result = calculatePracticeResults(session);
+    expect(result.correct).toBe(1);
+    expect(result.missedQuestions).toHaveLength(0);
+  });
+
+  it('falls back to correctAnswer when correct is absent', () => {
+    const session = {
+      questions: [makeQuestion('q1', 'C')],
+      answers: { q1: 'c' },
+    };
+    const result = calculatePracticeResults(session);
+    expect(result.correct).toBe(1);
+    expect(result.missedQuestions).toHaveLength(0);
+  });
 });

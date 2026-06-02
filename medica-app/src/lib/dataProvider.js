@@ -9,6 +9,7 @@
  */
 
 import * as api from './apiClient.js';
+import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js';
 import {
   saveCompletedSession,
   getSessionHistory,
@@ -43,7 +44,7 @@ export async function saveSession(results, sessionWithAnswers) {
       id:               q.id,
       text:             q.stem ?? '',
       options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
-      correct_answer:   q.correct ?? '',
+      correct_answer:   getQuestionCorrectLetter(q),
       explanation:      q.explanation      ?? '',
       subject:          q.subject          ?? '',
       system:           q.system           ?? '',
@@ -55,6 +56,9 @@ export async function saveSession(results, sessionWithAnswers) {
       canonicalTopic:   q.canonicalTopic   ?? '',
       topicSlug:        q.topicSlug        ?? '',
       topicSource:      q.topicSource      ?? '',
+      usmleContentArea: q.usmleContentArea ?? '',
+      usmleSubdomain:   q.usmleSubdomain   ?? '',
+      physicianTask:    q.physicianTask    ?? '',
       questionAngle:    q.questionAngle    ?? '',
       commonTrap:       q.commonTrap       ?? '',
       memoryAnchor:     q.memoryAnchor     ?? '',
@@ -74,7 +78,7 @@ export async function saveSession(results, sessionWithAnswers) {
         .filter(q => {
           const ans = answers[q.id];
           if (!ans) return true;
-          return ans.toUpperCase() !== (q.correct ?? '').toUpperCase();
+          return normalizeAnswerLetter(ans) !== getQuestionCorrectLetter(q);
         })
         .map(mapQuestion),
       completed_at:      results.completedAt ?? new Date().toISOString(),

@@ -1,7 +1,8 @@
-import { normalizeAnswerLetter } from './answerNormalize.js'
+import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js'
+import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
 
 function _isCorrect(userAnswer, q) {
-  return normalizeAnswerLetter(userAnswer) === normalizeAnswerLetter(q.correctAnswer ?? q.correct)
+  return normalizeAnswerLetter(userAnswer) === getQuestionCorrectLetter(q)
 }
 
 /**
@@ -46,10 +47,15 @@ export function calculatePracticeResults(session) {
     percentage: Math.round((d.correct / d.total) * 100),
   }))
 
+  const usmleContentBreakdown = _buildBreakdown(questions, answers, q => enrichQuestionWithUsmleTaxonomy(q).usmleContentArea)
+  const physicianTaskBreakdown = _buildBreakdown(questions, answers, q => enrichQuestionWithUsmleTaxonomy(q).physicianTask)
+
   // Weak areas = any subject or system below 60% with ≥2 questions
   const weakAreas = [
     ...subjectBreakdown.filter(x => x.total >= 2 && x.percentage < 60).map(x => ({ type: 'Subject', name: x.name, percentage: x.percentage })),
     ...systemBreakdown.filter(x => x.total >= 2 && x.percentage < 60).map(x => ({ type: 'System', name: x.name, percentage: x.percentage })),
+    ...usmleContentBreakdown.filter(x => x.total >= 2 && x.percentage < 60).map(x => ({ type: 'USMLE Content Area', name: x.name, percentage: x.percentage })),
+    ...physicianTaskBreakdown.filter(x => x.total >= 2 && x.percentage < 60).map(x => ({ type: 'Physician Task', name: x.name, percentage: x.percentage })),
   ]
 
   // Medica Score — internal estimate only, not USMLE prediction
@@ -65,19 +71,26 @@ export function calculatePracticeResults(session) {
 
   const missedQuestions = questions
     .filter(q => !_isCorrect(answers[q.id], q))
-    .map(q => ({
-      id: q.id,
-      subject: q.subject || '',
-      system: q.system || '',
-      difficulty: q.difficulty || '',
-      weakSpotCategory: q.weakSpotCategory || '',
-      testedConcept: q.testedConcept || '',
-      topic: q.topic || '',
-      rawTopic: q.rawTopic || '',
-      canonicalTopic: q.canonicalTopic || '',
-      topicSlug: q.topicSlug || '',
-      topicSource: q.topicSource || '',
-    }))
+    .map(q => {
+      const tagged = enrichQuestionWithUsmleTaxonomy(q)
+      return {
+        id: q.id,
+        subject: q.subject || '',
+        system: q.system || '',
+        difficulty: q.difficulty || '',
+        weakSpotCategory: q.weakSpotCategory || '',
+        testedConcept: q.testedConcept || '',
+        usmleContentArea: tagged.usmleContentArea || '',
+        usmleSubdomain: tagged.usmleSubdomain || '',
+        physicianTask: tagged.physicianTask || '',
+        questionAngle: q.questionAngle || '',
+        topic: q.topic || '',
+        rawTopic: q.rawTopic || '',
+        canonicalTopic: q.canonicalTopic || '',
+        topicSlug: q.topicSlug || '',
+        topicSource: q.topicSource || '',
+      }
+    })
 
   return {
     total,
@@ -86,6 +99,8 @@ export function calculatePracticeResults(session) {
     percentage,
     subjectBreakdown,
     systemBreakdown,
+    usmleContentBreakdown,
+    physicianTaskBreakdown,
     weakAreas,
     medicaScore,
     readinessLabel,
@@ -105,6 +120,22 @@ function _difficultyBonus(questions, answers) {
     if (_isCorrect(answers[q.id], q)) weightedCorrect += w
   }
   return weightedTotal > 0 ? Math.round((weightedCorrect / weightedTotal) * 100) : 0
+}
+
+function _buildBreakdown(questions, answers, getName) {
+  const map = {}
+  for (const q of questions) {
+    const name = getName(q) || 'Unknown'
+    if (!map[name]) map[name] = { correct: 0, total: 0 }
+    map[name].total++
+    if (_isCorrect(answers[q.id], q)) map[name].correct++
+  }
+  return Object.entries(map).map(([name, d]) => ({
+    name,
+    correct: d.correct,
+    total: d.total,
+    percentage: Math.round((d.correct / d.total) * 100),
+  }))
 }
 
 function _readinessLabel(score) {

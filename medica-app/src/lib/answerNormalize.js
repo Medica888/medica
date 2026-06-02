@@ -35,3 +35,11 @@ export function normalizeOptions(options) {
     return LETTERS.includes(letter) ? [{ letter, text }] : []
   }).filter(o => LETTERS.includes(o.letter)).slice(0, 4)
 }
+
+/**
+ * Normalizes a question's correct answer field.
+ * Prefer canonical `correct`; fall back to `correctAnswer` for older payloads.
+ */
+export function getQuestionCorrectLetter(question) {
+  return normalizeAnswerLetter(question?.correct || question?.correctAnswer)
+}
