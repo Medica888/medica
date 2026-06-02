@@ -10,7 +10,11 @@ import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { scoreQuestion, buildRepairPrompt, isSuspectStem, type QuestionQuality } from '../lib/questionValidator.js';
+import {
+  scoreQuestion, buildRepairPrompt, isSuspectStem,
+  requiresMedicalReview, buildMedicalReviewPrompt, parseMedicalReviewResponse,
+  type QuestionQuality, type ReviewableQuestion,
+} from '../lib/questionValidator.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -217,16 +221,34 @@ function getMaxTokens(mode: string, count: number) {
   return Math.min(Math.ceil(count * perQ * 1.25), 8192);
 }
 
+// Retry on: 429 (rate limit, up to 3 attempts with 8s wait) and connection-level errors
+// (no HTTP status — ECONNRESET, DNS failure, SSL failure) with exponential backoff.
+// Auth, model-not-found, and other HTTP errors are thrown immediately (no retry).
 async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming) {
-  try {
-    return await client.messages.create(params);
-  } catch (err: any) {
-    if (err?.status === 429) {
-      await new Promise(r => setTimeout(r, 8000));
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
       return await client.messages.create(params);
+    } catch (err: any) {
+      const isLast = attempt === 3;
+      if (err?.status === 429) {
+        if (isLast) throw err;
+        await new Promise(r => setTimeout(r, 8000));
+      } else if (err?.status == null) {
+        // Connection-level error: no HTTP response received (ECONNRESET, AbortError, etc.)
+        if (isLast) {
+          console.warn('[anthropic] connection error persisted after retries:', String(err?.message ?? err).slice(0, 80));
+          throw err;
+        }
+        const delay = 1500 * attempt; // 1.5s, then 3s
+        console.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        // HTTP error with status (401 auth, 404 model, 400 bad request, etc.) — never retry
+        throw err;
+      }
     }
-    throw err;
   }
+  throw new Error('[anthropic] unreachable');
 }
 
 // ── Scope helpers ────────────────────────────────────────────────────────────
@@ -246,13 +268,32 @@ function isEmpty(v: unknown) {
   return EMPTY.has(String(v).toLowerCase().trim());
 }
 
+// Strip control characters and cap topic length to prevent prompt injection.
+function sanitizeTopic(raw: string): string {
+  return raw.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+|previous\s+|above\s+)?instructions?/i,
+  /you\s+are\s+now\b/i,
+  /new\s+role\b/i,
+  /forget\s+(your\s+|the\s+|all\s+)?instructions?/i,
+  /\bdisregard\b/i,
+  /system\s+prompt/i,
+];
+
+function isTopicSuspect(topic: string): boolean {
+  return INJECTION_PATTERNS.some(p => p.test(topic));
+}
+
 function resolveScope(config: Record<string, any>) {
-  const cf  = String(config.clinicalFocus      || '').trim();
-  const cst = String(config.coachSpecificTopic || '').trim();
-  const rt  = String(config.rawTopic           || '').trim();
-  const t   = String(config.topic              || '').trim();
-  const sys = String(config.system             || '').trim();
-  const sub = String(config.subject            || '').trim();
+  const cf  = String(config.clinicalFocus || '').trim();
+  // Backward compat: coachSpecificTopic folds into topic so old payloads continue to work.
+  // New frontend always sends topic directly.
+  const t   = sanitizeTopic(String(config.topic || config.coachSpecificTopic || ''));
+  const rt  = String(config.rawTopic  || '').trim();
+  const sys = String(config.system    || '').trim();
+  const sub = String(config.subject   || '').trim();
 
   const base = {
     subject: isEmpty(sub) ? '' : sub,
@@ -263,16 +304,15 @@ function resolveScope(config: Record<string, any>) {
     topicSource: String(config.topicSource || '').trim(),
   };
 
-  if (cf)  return { ...base, scopeType: 'clinicalFocus',      scopeText: cf,  topic: cf  };
-  if (cst) return { ...base, scopeType: 'coachSpecificTopic', scopeText: cst, topic: cst };
-  if (rt)  return { ...base, scopeType: 'manualTopic',        scopeText: rt,  topic: rt  };
-  if (t)   return { ...base, scopeType: 'selectedTopic',      scopeText: t,   topic: t   };
+  if (cf) return { ...base, scopeType: 'clinicalFocus', scopeText: cf, topic: cf };
+  if (rt) return { ...base, scopeType: 'manualTopic',   scopeText: rt, topic: rt };
+  if (t)  return { ...base, scopeType: 'selectedTopic', scopeText: t,  topic: t  };
   if (sys && !isEmpty(sys)) return { ...base, scopeType: 'system',  scopeText: sys, topic: '' };
   if (sub && !isEmpty(sub)) return { ...base, scopeType: 'subject', scopeText: sub, topic: '' };
   return { ...base, scopeType: 'global', scopeText: 'Mixed USMLE Step 1', topic: '' };
 }
 
-const SPECIFIC_SCOPES = new Set(['clinicalFocus', 'coachSpecificTopic', 'manualTopic', 'selectedTopic']);
+const SPECIFIC_SCOPES = new Set(['clinicalFocus', 'manualTopic', 'selectedTopic']);
 
 function isSpecific(scope: ReturnType<typeof resolveScope>) {
   return SPECIFIC_SCOPES.has(scope.scopeType);
@@ -329,7 +369,7 @@ CRITICAL JSON SAFETY RULES:
 - Never include raw newlines inside string values. Keep every string on one line.
 - No trailing commas after the last item in any array or object.
 
-EXAM MODE: output subject, system, testedConcept, weakSpotCategory, stem, options (A-D), correct. No explanations. No id field.
+EXAM MODE: output subject, system, testedConcept, weakSpotCategory, usmleContentArea, usmleSubdomain, physicianTask, stem, options (A-D), correct. No explanations. No id field.
 PRACTICE MODE: all Exam fields + explanation, highYieldPearl, memoryAnchor, commonTrap.
 COACH MODE: all Practice fields + optionExplanations for every option A-D.
 
@@ -341,6 +381,9 @@ JSON SCHEMA:
       "system": "Cardiovascular",
       "testedConcept": "Short concept name",
       "weakSpotCategory": "Analytics label",
+      "usmleContentArea": "Cardiovascular System",
+      "usmleSubdomain": "Heart Failure Pharmacology",
+      "physicianTask": "Patient Care: Pharmacotherapy",
       "stem": "Clinical vignette.",
       "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
       "correct": "B",
@@ -356,7 +399,9 @@ JSON SCHEMA:
 
 OPTIONS: exactly 4 per question (A-D only). correct is one letter "A","B","C","D".
 optionExplanations: Coach Mode ONLY. explanation/pearl/anchor/trap: Practice + Coach only.
-Generate exactly the number of questions requested. Each must have a unique testedConcept.`;
+Generate exactly the number of questions requested. Each must have a unique testedConcept.
+usmleContentArea must be exactly one of: Human Development | Immune System | Blood & Lymphoreticular System | Behavioral Health | Nervous System & Special Senses | Skin & Subcutaneous Tissue | Musculoskeletal System | Cardiovascular System | Respiratory System | Gastrointestinal System | Renal & Urinary System | Pregnancy, Childbirth, & the Puerperium | Female and Transgender Reproductive System & Breast | Male and Transgender Reproductive System | Endocrine System | Multisystem Processes & Disorders | Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature | Social Sciences
+physicianTask must be exactly one of: Medical Knowledge: Applying Foundational Science Concepts | Patient Care: History and Physical Examination | Patient Care: Laboratory and Diagnostic Studies | Patient Care: Diagnosis | Patient Care: Prognosis and Outcome | Patient Care: Health Maintenance and Disease Prevention | Patient Care: Pharmacotherapy | Patient Care: Clinical Interventions | Patient Care: Mixed Management | Communication | Professionalism, Legal, and Ethical Principles | Systems-Based Practice and Patient Safety | Practice-Based Learning and Improvement`;
 
 function buildPrompt(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>) {
   const modeLabel = String(config.mode).charAt(0).toUpperCase() + String(config.mode).slice(1);
@@ -372,9 +417,6 @@ function buildPrompt(config: Record<string, any>, count: number, offset: number,
     lines.push(`Organ System: ${(!isEmpty(config.system)) ? config.system : 'Mixed'}`);
     if (config.topic) lines.push(`Topic: ${config.topic}`);
     if (config.clinicalFocus) lines.push(`Clinical Themes: ${config.clinicalFocus}`);
-    if (config.mode === 'coach' && config.coachSpecificTopic) {
-      lines.push(`Coach Mode Specific Topic: ${config.coachSpecificTopic}`);
-    }
   }
 
   lines.push(`Number of questions: ${count}`);
@@ -417,10 +459,15 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
   });
   while (opts.length < 4) opts.push({ letter: VALID_LETTERS[opts.length], text: '' });
 
-  let correct: string = q.correct ?? q.correctAnswer ?? 'A';
-  if (typeof correct === 'number') correct = VALID_LETTERS[correct] ?? 'A';
-  if (typeof correct === 'string') correct = correct.trim().toUpperCase().charAt(0);
-  if (!VALID_LETTERS.includes(correct)) correct = 'A';
+  // Preserve invalid values rather than silently defaulting to 'A' so that
+  // scoreQuestion can detect invalid_correct_letter and reject/repair the question.
+  const rawCorrect = q.correct ?? q.correctAnswer;
+  let correct: string;
+  if (typeof rawCorrect === 'number') {
+    correct = VALID_LETTERS[rawCorrect] ?? '';
+  } else {
+    correct = String(rawCorrect ?? '').trim().toUpperCase().charAt(0);
+  }
 
   const scopeRaw = scope.rawTopic || scope.canonicalTopic || scope.scopeText || '';
 
@@ -433,7 +480,10 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
     canonicalTopic: q.canonicalTopic || scope.canonicalTopic || scopeRaw,
     topicSlug:   q.topicSlug   || scope.topicSlug   || '',
     topicSource: q.topicSource || scope.topicSource || '',
-    questionAngle: String(q.questionAngle || '').trim(),
+    questionAngle:    String(q.questionAngle    || '').trim(),
+    usmleContentArea: String(q.usmleContentArea || '').trim(),
+    usmleSubdomain:   String(q.usmleSubdomain   || '').trim(),
+    physicianTask:    String(q.physicianTask     || '').trim(),
     difficulty: q.difficulty || '',
     testedConcept:    q.testedConcept    || q.tested_concept    || '',
     weakSpotCategory: q.weakSpotCategory || q.weak_spot_category || '',
@@ -475,7 +525,45 @@ async function attemptRepair(
   }
 }
 
-async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>) {
+// ── AI medical review gate ───────────────────────────────────────────────────
+
+async function callMedicalReview(
+  q: ReviewableQuestion,
+  difficulty: string,
+): Promise<{ pass: boolean }> {
+  try {
+    const prompt = buildMedicalReviewPrompt(q, difficulty);
+    const model  = process.env.AI_MEDICAL_REVIEW_MODEL || process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
+    const response = await callWithRetry({
+      model,
+      max_tokens: 512,
+      messages: [{ role: 'user', content: prompt }],
+    } as Anthropic.MessageCreateParamsNonStreaming);
+    const text = response.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as Anthropic.TextBlock).text)
+      .join('');
+    const { pass } = parseMedicalReviewResponse(text);
+    return { pass };
+  } catch {
+    return { pass: false };
+  }
+}
+
+export interface BatchTelemetry {
+  medicalReviewRequested: number;
+  medicalReviewPassed:    number;
+  medicalReviewRejected:  number;
+  medicalReviewSkipped:   number;
+  ruleRejected:           number;
+}
+
+export interface BatchResult {
+  questions: Record<string, any>[];
+  telemetry: BatchTelemetry;
+}
+
+async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>): Promise<BatchResult> {
   const prompt = buildPrompt(config, count, offset, scope);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }];
   let fullText = '';
@@ -503,60 +591,258 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   const start = s.indexOf('{'), end = s.lastIndexOf('}');
   if (start !== -1 && end > start) s = s.slice(start, end + 1);
 
-  const parsed = JSON.parse(s);
-  if (!Array.isArray(parsed.questions)) throw new Error('AI response missing questions array');
+  // Guard: JSON.parse can throw on control characters in long responses (real-world occurrence).
+  // Return an empty batch rather than propagating to a 500 — the route's retry path picks it up.
+  let parsed: { questions?: unknown[] };
+  try {
+    parsed = JSON.parse(s) as { questions?: unknown[] };
+  } catch (parseErr) {
+    console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0 } };
+  }
+  if (!Array.isArray(parsed.questions)) {
+    console.warn('[generateBatch] AI response missing questions array');
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0 } };
+  }
 
-  const rawQuestions: Record<string, any>[] = parsed.questions;
-  const normalized = rawQuestions.map(
-    (q, i) => normalizeQuestion(q, offset + i, scope),
-  );
+  const rawQuestions: Record<string, any>[] = parsed.questions as Record<string, any>[];
+  const normalized = rawQuestions.map((q, i) => normalizeQuestion(q, offset + i, scope));
 
   const results: Array<Record<string, any>> = [];
   let passCount = 0, repairCount = 0, rejectCount = 0;
 
+  const difficulty  = config.difficulty || 'Balanced';
+  const needsReview = requiresMedicalReview(difficulty);
+  let mrRequested = 0, mrPassed = 0, mrRejected = 0, mrSkipped = 0;
+
+  // ── Phase 1: split rule-based passers from failers ────────────────────────────
+  type ScoredItem = { q: ReturnType<typeof normalizeQuestion>; rawQ: Record<string, any>; quality: QuestionQuality; idx: number };
+  const passers: ScoredItem[] = [];
+  const failers: ScoredItem[] = [];
   for (let i = 0; i < normalized.length; i++) {
-    const q = normalized[i];
-    const rawQ = rawQuestions[i];
-    const quality = scoreQuestion(q, config.mode, config.difficulty || 'Balanced');
+    const quality = scoreQuestion(normalized[i], config.mode, difficulty);
+    (quality.validationStatus === 'pass' ? passers : failers).push({ q: normalized[i], rawQ: rawQuestions[i], quality, idx: i });
+  }
 
-    let disposition: string;
-
-    if (quality.validationStatus === 'pass') {
+  // ── Phase 2: medical reviews run in parallel for all rule-based passers ───────
+  // Running them concurrently cuts per-batch review time from (N × 15s) to ~15s,
+  // which directly reduces the window for transient ECONNRESET failures.
+  if (needsReview) {
+    mrRequested += passers.length;
+    const reviewResults = await Promise.all(passers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty)));
+    for (let i = 0; i < passers.length; i++) {
+      const { q, rawQ, quality } = passers[i];
+      const { pass } = reviewResults[i];
+      if (pass) {
+        results.push({ ...q, ...quality, id: randomUUID() });
+        passCount++;
+        mrPassed++;
+      } else {
+        rejectCount++;
+        mrRejected++;
+        console.warn('[medical-review] rejected:', q.testedConcept);
+      }
+      if (isSuspectStem(q.stem)) {
+        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition: pass ? 'pass' : 'medical-review-failed' }));
+      }
+    }
+  } else {
+    mrSkipped += passers.length;
+    for (const { q, rawQ, quality } of passers) {
       results.push({ ...q, ...quality, id: randomUUID() });
       passCount++;
-      disposition = 'pass';
-    } else {
-      const repairedRaw = await attemptRepair(q, quality, config);
-      if (repairedRaw) {
-        const repairedNorm = normalizeQuestion(repairedRaw, offset + i, scope);
-        const repairedQuality = scoreQuestion(repairedNorm, config.mode, config.difficulty || 'Balanced');
-        if (repairedQuality.validationStatus === 'pass') {
+      if (isSuspectStem(q.stem)) {
+        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition: 'pass' }));
+      }
+    }
+  }
+
+  // ── Phase 3: repair-and-review failers sequentially (uncommon path) ───────────
+  for (const { q, rawQ, quality, idx } of failers) {
+    let disposition: string;
+    const repairedRaw = await attemptRepair(q, quality, config);
+    if (repairedRaw) {
+      const repairedNorm    = normalizeQuestion(repairedRaw, offset + idx, scope);
+      const repairedQuality = scoreQuestion(repairedNorm, config.mode, difficulty);
+      if (repairedQuality.validationStatus === 'pass') {
+        if (needsReview) {
+          mrRequested++;
+          const { pass: reviewPass } = await callMedicalReview(repairedNorm as ReviewableQuestion, difficulty);
+          if (reviewPass) {
+            results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
+            repairCount++;
+            mrPassed++;
+            disposition = 'repair-passed';
+          } else {
+            rejectCount++;
+            mrRejected++;
+            console.warn('[medical-review] repaired question rejected:', repairedNorm.testedConcept);
+            disposition = 'repair-medical-review-failed';
+          }
+        } else {
+          mrSkipped++;
           results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
           repairCount++;
           disposition = 'repair-passed';
-        } else {
-          rejectCount++;
-          console.warn('[quality] repair failed — rejecting:', repairedQuality.rejectionReasons);
-          disposition = 'repair-failed';
         }
       } else {
         rejectCount++;
-        console.warn('[quality] rejected (no actionable repair):', quality.rejectionReasons, '| score:', quality.qualityScore);
-        disposition = 'rejected';
+        console.warn('[quality] repair failed — rejecting:', repairedQuality.rejectionReasons);
+        disposition = 'repair-failed';
+      }
+    } else {
+      rejectCount++;
+      console.warn('[quality] rejected (no actionable repair):', quality.rejectionReasons, '| score:', quality.qualityScore);
+      disposition = 'rejected';
+    }
+    if (isSuspectStem(q.stem)) {
+      console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition }));
+    }
+  }
+
+  console.log(
+    `[quality] batch result: ${normalized.length} generated → ${passCount} pass, ${repairCount} repaired, ${rejectCount} rejected` +
+    (needsReview ? ` | medical-review: ${mrRequested} req, ${mrPassed} pass, ${mrRejected} reject` : ' | medical-review: skipped'),
+  );
+  return {
+    questions: results,
+    telemetry: {
+      medicalReviewRequested: mrRequested,
+      medicalReviewPassed:    mrPassed,
+      medicalReviewRejected:  mrRejected,
+      medicalReviewSkipped:   mrSkipped,
+      ruleRejected:           rejectCount - mrRejected,
+    },
+  };
+}
+
+// ── Hard-mode adaptive refill ────────────────────────────────────────────────
+
+/**
+ * Per-difficulty caps for the adaptive refill loop.
+ * candidatesPerRound ≈ maxCandidates / maxRounds so that both caps bind
+ * at approximately the same total-candidate count and are independently
+ * reachable with synthetic values in tests.
+ */
+export const HARD_MODE_CAPS: Record<string, { maxCandidates: number; maxRounds: number; candidatesPerRound: number }> = {
+  'UWorld Challenge': { maxCandidates: 140, maxRounds: 5, candidatesPerRound: 28 },
+  'NBME Difficult':   { maxCandidates: 100, maxRounds: 4, candidatesPerRound: 25 },
+};
+
+export type StoppedReason =
+  | 'requested_count_reached'
+  | 'max_candidates_reached'
+  | 'max_refill_rounds_reached'
+  | 'generation_error'
+  | 'rate_limited'
+  | 'unknown';
+
+export interface GenerationLoopResult {
+  accepted:           Record<string, any>[];
+  totalGenerated:     number;
+  refillRounds:       number;
+  stoppedReason:      StoppedReason;
+  totalMrRequested:   number;
+  totalMrPassed:      number;
+  totalMrRejected:    number;
+  totalMrSkipped:     number;
+  totalRuleRejected:  number;
+  totalDedupRejected: number;
+}
+
+/**
+ * Adaptive refill loop for hard-mode difficulties.
+ *
+ * Keeps calling `batchFn` in rounds until `targetCount` accepted questions are collected
+ * or a hard cap (maxRounds or maxCandidates) is reached.  Each round generates
+ * `caps.candidatesPerRound` candidates split into sub-batches of `GENERATE_BATCH_SIZE`.
+ *
+ * `filterFn(batch, existingConcepts)` is responsible for dedup and scope-filtering;
+ * it should return only questions not already accepted.  After filtering, each accepted
+ * question's normalised testedConcept is added to `existingConcepts` for future rounds.
+ *
+ * Exported so tests can drive it with mock batchFn/filterFn without touching Anthropic.
+ */
+export async function runAdaptiveRefill(
+  targetCount: number,
+  caps:        { maxCandidates: number; maxRounds: number; candidatesPerRound: number },
+  batchFn:     (count: number, offset: number) => Promise<BatchResult>,
+  filterFn:    (questions: Record<string, any>[], existingConcepts: Set<string>) => Record<string, any>[],
+): Promise<GenerationLoopResult> {
+  const accepted: Record<string, any>[] = [];
+  const existingConcepts = new Set<string>();
+  let totalGenerated = 0, refillRounds = 0;
+  let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
+  let totalRuleRejected = 0, totalDedupRejected = 0;
+  let stoppedReason: StoppedReason = 'unknown';
+
+  outerLoop: while (accepted.length < targetCount) {
+    // Cap checks before starting a new round
+    if (refillRounds >= caps.maxRounds)       { stoppedReason = 'max_refill_rounds_reached'; break; }
+    if (totalGenerated >= caps.maxCandidates) { stoppedReason = 'max_candidates_reached';   break; }
+
+    let roundGenerated = 0;
+
+    // Sub-batch loop: fill one round's worth of candidates
+    while (roundGenerated < caps.candidatesPerRound && totalGenerated < caps.maxCandidates) {
+      const batchSize = Math.min(
+        GENERATE_BATCH_SIZE,
+        caps.candidatesPerRound - roundGenerated,
+        caps.maxCandidates - totalGenerated,
+      );
+
+      let batchResult: BatchResult;
+      try {
+        batchResult = await batchFn(batchSize, totalGenerated);
+      } catch (batchErr: any) {
+        stoppedReason = (batchErr as any)?.status === 429 ? 'rate_limited' : 'generation_error';
+        console.warn(
+          `[generate-questions] refill round ${refillRounds + 1} batch error (${stoppedReason}):`,
+          String((batchErr as Error)?.message ?? batchErr).slice(0, 80),
+        );
+        break outerLoop;
+      }
+
+      roundGenerated    += batchSize;
+      totalGenerated    += batchSize;
+      totalMrRequested  += batchResult.telemetry.medicalReviewRequested;
+      totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
+      totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
+      totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
+      totalRuleRejected += batchResult.telemetry.ruleRejected;
+
+      const beforeFilter  = batchResult.questions.length;
+      const newOnes       = filterFn(batchResult.questions, existingConcepts);
+      totalDedupRejected += beforeFilter - newOnes.length;
+
+      for (const q of newOnes) {
+        existingConcepts.add(norm(q.testedConcept ?? ''));
+        accepted.push(q);
       }
     }
 
-    if (isSuspectStem(q.stem)) {
-      console.warn('[stem-guard]', JSON.stringify({
-        rawKeys:       Object.keys(rawQ),
-        raw:           rawQ,
-        normalizedStem: q.stem,
-        disposition,
-      }));
-    }
+    refillRounds++;
+    console.log(
+      `[generate-questions] refill round ${refillRounds}/${caps.maxRounds}:` +
+      ` +${roundGenerated} generated, accepted=${accepted.length}/${targetCount}, total_candidates=${totalGenerated}`,
+    );
+
+    if (accepted.length >= targetCount) { stoppedReason = 'requested_count_reached'; break; }
   }
-  console.log(`[quality] batch result: ${normalized.length} generated → ${passCount} pass, ${repairCount} repaired, ${rejectCount} rejected`);
-  return results;
+
+  if (stoppedReason === 'unknown') {
+    stoppedReason = accepted.length >= targetCount
+      ? 'requested_count_reached'
+      : totalGenerated >= caps.maxCandidates
+      ? 'max_candidates_reached'
+      : 'max_refill_rounds_reached';
+  }
+
+  return {
+    accepted, totalGenerated, refillRounds, stoppedReason,
+    totalMrRequested, totalMrPassed, totalMrRejected, totalMrSkipped,
+    totalRuleRejected, totalDedupRejected,
+  };
 }
 
 router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: Response) => {
@@ -585,13 +871,18 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
         system: '',
         topic: '',
         clinicalFocus: '',
-        coachSpecificTopic: '',
         difficulty: 'Balanced',
       };
     }
     const targetCount = Math.min(Math.max(Number(config.questionCount) || 5, 1), 40);
     const scope = resolveScope(config);
     const specific = isSpecific(scope);
+
+    // Reject suspect topic text before it reaches the prompt.
+    if (specific && isTopicSuspect(scope.scopeText)) {
+      res.status(400).json({ error: 'Invalid topic — contains disallowed content', code: 'INVALID_TOPIC' });
+      return;
+    }
 
     // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
     // Requires an authenticated user (optionalAuth sets req.userId when token is present).
@@ -610,50 +901,103 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
       config = { ...config, adaptiveFocusText: adaptiveBlueprint.promptFocusText };
     }
 
-    const bufferedCount = Math.min(Math.ceil(targetCount * 1.5), 40);
+    const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
 
     let allQuestions: Record<string, any>[] = [];
-    let offset = 0;
     let totalGenerated = 0;
+    let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
+    let totalRuleRejected = 0, totalDedupRejected = 0;
+    let refillRounds: number | undefined;
+    let stoppedReason: StoppedReason | undefined;
 
-    while (offset < bufferedCount) {
-      const batchSize = Math.min(GENERATE_BATCH_SIZE, bufferedCount - offset);
-      const batch = await generateBatch(config, batchSize, offset, scope);
-      totalGenerated += batchSize;
-      allQuestions.push(...batch);
-      offset += batchSize;
-    }
+    if (hardModeCaps) {
+      // Hard-mode adaptive refill: keeps generating rounds until target reached or cap hit.
+      const loopResult = await runAdaptiveRefill(
+        targetCount,
+        hardModeCaps,
+        (count, offset) => generateBatch(config, count, offset, scope),
+        (qs, existingConcepts) =>
+          dedup(qs).filter(q =>
+            (!specific || inScope(q, scope)) &&
+            !existingConcepts.has(norm(q.testedConcept ?? '')),
+          ),
+      );
+      allQuestions       = loopResult.accepted;
+      totalGenerated     = loopResult.totalGenerated;
+      totalMrRequested   = loopResult.totalMrRequested;
+      totalMrPassed      = loopResult.totalMrPassed;
+      totalMrRejected    = loopResult.totalMrRejected;
+      totalMrSkipped     = loopResult.totalMrSkipped;
+      totalRuleRejected  = loopResult.totalRuleRejected;
+      totalDedupRejected = loopResult.totalDedupRejected;
+      refillRounds       = loopResult.refillRounds;
+      stoppedReason      = loopResult.stoppedReason;
+    } else {
+      // Balanced and other modes: existing fast path — no adaptive refill, no medical review.
+      const bufferedCount = Math.min(Math.ceil(targetCount * 1.5), 40);
+      let offset = 0;
+      while (offset < bufferedCount) {
+        const batchSize   = Math.min(GENERATE_BATCH_SIZE, bufferedCount - offset);
+        const batchResult = await generateBatch(config, batchSize, offset, scope);
+        totalGenerated    += batchSize;
+        allQuestions.push(...batchResult.questions);
+        totalMrRequested  += batchResult.telemetry.medicalReviewRequested;
+        totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
+        totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
+        totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
+        totalRuleRejected += batchResult.telemetry.ruleRejected;
+        offset            += batchSize;
+      }
 
-    const beforeDedup = allQuestions.length;
-    allQuestions = dedup(allQuestions);
-    const duplicateRejects = beforeDedup - allQuestions.length;
-    if (specific) allQuestions = allQuestions.filter(q => inScope(q, scope));
+      const beforeDedup   = allQuestions.length;
+      allQuestions        = dedup(allQuestions);
+      totalDedupRejected  = beforeDedup - allQuestions.length;
+      if (specific) allQuestions = allQuestions.filter(q => inScope(q, scope));
 
-    if (allQuestions.length < targetCount) {
-      const shortfall = targetCount - allQuestions.length;
-      const existingConcepts = new Set(allQuestions.map(q => norm(q.testedConcept)));
-      try {
-        const retryBatch = await generateBatch(config, shortfall + 3, allQuestions.length, scope);
-        totalGenerated += shortfall + 3;
-        const newDeduped = dedup(retryBatch).filter(q =>
-          inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
-        );
-        allQuestions.push(...newDeduped);
-      } catch (retryErr) {
-        console.warn('[generate-questions] retry failed:', (retryErr as Error).message);
+      if (allQuestions.length < targetCount) {
+        const shortfall        = targetCount - allQuestions.length;
+        const existingConcepts = new Set(allQuestions.map(q => norm(q.testedConcept)));
+        try {
+          const retryResult   = await generateBatch(config, shortfall + 3, allQuestions.length, scope);
+          totalGenerated      += shortfall + 3;
+          totalMrRequested    += retryResult.telemetry.medicalReviewRequested;
+          totalMrPassed       += retryResult.telemetry.medicalReviewPassed;
+          totalMrRejected     += retryResult.telemetry.medicalReviewRejected;
+          totalMrSkipped      += retryResult.telemetry.medicalReviewSkipped;
+          totalRuleRejected   += retryResult.telemetry.ruleRejected;
+          const newDeduped     = dedup(retryResult.questions).filter(q =>
+            inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
+          );
+          totalDedupRejected  += retryResult.questions.length - newDeduped.length;
+          allQuestions.push(...newDeduped);
+        } catch (retryErr) {
+          console.warn('[generate-questions] retry failed:', (retryErr as Error).message);
+        }
       }
     }
 
     const questions = allQuestions.slice(0, targetCount);
 
     const telemetry = {
-      requested:       targetCount,
-      generated:       totalGenerated,
-      available:       allQuestions.length,
-      returning:       questions.length,
-      duplicateRejects,
-      mode:            config.mode,
-      difficulty:      config.difficulty || 'Balanced',
+      // Backward-compatible existing fields
+      requested:              targetCount,
+      generated:              totalGenerated,
+      available:              allQuestions.length,
+      returning:              questions.length,
+      duplicateRejects:       totalDedupRejected,
+      mode:                   config.mode,
+      difficulty:             config.difficulty || 'Balanced',
+      medicalReviewRequested: totalMrRequested,
+      medicalReviewPassed:    totalMrPassed,
+      medicalReviewRejected:  totalMrRejected,
+      medicalReviewSkipped:   totalMrSkipped,
+      // New additive telemetry (hard-mode only fields are undefined for Balanced)
+      refillRounds,
+      totalGeneratedCandidates: totalGenerated,
+      acceptedCandidates:       allQuestions.length,
+      ruleRejectedCandidates:   totalRuleRejected,
+      dedupRejectedCandidates:  totalDedupRejected,
+      stoppedReason,
     };
     console.log('[generate-questions]', JSON.stringify(telemetry));
 
@@ -671,8 +1015,11 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
       adaptiveConcepts:   adaptiveBlueprint ? adaptiveBlueprint.targetConcepts : [],
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[generate-questions]', msg);
+    const msg      = err instanceof Error ? err.message : String(err);
+    const errName  = err instanceof Error ? err.constructor.name : typeof err;
+    const errStatus = (err as any)?.status;
+    // Safe: logs error class + HTTP status, never the API key or full payload.
+    console.error('[generate-questions] error', errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
     res.status(500).json({ error: msg || 'Question generation failed', code: 'GENERATION_FAILED' });
   }
 });
