@@ -1,5 +1,10 @@
 // Pure rule-based question quality scoring — no Anthropic import, fully testable.
 
+import {
+  validateCardiovascularPathology,
+  type SpecialtyValidationResult,
+} from './cardioPathologyValidator.js';
+
 // ── Suspect stem detection ────────────────────────────────────────────────────
 
 const SUSPECT_STEM_PREFIXES = [
@@ -32,7 +37,12 @@ export interface QuestionQuality {
   difficultyCalibrationScore: number;
   rejectionReasons: string[];
   validationStatus: 'pass' | 'fail' | 'repaired';
+  /** Additive specialty validation metadata. Never undefined; use status for gating. */
+  specialtyValidation?: SpecialtyValidationResult;
 }
+
+// Re-export so callers can reference the type without importing two files.
+export type { SpecialtyValidationResult };
 
 interface QuestionInput {
   stem: string;
@@ -40,6 +50,14 @@ interface QuestionInput {
   correct: string;
   explanation: string;
   optionExplanations?: Record<string, string>;
+  // Optional USMLE metadata — forwarded from AI generation and used by specialty validators.
+  subject?: string;
+  system?: string;
+  topic?: string;
+  testedConcept?: string;
+  questionAngle?: string;
+  usmleContentArea?: string;
+  physicianTask?: string;
 }
 
 const VALID_LETTERS = ['A', 'B', 'C', 'D'];
@@ -48,34 +66,74 @@ const HARD_REJECTIONS = new Set([
   'duplicate_options',
   'insufficient_options',
   'stem_too_short',
+  'no_clinical_vignette',
   'invalid_correct_letter',
   'shallow_explanation',
   'severe_clue_leakage',
   'answer_not_supported',
   'contradictory_explanation',
   'missing_option_explanations',
+  // Distractor hardening (general path, applies to UWorld Challenge and below)
+  'generic_option_present',
+  // Specialty validators
+  'specialty_validation_failed',
+  // Universal difficulty fit
+  'excessive_complexity_for_easy',
+]);
+
+// Hard rejections specific to the NBME Difficult path.
+// Note: 'shallow_explanation' is intentionally absent — NBME allows concise practice explanations.
+const NBME_HARD_REJECTIONS = new Set([
+  'nbme_stem_too_short',
+  'missing_patient_anchor',
+  'weak_clinical_signal',
+  'weak_single_best_answer_lead_in',
+  'teaching_language_in_stem',
+  'weak_distractors',
+  'duplicate_options',
+  'insufficient_options',
+  'invalid_correct_letter',
+  'clue_leakage',
+  'answer_not_supported',
+  'contradictory_explanation',
+  'missing_option_explanations',
+  // Specialty validators
+  'specialty_validation_failed',
 ]);
 
 export const DIFFICULTY_RANGES: Record<string, { stemMin: number; stemMax: number; depthMin: number; depthMax: number }> = {
   'More Easy':        { stemMin: 70,  stemMax: 200, depthMin: 0,  depthMax: 35 },
   'Balanced':         { stemMin: 100, stemMax: 320, depthMin: 20, depthMax: 70 },
   'More Hard':        { stemMin: 130, stemMax: 420, depthMin: 40, depthMax: 85 },
-  'NBME Difficult':   { stemMin: 150, stemMax: 460, depthMin: 50, depthMax: 90 },
+  // NBME Difficult uses concise clinical vignettes; stemMin reflects the 70-char floor, not UWorld depth.
+  'NBME Difficult':   { stemMin: 70,  stemMax: 460, depthMin: 30, depthMax: 90 },
   'UWorld Challenge': { stemMin: 180, stemMax: 520, depthMin: 65, depthMax: 100 },
   'standardized':     { stemMin: 100, stemMax: 400, depthMin: 20, depthMax: 80 },
 };
 
 export const REPAIR_GUIDANCE: Record<string, string> = {
-  'shallow_explanation':         'Expand explanation to 200+ chars with mechanism and wrong-answer reasoning',
-  'severe_clue_leakage':         'Rewrite stem so correct answer not named or implied in vignette',
-  'no_clinical_vignette':        'Add patient age, sex, chief complaint, relevant history',
-  'stem_too_short':              'Expand with full clinical vignette',
-  'poor_explanation_depth':      'Include mechanism, why distractors fail, clinical pearl',
-  'answer_not_supported':        'Rewrite explanation to explicitly name and support the correct option with mechanism and key terms',
-  'contradictory_explanation':   'Remove any phrasing that names a wrong option as correct; clarify which answer is correct and why',
-  'missing_option_explanations': 'Add per-option explanations for A, B, C, and D — each must be non-empty',
-  'invalid_options':             'Provide exactly 4 options labeled A, B, C, D each with non-empty text',
-  'invalid_correct_answer':      'Set the correct field to A, B, C, or D matching one of the provided options',
+  'shallow_explanation':              'Expand explanation to 200+ chars with mechanism and wrong-answer reasoning',
+  'severe_clue_leakage':             'Rewrite stem so correct answer not named or implied in vignette',
+  'no_clinical_vignette':            'Add patient age, sex, chief complaint, relevant history',
+  'stem_too_short':                  'Expand with full clinical vignette',
+  'poor_explanation_depth':          'Include mechanism, why distractors fail, clinical pearl',
+  'answer_not_supported':            'Rewrite explanation to explicitly name and support the correct option with mechanism and key terms',
+  'contradictory_explanation':       'Remove any phrasing that names a wrong option as correct; clarify which answer is correct and why',
+  'missing_option_explanations':     'Add per-option explanations for A, B, C, and D — each must be non-empty',
+  'invalid_options':                 'Provide exactly 4 options labeled A, B, C, D each with non-empty text',
+  'invalid_correct_answer':          'Set the correct field to A, B, C, or D matching one of the provided options',
+  // NBME Difficult-specific repair guidance
+  'nbme_stem_too_short':             'Expand stem to ≥70 chars with a clinical scenario and patient anchor',
+  'missing_patient_anchor':          'Add a patient identifier (e.g. "A 45-year-old man" or "A pregnant woman")',
+  'weak_single_best_answer_lead_in': 'End the stem with a clear interrogative lead-in (e.g. "Which of the following...?") and a question mark',
+  'teaching_language_in_stem':       'Remove teaching cues (e.g. "remember", "high-yield", "note that") — stems must be pure clinical vignette',
+  'weak_distractors':                'Replace generic or too-short options with medically specific alternatives ≥4 characters each',
+  'clue_leakage':                    'Rewrite stem so the correct answer text does not appear verbatim or near-verbatim in the question',
+  // General distractor hardening
+  'generic_option_present':          'Replace generic options (e.g. "All of the above", "None of the above", "Unknown") with specific clinical alternatives',
+  // Universal difficulty fit
+  'excessive_complexity_for_easy':   'Simplify to a 1-step direct clinical question — remove multi-step reasoning and dense clinical context for More Easy difficulty',
+  'insufficient_reasoning_depth':    'Add multi-step clinical reasoning, laboratory findings, or pathophysiological mechanisms to meet the required difficulty depth',
 };
 
 // ── Semantic consistency helpers ──────────────────────────────────────────────
@@ -116,8 +174,11 @@ const MEDICAL_ABBREVIATIONS = new Set([
 const STOP_WORDS = new Set([
   'the', 'and', 'with', 'without', 'from', 'that', 'this', 'these', 'those',
   'best', 'most', 'likely', 'primary', 'current', 'patient', 'presentation',
-  'mechanism', 'diagnosis', 'treatment', 'disease', 'disorder', 'syndrome',
+  'mechanism', 'diagnosis', 'treatment',
   'condition', 'effect', 'activity', 'function', 'process',
+  // Note: 'disease', 'disorder', 'syndrome' intentionally excluded so condition
+  // names like "Graves disease", "Cushing syndrome", "panic disorder" retain their
+  // meaningful tokens in the answer-support check.
 ]);
 
 function extractMeaningfulTokens(text: string): string[] {
@@ -137,12 +198,15 @@ function getOptionText(options: Array<{ letter: string; text: string }>, letter:
 // Options shorter than this rely on token-based matching instead.
 const VERBATIM_MATCH_MIN_LEN = 8;
 
-// Returns simple s-inflection variants of correctText for verbatim matching.
-// Covers the common medical plural/singular pair (e.g. "Aminoglycosides" ↔ "aminoglycoside").
-// Only applies when text.length >= VERBATIM_MATCH_MIN_LEN to avoid spurious matches on short words.
+// Returns s-inflection and -ies/-y variants of correctText for verbatim matching.
+// Covers: "Aminoglycosides" ↔ "aminoglycoside" (strip -s) and
+//         "Antibodies" ↔ "antibody" (strip -ies, add -y).
+// Only called when text.length >= VERBATIM_MATCH_MIN_LEN (8), so short-word edge cases
+// like "lies"/"dies" never reach this function.
 function verbatimVariants(text: string): string[] {
   const lower = text.toLowerCase();
-  if (lower.endsWith('s')) return [lower, lower.slice(0, -1)];
+  if (lower.endsWith('ies')) return [lower, lower.slice(0, -3) + 'y'];
+  if (lower.endsWith('s'))   return [lower, lower.slice(0, -1)];
   return [lower, lower + 's'];
 }
 
@@ -198,7 +262,9 @@ function checkAnswerSupport(q: QuestionInput, mode: string): { reasons: string[]
 function checkAnswerContradiction(q: QuestionInput, mode: string): { reasons: string[] } {
   if (mode === 'exam') return { reasons: [] };
 
-  const explanation = (q.explanation || '').toLowerCase();
+  // Include all per-option explanations so coach-mode contradictions are caught.
+  const optExplText = Object.values(q.optionExplanations ?? {}).join(' ');
+  const explanation = [(q.explanation || ''), optExplText].join(' ').toLowerCase();
   if (!explanation.trim()) return { reasons: [] };
 
   const contradicts = q.options.some(opt => {
@@ -232,6 +298,212 @@ function checkCoachOptionExplanations(q: QuestionInput, mode: string): { reasons
   const exps = q.optionExplanations ?? {};
   const hasAll = VALID_LETTERS.every(letter => String(exps[letter] ?? '').trim());
   return { reasons: hasAll ? [] : ['missing_option_explanations'] };
+}
+
+// ── NBME Difficult — constants (mirrors medica-app/src/lib/mockQuestions.js) ──
+
+/** True only for the NBME Difficult difficulty tier. */
+export function isNbmeDifficulty(difficulty: string): boolean {
+  return difficulty === 'NBME Difficult';
+}
+
+// Patient anchor: age/sex/demographic (mirrors frontend NBME_PATIENT_ANCHOR_RE).
+const NBME_PATIENT_ANCHOR_RE = /\b(\d+[\s-]*(year|month|week|day)s?[\s-]*(old|aged)|pregnant|premenopausal|postmenopausal|healthy|newborn|infant|child|adolescent|man|woman|boy|girl|male|female|patient)\b/i;
+
+// Clinical presentation signal (mirrors frontend NBME_CLINICAL_SIGNAL_RE).
+const NBME_CLINICAL_SIGNAL_RE = /\b(history|presents?|comes? to|brought to|admitted|evaluated|complain|reports?|develops?|progressive|sudden|acute|chronic|week|month|day|hour|pain|dyspnea|fatigue|fever|swelling|redness|stiffness|visual|difficulty|fracture|exercise|spotting|pregnancy|mother|family|x-rays?|radiograph|examination|biopsy|catheterization|serum|urine|blood|prothrombin|hcg|vital signs|weight|medication|operation|replacement|risk)\b/i;
+
+// Broader clinical measurement fallback — used in the count check that mirrors
+// the frontend's `_clinicalSignalCount(stem) === 0` guard.
+const NBME_CLINICAL_SIGNAL_COUNT_RE = /\b(\d+[\s-]*(year|month|week|day|hour)s?[\s-]*(old|aged|flight)?|bp|hr|spo2|wbc|rbc|platelet|creatinine|bun|hemoglobin|hematocrit|sodium|potassium|na|k|chloride|bicarbonate|hco3|ph|paco2|pao2|glucose|calcium|magnesium|phosphate|albumin|bilirubin|ast|alt|alp|inr|pt|ptt|troponin|lactate|cortisol|acth|serum|plasma|urine|ua|urinalysis|csf|biopsy|ct|mri|x-ray|cxr|ecg|ekg|ultrasound|doppler|wells|dvt|valve area|gradient|ammonia|antibody|mutation|enzyme|receptor|mmhg|mg\/dl|mcg\/dl|meq\/l|mmol\/l|umol\/l|u\/l|%|°c)\b/gi;
+
+// Valid NBME lead-in patterns (broader than the general LEAD_IN_RE).
+const NBME_LEAD_IN_RE = /\b(which of the following|which is|what is|why does|most likely|most appropriate|best describes|best explains|next best step|next step|mechanism|diagnosis|location|additional information|finding|cause|risk|drug|treatment|management|intervention|approach|enzyme deficiency|subtype)\b/i;
+
+// Teaching / test-prep language that must not appear in clinical exam stems.
+const NBME_TEACHING_STEM_RE = /\b(remember|note that|teaches|high-yield|classic clue|board trick|you should know)\b/i;
+
+// Generic placeholder options that are never medically valid (applies to all modes).
+const GENERIC_OPTION_RE = /^(all of the above|none of the above|unknown|other|correct|wrong|no|yes|maybe|not sure)$/i;
+
+// ── NBME Difficult sub-scorers ────────────────────────────────────────────────
+
+/** Fails if stem lacks a patient anchor (age, sex, or demographic). */
+export function scoreNbmePatientAnchor(stem: string): { reasons: string[] } {
+  return NBME_PATIENT_ANCHOR_RE.test(stem) ? { reasons: [] } : { reasons: ['missing_patient_anchor'] };
+}
+
+/**
+ * Fails if stem has no clinical presentation signal AND no clinical measurement value.
+ * Mirrors frontend: !NBME_CLINICAL_SIGNAL_RE.test(stem) && _clinicalSignalCount(stem) === 0.
+ */
+export function scoreNbmeClinicalSignal(stem: string): { reasons: string[] } {
+  if (NBME_CLINICAL_SIGNAL_RE.test(stem)) return { reasons: [] };
+  const count = new Set(String(stem || '').toLowerCase().match(NBME_CLINICAL_SIGNAL_COUNT_RE) || []).size;
+  return count > 0 ? { reasons: [] } : { reasons: ['weak_clinical_signal'] };
+}
+
+/** Fails if stem lacks a clear NBME-style interrogative lead-in ending with '?'. */
+export function scoreNbmeLeadIn(stem: string): { reasons: string[] } {
+  return NBME_LEAD_IN_RE.test(stem) && /\?\s*$/.test(stem)
+    ? { reasons: [] }
+    : { reasons: ['weak_single_best_answer_lead_in'] };
+}
+
+/**
+ * Validates NBME option style: 4 options required, no duplicates, no generic options,
+ * no options shorter than 4 characters.
+ * Returns a { score, reasons } pair for use in quality-score telemetry.
+ */
+export function scoreNbmeOptionStyle(
+  options: Array<{ letter: string; text: string }>,
+): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+
+  if (options.length < 4 || options.some(o => !o.text?.trim())) {
+    reasons.push('insufficient_options');
+    return { score: 0, reasons };
+  }
+
+  const texts = options.map(o => o.text.trim());
+  if (new Set(texts.map(t => t.toLowerCase())).size !== texts.length) {
+    reasons.push('duplicate_options');
+    return { score: 0, reasons };
+  }
+
+  const hasTooShort = texts.some(t => t.length < 4);
+  const hasGeneric  = texts.some(t => GENERIC_OPTION_RE.test(t));
+  if (hasTooShort || hasGeneric) reasons.push('weak_distractors');
+
+  let score = hasTooShort || hasGeneric ? 20 : 60;
+  const lengths = texts.map(t => t.length);
+  const minLen  = Math.min(...lengths);
+  const avgLen  = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  if (minLen >= 10) score += 15;
+  if (lengths.every(l => l >= avgLen * 0.33 && l <= avgLen * 3)) score += 15;
+  if (minLen >= 20) score += 10;
+
+  return { score: Math.min(Math.max(score, 0), 100), reasons };
+}
+
+/**
+ * NBME-specific clue leakage check (mirrors frontend _hasNbmeClueLeakage).
+ * Normalises both stem and answer to alphanum+space before comparison.
+ */
+export function scoreNbmeClueLeakage(
+  stem: string,
+  options: Array<{ letter: string; text: string }>,
+  correct: string,
+): { score: number; reasons: string[] } {
+  const correctOpt = options.find(o => o.letter === correct);
+  if (!correctOpt) return { score: 90, reasons: [] };
+
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const answer = normalize(correctOpt.text);
+  const stemN  = normalize(stem);
+
+  if (!answer || answer.length < 9) return { score: 90, reasons: [] };
+  if (stemN.includes(answer)) return { score: 5, reasons: ['clue_leakage'] };
+
+  const words = answer.split(/\s+/).filter(w => w.length >= 6);
+  if (words.length >= 2) {
+    const leaked = words.filter(w => stemN.includes(w)).length;
+    if (leaked / words.length >= 0.8) return { score: 5, reasons: ['clue_leakage'] };
+  }
+
+  return { score: 90, reasons: [] };
+}
+
+/** Composite NBME style score (0–100) — used for telemetry only, not pass/fail gating. */
+function computeNbmeStyleScore(stem: string): number {
+  let score = 0;
+  if (NBME_PATIENT_ANCHOR_RE.test(stem)) score += 40;
+  if (NBME_CLINICAL_SIGNAL_RE.test(stem)) score += 30;
+  if (NBME_LEAD_IN_RE.test(stem) && /\?\s*$/.test(stem)) score += 20;
+  if (!NBME_TEACHING_STEM_RE.test(stem)) score += 10;
+  return Math.min(score, 100);
+}
+
+/**
+ * NBME Difficult-specific question scorer. Rule-based: pass/fail is determined
+ * entirely by whether any NBME_HARD_REJECTIONS reason is present.
+ * qualityScore is computed for telemetry but does NOT gate validationStatus.
+ */
+export function scoreNbmeQuestion(
+  q: QuestionInput,
+  mode = 'practice',
+  difficulty = 'NBME Difficult',
+): QuestionQuality {
+  const rejectionReasons: string[] = [];
+  const stem = (q.stem || '').trim();
+
+  // Structural checks
+  if (stem.length < 70) rejectionReasons.push('nbme_stem_too_short');
+  if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
+
+  // NBME format checks
+  rejectionReasons.push(...scoreNbmePatientAnchor(stem).reasons);
+  rejectionReasons.push(...scoreNbmeClinicalSignal(stem).reasons);
+  rejectionReasons.push(...scoreNbmeLeadIn(stem).reasons);
+  if (NBME_TEACHING_STEM_RE.test(stem)) rejectionReasons.push('teaching_language_in_stem');
+
+  // Option style
+  const optStyle = scoreNbmeOptionStyle(q.options);
+  rejectionReasons.push(...optStyle.reasons);
+
+  // Clue leakage (NBME-specific, softer than the general severe_clue_leakage)
+  const leakage = scoreNbmeClueLeakage(stem, q.options, q.correct);
+  rejectionReasons.push(...leakage.reasons);
+
+  // Explanation quality — scored but shallow_explanation is NOT a hard NBME rejection.
+  // Exam mode → score 100, no reasons. Practice mode → check but don't hard-reject short explanations.
+  const expl = scoreExplanationQuality(q.explanation, mode);
+  rejectionReasons.push(...expl.reasons);
+
+  // Semantic consistency (skipped when structural issues are already present)
+  const hasStructuralFailure = rejectionReasons.some(r => NBME_HARD_REJECTIONS.has(r));
+  if (!hasStructuralFailure) {
+    const answerSupport = checkAnswerSupport(q, mode);
+    const contradiction  = checkAnswerContradiction(q, mode);
+    const coachExpl      = checkCoachOptionExplanations(q, mode);
+    rejectionReasons.push(...answerSupport.reasons, ...contradiction.reasons, ...coachExpl.reasons);
+  }
+
+  // Telemetry scores
+  const nbmeStyleScore = computeNbmeStyleScore(stem);
+  const depthScore     = scoreReasoningDepth(stem);
+  const calibration    = scoreDifficultyCalibration(stem.length, depthScore, difficulty);
+
+  const qualityScore = Math.round(
+    0.25 * nbmeStyleScore +
+    0.25 * leakage.score +
+    0.20 * optStyle.score +
+    0.15 * expl.score +
+    0.15 * calibration,
+  );
+
+  // Specialty validation (additive — runs after structural checks)
+  const specialtyValidation = validateCardiovascularPathology(q);
+  if (specialtyValidation.status === 'fail') {
+    rejectionReasons.push('specialty_validation_failed');
+  }
+
+  // Pass/fail is rule-based only — qualityScore is telemetry, not a gate.
+  const hasHardRejection = rejectionReasons.some(r => NBME_HARD_REJECTIONS.has(r));
+  const validationStatus: 'pass' | 'fail' = hasHardRejection ? 'fail' : 'pass';
+
+  return {
+    qualityScore,
+    nbmeStyleScore,
+    reasoningDepthScore:        depthScore,
+    distractorQualityScore:     optStyle.score,
+    clueLeakageScore:           leakage.score,
+    explanationQualityScore:    expl.score,
+    difficultyCalibrationScore: calibration,
+    rejectionReasons,
+    validationStatus,
+    specialtyValidation,
+  };
 }
 
 // ── Sub-scorers ───────────────────────────────────────────────────────────────
@@ -288,6 +560,11 @@ function scoreDistractorQuality(options: Array<{ letter: string; text: string }>
     return { score: 0, reasons };
   }
 
+  // Generic placeholder options (e.g. "All of the above", "Unknown") are never valid.
+  if (texts.some(t => GENERIC_OPTION_RE.test(t))) {
+    reasons.push('generic_option_present');
+  }
+
   let score = 50;
   const lengths = options.map(o => o.text.length);
   const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
@@ -297,6 +574,7 @@ function scoreDistractorQuality(options: Array<{ letter: string; text: string }>
   const uniform = lengths.every(l => l >= avgLen * 0.33 && l <= avgLen * 3);
   if (uniform) score += 30;
   if (lengths.every(l => l >= 10)) score += 20;
+  if (reasons.includes('generic_option_present')) score -= 30;
 
   return { score: Math.min(Math.max(score, 0), 100), reasons };
 }
@@ -308,7 +586,7 @@ function scoreClueLeakage(
 ): { score: number; reasons: string[] } {
   const reasons: string[] = [];
   const correctOpt = options.find(o => o.letter === correct);
-  if (!correctOpt) return { score: 100, reasons };
+  if (!correctOpt) return { score: 0, reasons };
 
   const stemLower = stem.toLowerCase();
   const answerLower = correctOpt.text.toLowerCase().trim();
@@ -338,14 +616,70 @@ function scoreExplanationQuality(explanation: string, mode: string): { score: nu
   if (!mode || mode === 'exam') return { score: 100, reasons };
 
   const text = (explanation || '').trim();
-  if (text.length < 50) {
+  if (text.length < 150) {
     reasons.push('shallow_explanation');
-    return { score: text.length === 0 ? 0 : 10, reasons };
+    const score = text.length === 0 ? 0 : text.length < 50 ? 10 : 40;
+    return { score, reasons };
   }
-  if (text.length < 150) return { score: 40, reasons };
   if (text.length < 300) return { score: 65, reasons };
   if (text.length < 500) return { score: 82, reasons };
   return { score: 100, reasons };
+}
+
+/**
+ * Universal difficulty fit check — sibling to scoreDifficultyCalibration.
+ *
+ * Returns reason strings for obvious difficulty mismatches.  Intentionally does
+ * NOT alter the numeric calibration formula so existing qualityScore assertions
+ * are unaffected.
+ *
+ * Hard reason (in HARD_REJECTIONS):
+ *   excessive_complexity_for_easy  — More Easy with clearly hard-mode depth
+ *
+ * Soft reasons (NOT in HARD_REJECTIONS):
+ *   difficulty_too_hard            — More Easy content above the Easy band
+ *   insufficient_reasoning_depth   — More Hard / UWorld below their depth floors
+ *
+ * Asymmetry is intentional:
+ *   More Easy  → upper bound only (catch too complex)
+ *   More Hard  → lower bound only (catch too shallow)
+ *   UWorld     → lower bound only (UWorld-specific structural rules are Phase 4)
+ *   Balanced   → no check (existing calibration + structural gates are sufficient)
+ *   NBME       → handled by scoreNbmeQuestion; never reaches this function
+ */
+export function checkDifficultyFit(depthScore: number, stemLength: number, difficulty: string): string[] {
+  const reasons: string[] = [];
+  switch (difficulty) {
+    case 'More Easy':
+      // depthMax for More Easy is 35.  Hard-reject at >60 (well outside the band).
+      if (depthScore > 60) {
+        reasons.push('excessive_complexity_for_easy');
+      } else if (depthScore > 35) {
+        reasons.push('difficulty_too_hard');
+      }
+      break;
+
+    case 'More Hard':
+      // depthMin for More Hard is 40.  Soft-warn anything below that floor.
+      if (depthScore < 40) {
+        reasons.push('insufficient_reasoning_depth');
+      }
+      break;
+
+    case 'UWorld Challenge':
+      // depthMin for UWorld is 65.  Soft-warn anything below that floor.
+      // UWorld-specific structural rules (stemMin 180, option depth, etc.) are Phase 4.
+      if (depthScore < 65) {
+        reasons.push('insufficient_reasoning_depth');
+      }
+      break;
+
+    // Balanced: calibration score + structural gates (stem_too_short,
+    // no_clinical_vignette, shallow_explanation) already cover extreme cases.
+    // NBME Difficult: scoreNbmeQuestion handles its own depth signals.
+    // 'standardized', '': no difficulty-fit check.
+  }
+  return reasons;
 }
 
 function scoreDifficultyCalibration(stemLength: number, depthScore: number, difficulty: string): number {
@@ -378,6 +712,9 @@ export function scoreQuestion(
   mode = 'practice',
   difficulty = 'Balanced',
 ): QuestionQuality {
+  // NBME Difficult uses a separate rule-based validator with concise-stem allowances.
+  if (isNbmeDifficulty(difficulty)) return scoreNbmeQuestion(q, mode, difficulty);
+
   const rejectionReasons: string[] = [];
   const stem = (q.stem || '').trim();
 
@@ -397,7 +734,8 @@ export function scoreQuestion(
   // mirroring the frontend's early-return-on-structural-failure pattern.
   const hasStructuralFailure = rejectionReasons.some(r =>
     r === 'stem_too_short' || r === 'invalid_correct_letter' ||
-    r === 'insufficient_options' || r === 'duplicate_options',
+    r === 'insufficient_options' || r === 'duplicate_options' ||
+    r === 'no_clinical_vignette',
   );
   if (!hasStructuralFailure) {
     const answerSupport = checkAnswerSupport(q, mode);
@@ -406,13 +744,23 @@ export function scoreQuestion(
     rejectionReasons.push(...answerSupport.reasons, ...contradiction.reasons, ...coachExpl.reasons);
   }
 
+  // Universal difficulty fit — sibling to scoreDifficultyCalibration
+  rejectionReasons.push(...checkDifficultyFit(depthScore, stem.length, difficulty));
+
   const qualityScore = Math.round(
-    0.20 * nbme.score +
-    0.25 * leakage.score +
-    0.20 * distractor.score +
-    0.20 * expl.score +
-    0.15 * calibration,
+    0.18 * nbme.score +
+    0.22 * leakage.score +
+    0.18 * distractor.score +
+    0.18 * expl.score +
+    0.14 * calibration +
+    0.10 * depthScore,
   );
+
+  // Specialty validation (additive — runs after structural checks)
+  const specialtyValidation = validateCardiovascularPathology(q);
+  if (specialtyValidation.status === 'fail') {
+    rejectionReasons.push('specialty_validation_failed');
+  }
 
   const hasHardRejection = rejectionReasons.some(r => HARD_REJECTIONS.has(r));
   const validationStatus: 'pass' | 'fail' = qualityScore >= 60 && !hasHardRejection ? 'pass' : 'fail';
@@ -427,6 +775,7 @@ export function scoreQuestion(
     difficultyCalibrationScore: calibration,
     rejectionReasons,
     validationStatus,
+    specialtyValidation,
   };
 }
 
@@ -507,6 +856,33 @@ export function buildMedicalReviewPrompt(question: ReviewableQuestion, difficult
 }
 
 /**
+ * Scans `s` left-to-right for the first `{` that starts a parseable JSON object,
+ * always extending the candidate to the last `}` in the string.
+ * This handles AI responses that include prose with stray braces before the real JSON.
+ * Fails closed: returns null on any parse failure or if no candidate is found.
+ */
+function extractJsonObject(s: string): Record<string, unknown> | null {
+  const lastBrace = s.lastIndexOf('}');
+  if (lastBrace === -1) return null;
+  let pos = 0;
+  while (pos <= lastBrace) {
+    const start = s.indexOf('{', pos);
+    if (start === -1 || start > lastBrace) break;
+    try {
+      const candidate = JSON.parse(s.slice(start, lastBrace + 1));
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        return candidate as Record<string, unknown>;
+      }
+    } catch {
+      pos = start + 1;
+      continue;
+    }
+    break;
+  }
+  return null;
+}
+
+/**
  * Parses and validates the AI medical reviewer's JSON response.
  * Fail-closed: returns { pass: false } on any parse error, malformed structure,
  * or if ANY category dimension is "fail" — even when status claims "pass".
@@ -514,12 +890,8 @@ export function buildMedicalReviewPrompt(question: ReviewableQuestion, difficult
 export function parseMedicalReviewResponse(raw: string): { pass: boolean; result: MedicalReviewResult | null } {
   try {
     let s = raw.trim().replace(/^```(?:json)?\s*\n?/gi, '').replace(/\n?```\s*$/gi, '').trim();
-    const start = s.indexOf('{');
-    const end   = s.lastIndexOf('}');
-    if (start === -1 || end <= start) return { pass: false, result: null };
-
-    const parsed = JSON.parse(s.slice(start, end + 1)) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== 'object') return { pass: false, result: null };
+    const parsed = extractJsonObject(s);
+    if (!parsed) return { pass: false, result: null };
     if (parsed['status'] !== 'pass' && parsed['status'] !== 'fail') return { pass: false, result: null };
 
     for (const cat of REVIEW_CATEGORIES) {
@@ -545,15 +917,296 @@ export function parseMedicalReviewResponse(raw: string): { pass: boolean; result
   }
 }
 
+// ── Scope alignment ───────────────────────────────────────────────────────────
+
+// Broad/permissive scope values that should never trigger a mismatch.
+const BROAD_SCOPE_VALUES = new Set([
+  '', 'all', 'all subjects', 'all systems', 'all topics',
+  'any', 'any subject', 'any system', 'any topic',
+  'general', 'mixed', 'multisystem',
+  'select subject', 'select system', 'select topic',
+]);
+
+export function isBroadScope(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  return BROAD_SCOPE_VALUES.has(String(v).toLowerCase().trim());
+}
+
+function normalizeForScope(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// ── Alias maps ────────────────────────────────────────────────────────────────
+// Each inner array is a synonym group; the first element is the canonical form.
+// All comparisons use normalizeForScope output (lowercase, alphanum+space).
+
+const SUBJECT_ALIAS_GROUPS: string[][] = [
+  ['pathology', 'pathophysiology', 'disease mechanism'],
+  ['physiology'],
+  ['pharmacology'],
+  ['anatomy'],
+  ['biochemistry'],
+  ['microbiology'],
+  ['immunology'],
+  ['genetics'],
+  ['behavioral science', 'behavioral health', 'psychiatry', 'psychology'],
+  ['biostatistics', 'epidemiology', 'biostatistics epidemiology population health'],
+  ['ethics', 'professionalism'],
+  ['cardiology', 'cardiac'],
+  ['neurology', 'neuroscience'],
+  ['infectious disease'],
+];
+
+const SYSTEM_ALIAS_GROUPS: string[][] = [
+  ['cardiovascular', 'cardiovascular system', 'cardiology', 'cardio', 'heart', 'cardiac', 'vascular'],
+  ['neurology', 'nervous system', 'nervous system and special senses', 'nervous system special senses', 'neuroscience', 'neurological'],
+  ['renal', 'renal urinary', 'renal urinary system', 'renal and urinary system', 'urinary', 'kidney'],
+  ['gastrointestinal', 'gastrointestinal system', 'gi', 'digestive'],
+  ['dermatology', 'skin', 'skin and subcutaneous tissue', 'skin subcutaneous tissue'],
+  ['reproductive', 'reproductive system', 'male reproductive', 'female reproductive', 'female and transgender reproductive', 'male and transgender reproductive', 'pregnancy', 'obstetrics'],
+  ['respiratory', 'respiratory system', 'pulmonary'],
+  ['musculoskeletal', 'musculoskeletal system'],
+  ['endocrine', 'endocrine system', 'endocrinology'],
+  ['hematology', 'blood', 'blood and lymphoreticular', 'blood lymphoreticular', 'blood lymphoreticular system', 'lymph'],
+  ['immune system', 'immunology', 'immune'],
+  ['infectious disease', 'microbiology'],
+  ['behavioral health', 'behavioral science', 'psychiatry', 'psychology'],
+  ['multisystem', 'multisystem processes', 'multisystem processes and disorders'],
+  ['human development', 'development'],
+];
+
+function buildAliasLookup(groups: string[][]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const group of groups) {
+    const canonical = normalizeForScope(group[0]);
+    for (const alias of group) {
+      map.set(normalizeForScope(alias), canonical);
+    }
+  }
+  return map;
+}
+
+const SUBJECT_ALIAS_MAP = buildAliasLookup(SUBJECT_ALIAS_GROUPS);
+const SYSTEM_ALIAS_MAP  = buildAliasLookup(SYSTEM_ALIAS_GROUPS);
+
+function canonicalizeSubject(s: string): string {
+  const norm = normalizeForScope(s);
+  return SUBJECT_ALIAS_MAP.get(norm) ?? norm;
+}
+
+function canonicalizeSystem(s: string): string {
+  const norm = normalizeForScope(s);
+  return SYSTEM_ALIAS_MAP.get(norm) ?? norm;
+}
+
+// ── System text detection (used when question metadata is absent) ─────────────
+// Returns the canonical system name if the stem clearly signals it, else ''.
+// Conservative: requires at least one high-specificity keyword.
+
+const SYSTEM_TEXT_SIGNALS: Array<{ canonical: string; re: RegExp }> = [
+  { canonical: 'cardiovascular', re: /\b(coronary|myocardial|infarct|arrhythmia|endocarditis|atherosclerosis|aorta|angina|echocardiogram|pericardium|ventricular|atrial)\b/i },
+  { canonical: 'neurology',     re: /\b(neuron|cerebral|cortex|brainstem|spinal\s+cord|seizure|epilepsy|meningitis|encephalitis|cranial\s+nerve|myelination|demyelination|parkinson|alzheimer|multiple\s+sclerosis)\b/i },
+  { canonical: 'renal',         re: /\b(glomerulus|nephron|creatinine|glomerular|nephrotic|nephritic|hematuria|proteinuria|podocyte|collecting\s+duct|loop\s+of\s+henle|dialysis|polycystic\s+kidney)\b/i },
+  { canonical: 'gastrointestinal', re: /\b(hepatitis|cirrhosis|portal\s+hypertension|bilirubin|cholestasis|pancreatitis|amylase|lipase|celiac|crohn|ulcerative\s+colitis|esophageal|gastric|peptic\s+ulcer)\b/i },
+  { canonical: 'respiratory',   re: /\b(alveol|surfactant|fev1|fvc|bronchiectasis|emphysema|asthma|copd|pneumothorax|pleural\s+effusion|diffusion\s+capacity|pulmonary\s+embolism)\b/i },
+  { canonical: 'dermatology',   re: /\b(epidermis|dermis|melanocyte|keratinocyte|psoriasis|pemphigus|dermatitis|melanoma|sebaceous|alopecia)\b/i },
+  { canonical: 'endocrine',     re: /\b(thyroid|parathyroid|adrenal\s+cortex|pituitary|insulin\s+resistance|glucagon|cortisol|aldosterone|pheochromocytoma|acromegaly|cushing|addison)\b/i },
+  { canonical: 'hematology',    re: /\b(hemoglobin|hematocrit|platelet|coagulation|fibrin|thrombin|anemia|leukemia|lymphoma|hemophilia|sickle\s+cell|thalassemia|bone\s+marrow)\b/i },
+  { canonical: 'musculoskeletal', re: /\b(osteoporosis|rheumatoid\s+arthritis|gout|myopathy|muscular\s+dystrophy|osteomyelitis|osteosarcoma|tendon|ligament\s+tear)\b/i },
+  { canonical: 'reproductive',  re: /\b(uterus|ovary|testis|prostate|cervix|fallopian|placenta|ectopic\s+pregnancy|preeclampsia|endometriosis|fibroids|amenorrhea)\b/i },
+];
+
+function detectSystemFromStem(stem: string): string {
+  for (const { canonical, re } of SYSTEM_TEXT_SIGNALS) {
+    if (re.test(stem)) return canonical;
+  }
+  return '';
+}
+
+// ── Topic helpers ─────────────────────────────────────────────────────────────
+
+/** All topic-like fields on a question object. */
+type QuestionTopicFields = {
+  topic?: string;
+  testedConcept?: string;
+  questionAngle?: string;
+  canonicalTopic?: string;
+  rawTopic?: string;
+  weakSpotCategory?: string;
+};
+
+/**
+ * Returns true when ANY topic-like metadata field on q partially matches normReq.
+ * Uses substring match in either direction, mirroring the original topic logic.
+ */
+function anyTopicFieldMatches(q: QuestionTopicFields, normReq: string): boolean {
+  const fields = [
+    q.topic, q.testedConcept, q.questionAngle,
+    q.canonicalTopic, q.rawTopic, q.weakSpotCategory,
+  ];
+  for (const f of fields) {
+    const norm = normalizeForScope(String(f || ''));
+    if (!norm || isBroadScope(norm)) continue;
+    if (norm.includes(normReq) || normReq.includes(norm)) return true;
+  }
+  return false;
+}
+
+/**
+ * Returns true when stem or option text contains enough keywords from the
+ * requested topic to make a positive alignment call.
+ * Used only as a fallback when all topic metadata fields are absent.
+ */
+function stemTopicKeywordMatch(stem: string, options: Array<{ text: string }>, reqTopic: string): boolean {
+  const normReq = normalizeForScope(reqTopic);
+  const topicWords = normReq.split(/\s+/).filter(w => w.length >= 4);
+  if (topicWords.length === 0) return false;
+  const optText = options.map(o => String(o.text || '')).join(' ');
+  const haystack = normalizeForScope(stem + ' ' + optText);
+  const hits = topicWords.filter(w => haystack.includes(w)).length;
+  return hits >= Math.ceil(topicWords.length / 2);
+}
+
+/**
+ * Universal scope-alignment check. Returns mismatch reasons for any axis
+ * where the question demonstrably does not match the requested scope.
+ *
+ * Rules
+ * ─────
+ * • Broad requested values (All Systems, All Topics, Multisystem, …) always pass.
+ * • Alias groups: "Cardiovascular" ≡ "Cardiology" ≡ "Cardiac"; "Nervous System"
+ *   ≡ "Neurology"; "Pathology" ≡ "Pathophysiology"; etc.
+ *
+ * Subject axis
+ *   • Metadata present and non-broad → alias-normalize and compare.
+ *   • Metadata absent → skip (subject is a discipline label; text fallback is
+ *     unreliable and would produce too many false rejections).
+ *
+ * System axis
+ *   • Metadata present and non-broad → alias-normalize and compare.
+ *   • Metadata absent + stem present → text detection; reject only if a DIFFERENT
+ *     system is positively identified. No evidence → skip (don't reject).
+ *
+ * Topic axis
+ *   • Checks all topic-like fields: topic, testedConcept, questionAngle,
+ *     canonicalTopic, rawTopic, weakSpotCategory (any match passes).
+ *   • All fields absent + stem/options present → keyword match.
+ *   • No text available → skip (can't evaluate).
+ */
+export function scoreScopeAlignment(
+  q: {
+    subject?: string; system?: string; topic?: string;
+    testedConcept?: string; questionAngle?: string;
+    canonicalTopic?: string; rawTopic?: string; weakSpotCategory?: string;
+    stem?: string;
+    options?: Array<{ letter: string; text: string }>;
+  },
+  requestedScope?: { subject?: string; system?: string; topic?: string },
+): string[] {
+  if (!requestedScope) return [];
+
+  const reasons: string[] = [];
+
+  // ── Subject ─────────────────────────────────────────────────────────────────
+  const reqSubject = requestedScope.subject ?? '';
+  if (!isBroadScope(reqSubject)) {
+    const actSubject = String(q.subject || '').trim();
+    if (actSubject && !isBroadScope(actSubject)) {
+      if (canonicalizeSubject(reqSubject) !== canonicalizeSubject(actSubject)) {
+        reasons.push('off_scope_subject');
+      }
+    }
+    // actSubject empty → skip (subject text fallback too unreliable)
+  }
+
+  // ── System ──────────────────────────────────────────────────────────────────
+  const reqSystem = requestedScope.system ?? '';
+  if (!isBroadScope(reqSystem)) {
+    const actSystem = String(q.system || '').trim();
+    const canonReq  = canonicalizeSystem(reqSystem);
+
+    if (actSystem && !isBroadScope(actSystem) && normalizeForScope(actSystem) !== 'multisystem') {
+      if (canonicalizeSystem(actSystem) !== canonReq) {
+        reasons.push('off_scope_system');
+      }
+    } else if (!actSystem) {
+      // Metadata absent — use text detection as fallback.
+      // Only reject when text positively identifies a DIFFERENT system.
+      const stem = String(q.stem || '');
+      if (stem) {
+        const detected = detectSystemFromStem(stem);
+        if (detected && detected !== canonReq) {
+          reasons.push('off_scope_system');
+        }
+        // detected === '' or detected === canonReq → pass (no evidence of mismatch)
+      }
+      // No stem → skip (cannot evaluate)
+    }
+  }
+
+  // ── Topic ───────────────────────────────────────────────────────────────────
+  const reqTopic = requestedScope.topic ?? '';
+  if (!isBroadScope(reqTopic)) {
+    const normReq = normalizeForScope(reqTopic);
+
+    // Determine whether the question carries any topic-like metadata.
+    const TOPIC_FIELDS = [
+      q.topic, q.testedConcept, q.questionAngle,
+      q.canonicalTopic, q.rawTopic, q.weakSpotCategory,
+    ];
+    const hasTopicMeta = TOPIC_FIELDS.some(f => {
+      const s = String(f || '').trim();
+      return s.length > 0 && !isBroadScope(s);
+    });
+
+    if (hasTopicMeta) {
+      // Metadata present — reject if no field matches.
+      if (!anyTopicFieldMatches(q, normReq)) {
+        reasons.push('off_scope_topic');
+      }
+    } else {
+      // No topic metadata — try text fallback.
+      const stem    = String(q.stem || '');
+      const options = q.options ?? [];
+      if (stem || options.length > 0) {
+        if (!stemTopicKeywordMatch(stem, options, reqTopic)) {
+          reasons.push('off_scope_topic');
+        }
+      }
+      // No text at all → skip (cannot evaluate without evidence)
+    }
+  }
+
+  return reasons;
+}
+
 // ── Repair prompt ─────────────────────────────────────────────────────────────
 
 export function buildRepairPrompt(q: Record<string, unknown>, quality: QuestionQuality): string {
   const actionable = quality.rejectionReasons.filter(r => REPAIR_GUIDANCE[r]);
   if (actionable.length === 0) return '';
   const instructions = actionable.map(r => `- ${REPAIR_GUIDANCE[r]}`).join('\n');
+
+  // Build a compact payload to stay within the repair call's token budget.
+  // optionExplanations are large and only needed when the failure relates to them.
+  const needsOptExpl = quality.rejectionReasons.includes('missing_option_explanations')
+    || quality.rejectionReasons.includes('contradictory_explanation');
+
+  const payload: Record<string, unknown> = {
+    stem:        q.stem,
+    options:     q.options,
+    correct:     q.correct,
+    explanation: q.explanation,
+  };
+  if (needsOptExpl && q.optionExplanations != null) {
+    payload.optionExplanations = q.optionExplanations;
+  }
+  if (q.testedConcept) payload.testedConcept = q.testedConcept;
+  if (q.topic)         payload.topic         = q.topic;
+
   return (
     `Fix the following USMLE question. Issues to fix:\n${instructions}\n\n` +
-    `Original question (JSON):\n${JSON.stringify(q, null, 2)}\n\n` +
+    `Original question (JSON):\n${JSON.stringify(payload, null, 2)}\n\n` +
     `Return ONLY the fixed question as a single JSON object matching the original schema. Raw JSON only.`
   );
 }

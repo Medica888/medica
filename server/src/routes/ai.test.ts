@@ -2,9 +2,18 @@ import { describe, it, expect } from 'vitest';
 import {
   runAdaptiveRefill,
   HARD_MODE_CAPS,
+  emptyMedicalReviewFailureCategories,
+  collectFailedMedicalReviewCategories,
+  MEDICAL_REVIEW_CATEGORIES,
   type BatchResult,
   type StoppedReason,
+  type MedicalReviewFailureCategories,
 } from './ai.js';
+import {
+  scoreScopeAlignment,
+  requiresMedicalReview,
+} from '../lib/questionValidator.js';
+import type { MedicalReviewResult } from '../lib/questionValidator.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,8 +24,15 @@ let _idCounter = 0;
  * acceptedCount: how many questions the batch "accepts" (pass rule-based + MR).
  * totalRaw: how many questions the batch "generated" in total before filtering.
  * mrPass / mrFail: medical-review pass/fail counts (sum may be < totalRaw due to rule rejects).
+ * failureCategories: optional per-category failure counts (defaults to all zero).
  */
-function makeBatchResult(acceptedCount: number, totalRaw: number, mrPass: number, mrFail: number): BatchResult {
+function makeBatchResult(
+  acceptedCount: number,
+  totalRaw: number,
+  mrPass: number,
+  mrFail: number,
+  failureCategories?: Partial<MedicalReviewFailureCategories>,
+): BatchResult {
   const questions = Array.from({ length: acceptedCount }, () => ({
     id:             `mock-${++_idCounter}`,
     testedConcept:  `uniqueconcept${_idCounter}`,
@@ -31,6 +47,11 @@ function makeBatchResult(acceptedCount: number, totalRaw: number, mrPass: number
       medicalReviewRejected:  mrFail,
       medicalReviewSkipped:   0,
       ruleRejected:           Math.max(0, ruleRejected),
+      scopeRejected:          0,
+      medicalReviewFailureCategories: {
+        ...emptyMedicalReviewFailureCategories(),
+        ...failureCategories,
+      },
     },
   };
 }
@@ -287,7 +308,7 @@ describe('BatchResult / BatchTelemetry interface', () => {
       batchFn,
       noFilter,
     );
-    // All expected fields present
+    // All pre-existing fields present
     expect(typeof result.accepted).toBe('object');
     expect(typeof result.totalGenerated).toBe('number');
     expect(typeof result.refillRounds).toBe('number');
@@ -298,5 +319,361 @@ describe('BatchResult / BatchTelemetry interface', () => {
     expect(typeof result.totalMrSkipped).toBe('number');
     expect(typeof result.totalRuleRejected).toBe('number');
     expect(typeof result.totalDedupRejected).toBe('number');
+    // New additive field present
+    expect(typeof result.medicalReviewFailureCategories).toBe('object');
+    for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+      expect(typeof result.medicalReviewFailureCategories[cat]).toBe('number');
+    }
+  });
+});
+
+// ── Medical review failure-category helpers ───────────────────────────────────
+
+describe('emptyMedicalReviewFailureCategories', () => {
+  it('returns an object with all five categories set to zero', () => {
+    const counts = emptyMedicalReviewFailureCategories();
+    expect(counts.medicalAccuracy).toBe(0);
+    expect(counts.singleBestAnswer).toBe(0);
+    expect(counts.distractorPlausibility).toBe(0);
+    expect(counts.difficultyAlignment).toBe(0);
+    expect(counts.explanationQuality).toBe(0);
+    expect(Object.keys(counts)).toHaveLength(5);
+  });
+
+  it('covers exactly the MEDICAL_REVIEW_CATEGORIES list', () => {
+    const counts = emptyMedicalReviewFailureCategories();
+    for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+      expect(counts[cat]).toBe(0);
+    }
+  });
+});
+
+describe('collectFailedMedicalReviewCategories', () => {
+  it('returns empty array for null result', () => {
+    expect(collectFailedMedicalReviewCategories(null)).toEqual([]);
+  });
+
+  it('returns only failing categories from a partial failure result', () => {
+    const result: MedicalReviewResult = {
+      status:                 'fail',
+      medicalAccuracy:        'pass',
+      singleBestAnswer:       'pass',
+      distractorPlausibility: 'fail',
+      difficultyAlignment:    'fail',
+      explanationQuality:     'pass',
+      reasons:                ['distractorPlausibility', 'difficultyAlignment'],
+      summary:                'Two categories failed.',
+    };
+    const failed = collectFailedMedicalReviewCategories(result);
+    expect(failed).toContain('distractorPlausibility');
+    expect(failed).toContain('difficultyAlignment');
+    expect(failed).not.toContain('medicalAccuracy');
+    expect(failed).not.toContain('singleBestAnswer');
+    expect(failed).not.toContain('explanationQuality');
+    expect(failed).toHaveLength(2);
+  });
+
+  it('returns all five categories when every category fails', () => {
+    const result: MedicalReviewResult = {
+      status:                 'fail',
+      medicalAccuracy:        'fail',
+      singleBestAnswer:       'fail',
+      distractorPlausibility: 'fail',
+      difficultyAlignment:    'fail',
+      explanationQuality:     'fail',
+      reasons:                [...MEDICAL_REVIEW_CATEGORIES],
+      summary:                'All failed.',
+    };
+    expect(collectFailedMedicalReviewCategories(result)).toHaveLength(5);
+  });
+
+  it('returns empty array when all categories pass', () => {
+    const result: MedicalReviewResult = {
+      status:                 'pass',
+      medicalAccuracy:        'pass',
+      singleBestAnswer:       'pass',
+      distractorPlausibility: 'pass',
+      difficultyAlignment:    'pass',
+      explanationQuality:     'pass',
+      reasons:                [],
+      summary:                'All passed.',
+    };
+    expect(collectFailedMedicalReviewCategories(result)).toHaveLength(0);
+  });
+
+  it('multiple failed categories each appear exactly once', () => {
+    const result: MedicalReviewResult = {
+      status:                 'fail',
+      medicalAccuracy:        'fail',
+      singleBestAnswer:       'pass',
+      distractorPlausibility: 'fail',
+      difficultyAlignment:    'pass',
+      explanationQuality:     'fail',
+      reasons:                ['medicalAccuracy', 'distractorPlausibility', 'explanationQuality'],
+      summary:                'Three categories failed.',
+    };
+    const failed = collectFailedMedicalReviewCategories(result);
+    expect(failed).toHaveLength(3);
+    expect(new Set(failed).size).toBe(3); // no duplicates
+  });
+});
+
+// ── runAdaptiveRefill — category telemetry ────────────────────────────────────
+
+describe('runAdaptiveRefill — category telemetry', () => {
+  it('accumulates category counts across multiple batches', async () => {
+    // Each batch reports 1 difficultyAlignment and 2 distractorPlausibility failures
+    const perBatch: Partial<MedicalReviewFailureCategories> = { difficultyAlignment: 1, distractorPlausibility: 2 };
+    let callCount = 0;
+    const batchFn = async () => { callCount++; return makeBatchResult(3, 8, 3, 3, perBatch); };
+    const result = await runAdaptiveRefill(
+      6,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    expect(result.medicalReviewFailureCategories.difficultyAlignment).toBe(callCount * 1);
+    expect(result.medicalReviewFailureCategories.distractorPlausibility).toBe(callCount * 2);
+    expect(result.medicalReviewFailureCategories.medicalAccuracy).toBe(0);
+  });
+
+  it('category counts stay zero when all medical reviews pass', async () => {
+    const batchFn = async () => makeBatchResult(5, 5, 5, 0);
+    const result = await runAdaptiveRefill(
+      5,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+      expect(result.medicalReviewFailureCategories[cat]).toBe(0);
+    }
+  });
+
+  it('parse/API failure (null result) leaves category counts at zero while rejections still count', async () => {
+    // mrFail=6 but no failureCategories specified → all zeros (simulates null parse result)
+    const batchFn = async () => makeBatchResult(2, 8, 2, 6);
+    const result = await runAdaptiveRefill(
+      2,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    expect(result.totalMrRejected).toBeGreaterThan(0);
+    for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+      expect(result.medicalReviewFailureCategories[cat]).toBe(0);
+    }
+  });
+
+  it('balanced / no-review path — category counts all remain zero', async () => {
+    // Simulates balanced mode: mrRequested=0, mrSkipped=N, no category failures
+    const batchFn = async () => makeBatchResult(5, 5, 0, 0);
+    const result = await runAdaptiveRefill(
+      5,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    expect(result.totalMrRequested).toBe(0);
+    for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+      expect(result.medicalReviewFailureCategories[cat]).toBe(0);
+    }
+  });
+
+  it('medicalReviewFailureCategories is present and fully typed on GenerationLoopResult', async () => {
+    const batchFn = async () => makeBatchResult(5, 8, 5, 2, { medicalAccuracy: 1, explanationQuality: 1 });
+    const result = await runAdaptiveRefill(
+      5,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    const cats = result.medicalReviewFailureCategories;
+    expect(cats).toBeDefined();
+    expect(typeof cats.medicalAccuracy).toBe('number');
+    expect(typeof cats.singleBestAnswer).toBe('number');
+    expect(typeof cats.distractorPlausibility).toBe('number');
+    expect(typeof cats.difficultyAlignment).toBe('number');
+    expect(typeof cats.explanationQuality).toBe('number');
+    // Sanity: at least one category incremented
+    expect(cats.medicalAccuracy + cats.explanationQuality).toBeGreaterThan(0);
+  });
+});
+
+// ── Scope rejection — universal hard gate ────────────────────────────────────
+// Scope rejection now applies to every difficulty.  Medical review is still
+// NBME Difficult / UWorld Challenge only.  These tests verify both separations.
+
+describe('scope rejection — universal hard gate (all difficulties)', () => {
+  it('scoreScopeAlignment rejects a question with wrong subject and system', () => {
+    const reasons = scoreScopeAlignment(
+      { subject: 'Pathology', system: 'Respiratory', topic: 'Tension pneumothorax mechanism' },
+      { subject: 'Physiology', system: 'Cardiovascular', topic: 'Cardiac output regulation' },
+    );
+    expect(reasons).toContain('off_scope_subject');
+    expect(reasons).toContain('off_scope_system');
+    expect(reasons).toContain('off_scope_topic');
+  });
+
+  it('scoreScopeAlignment rejects a question with wrong system only', () => {
+    const reasons = scoreScopeAlignment(
+      { subject: 'Pharmacology', system: 'Renal', topic: 'Diuretic mechanisms' },
+      { subject: 'Pharmacology', system: 'Cardiovascular', topic: 'Antihypertensive agents' },
+    );
+    expect(reasons).toContain('off_scope_system');
+    expect(reasons).not.toContain('off_scope_subject');
+  });
+
+  it('scope decision is independent of difficulty — scoreScopeAlignment has no difficulty param', () => {
+    // scoreScopeAlignment is a pure function with no difficulty awareness.
+    // The route wires it for ALL difficulties when scope is specific.
+    const reasons = scoreScopeAlignment(
+      { subject: 'Pathology', system: 'Renal', topic: 'Nephrotic syndrome' },
+      { subject: 'Physiology', system: 'Cardiovascular', topic: 'Heart failure' },
+    );
+    // Same rejection regardless of caller difficulty — the function has no mode param
+    expect(reasons).toContain('off_scope_subject');
+    expect(reasons).toContain('off_scope_system');
+    expect(reasons).toContain('off_scope_topic');
+  });
+
+  it('Balanced scoped generation — scoreScopeAlignment still rejects off-topic questions', () => {
+    // Before this change, scope was only applied for NBME/UWorld. Now it applies
+    // universally. We verify the decision function is correct for Balanced usage.
+    const balancedQuestion = {
+      subject: 'Pathology', system: 'Respiratory', topic: 'Pulmonary fibrosis',
+      testedConcept: 'Idiopathic pulmonary fibrosis pathology',
+    };
+    const reasons = scoreScopeAlignment(
+      balancedQuestion,
+      { subject: 'Pharmacology', system: 'Cardiovascular', topic: 'Beta blocker mechanism' },
+    );
+    expect(reasons.length).toBeGreaterThan(0);
+    expect(reasons).toContain('off_scope_subject');
+    expect(reasons).toContain('off_scope_system');
+    expect(reasons).toContain('off_scope_topic');
+  });
+
+  it('More Easy scoped generation — scoreScopeAlignment passes on-topic questions', () => {
+    // testedConcept contains the requested topic as a substring → passes
+    const reasons = scoreScopeAlignment(
+      { subject: 'Pharmacology', system: 'Cardiovascular', testedConcept: 'ACE inhibitors blood pressure mechanism' },
+      { subject: 'Pharmacology', system: 'Cardiovascular', topic: 'ACE inhibitors' },
+    );
+    expect(reasons).toHaveLength(0);
+  });
+
+  it('More Hard scoped generation — alias Neurology/Nervous System accepted', () => {
+    const reasons = scoreScopeAlignment(
+      { subject: 'Physiology', system: 'Nervous System' },
+      { subject: 'Physiology', system: 'Neurology' },
+    );
+    expect(reasons).toHaveLength(0);
+  });
+
+  it('medical review remains NBME/UWorld-only despite universal scope', () => {
+    expect(requiresMedicalReview('NBME Difficult')).toBe(true);
+    expect(requiresMedicalReview('UWorld Challenge')).toBe(true);
+    expect(requiresMedicalReview('Balanced')).toBe(false);
+    expect(requiresMedicalReview('More Hard')).toBe(false);
+    expect(requiresMedicalReview('More Easy')).toBe(false);
+  });
+
+  it('broad "All Systems" scope never rejects any actual system', () => {
+    expect(scoreScopeAlignment(
+      { subject: 'Physiology', system: 'Respiratory' },
+      { subject: 'Physiology', system: 'All Systems' },
+    )).toHaveLength(0);
+  });
+
+  it('broad "All Subjects" scope never rejects any actual subject', () => {
+    expect(scoreScopeAlignment(
+      { subject: 'Pathology', system: 'Cardiovascular' },
+      { subject: 'All Subjects', system: 'Cardiovascular' },
+    )).toHaveLength(0);
+  });
+
+  it('Multisystem actual value never triggers off_scope_system', () => {
+    // A cross-system question labeled Multisystem should pass any system request
+    expect(scoreScopeAlignment(
+      { subject: 'Physiology', system: 'Multisystem' },
+      { subject: 'Physiology', system: 'Cardiovascular' },
+    )).not.toContain('off_scope_system');
+  });
+
+  it('question with no metadata does not crash and returns []', () => {
+    expect(() => scoreScopeAlignment(
+      {},
+      { subject: 'Neurology', system: 'Neurology', topic: 'Stroke' },
+    )).not.toThrow();
+    expect(scoreScopeAlignment(
+      {},
+      { subject: 'Neurology', system: 'Neurology', topic: 'Stroke' },
+    )).toHaveLength(0);
+  });
+
+  it('off-scope rejection increments ruleRejected in batchFn result — adaptive refill continues', async () => {
+    // When a batchFn yields 0 questions (simulating all scope-rejected), refill must continue.
+    let calls = 0;
+    const batchFn = async () => {
+      calls++;
+      // First 2 calls: 0 accepted, all "rejected" (scope-rejected in practice)
+      if (calls <= 2) return makeBatchResult(0, 8, 0, 0);
+      // 3rd call: enough to meet target
+      return makeBatchResult(5, 8, 5, 3);
+    };
+    const result = await runAdaptiveRefill(
+      5,
+      { maxCandidates: 200, maxRounds: 10, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    expect(calls).toBeGreaterThan(2);
+    expect(result.accepted.length).toBe(5);
+    expect(result.stoppedReason).toBe('requested_count_reached');
+  });
+
+  it('GenerationLoopResult includes totalScopeRejected field', async () => {
+    const batchFn = async () => makeBatchResult(5, 8, 5, 3);
+    const result = await runAdaptiveRefill(
+      5,
+      { maxCandidates: 200, maxRounds: 5, candidatesPerRound: 8 },
+      batchFn,
+      noFilter,
+    );
+    expect(typeof result.totalScopeRejected).toBe('number');
+    // makeBatchResult always sets scopeRejected: 0, so the sum is 0
+    expect(result.totalScopeRejected).toBe(0);
+  });
+
+  it('BatchTelemetry includes scopeRejected field', () => {
+    const r = makeBatchResult(3, 8, 3, 4);
+    expect(typeof r.telemetry.scopeRejected).toBe('number');
+    expect(r.telemetry.scopeRejected).toBe(0);
+  });
+
+  it('totalScopeRejected accumulates scopeRejected across batches', async () => {
+    // Simulate batches that each report 3 scope-rejected questions (from generateBatch
+    // internal counting — the refill loop passes these through as telemetry).
+    const batchWithScopeRejects = (): BatchResult => ({
+      questions: [{ id: `q${++_idCounter}`, testedConcept: `concept${_idCounter}`, stem: 'Test' }],
+      telemetry: {
+        medicalReviewRequested: 0,
+        medicalReviewPassed:    0,
+        medicalReviewRejected:  0,
+        medicalReviewSkipped:   1,
+        ruleRejected:           0,
+        scopeRejected:          3,
+        medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+      },
+    });
+    const result = await runAdaptiveRefill(
+      2,
+      { maxCandidates: 100, maxRounds: 5, candidatesPerRound: 8 },
+      async () => batchWithScopeRejects(),
+      noFilter,
+    );
+    // Each batch reports 3 scope-rejected; result must accumulate them
+    expect(result.totalScopeRejected).toBe(result.refillRounds * 3);
   });
 });

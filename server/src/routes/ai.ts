@@ -5,15 +5,19 @@ import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
 import type { AuthRequest } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { aiLimiter } from '../middleware/rateLimiter.js';
 import { getRepositories } from '../repositories/index.js';
 import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
+import { generateQuestionsSchema, generateFlashcardsSchema, explainSchema, skillsGenerateSchema } from '../schemas/ai.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import {
   scoreQuestion, buildRepairPrompt, isSuspectStem,
   requiresMedicalReview, buildMedicalReviewPrompt, parseMedicalReviewResponse,
-  type QuestionQuality, type ReviewableQuestion,
+  scoreScopeAlignment,
+  type QuestionQuality, type ReviewableQuestion, type MedicalReviewResult,
 } from '../lib/questionValidator.js';
 
 const router = Router();
@@ -74,7 +78,7 @@ router.get('/skills', (_req: Request, res: Response) => {
 
 // ─── POST /api/generate (skills streaming) ───────────────────────────────────
 
-router.post('/generate', async (req: Request, res: Response) => {
+router.post('/generate', aiLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
   const { skillId, guide, customSkill } = req.body ?? {};
 
   if (!guide?.trim()) {
@@ -135,8 +139,8 @@ router.post('/generate', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+    console.error('[generate]', err instanceof Error ? err.message : String(err));
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
     res.end();
   }
 });
@@ -166,7 +170,7 @@ Schema:
   "integration": "One sentence linking to real clinical practice, surgery, or imaging"
 }`;
 
-router.post('/explain', async (req: Request, res: Response) => {
+router.post('/explain', aiLimiter, validate(explainSchema), async (req: Request, res: Response) => {
   const { stem, options, correct, field, pearl } = req.body ?? {};
 
   if (!stem || !Array.isArray(options) || typeof correct !== 'number') {
@@ -205,8 +209,8 @@ Write concise UWorld-style explanations for each option and a one-sentence clini
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+    console.error('[explain]', err instanceof Error ? err.message : String(err));
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Explanation generation failed' })}\n\n`);
     res.end();
   }
 });
@@ -249,6 +253,14 @@ async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming) 
     }
   }
   throw new Error('[anthropic] unreachable');
+}
+
+// ── Fingerprint (mirrors frontend medica-app/src/lib/questionDedup.js) ───────
+
+function computeQuestionFingerprint(stem: string, testedConcept: string): string {
+  const normStem    = String(stem    || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const normConcept = String(testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${normStem}||${normConcept}`;
 }
 
 // ── Scope helpers ────────────────────────────────────────────────────────────
@@ -356,6 +368,44 @@ function dedup(questions: Record<string, any>[]): Record<string, any>[] {
     result.push(q);
   }
   return result;
+}
+
+// ── Medical review failure-category telemetry ────────────────────────────────
+
+export const MEDICAL_REVIEW_CATEGORIES = [
+  'medicalAccuracy',
+  'singleBestAnswer',
+  'distractorPlausibility',
+  'difficultyAlignment',
+  'explanationQuality',
+] as const;
+
+export type MedicalReviewCategory = typeof MEDICAL_REVIEW_CATEGORIES[number];
+
+export type MedicalReviewFailureCategories = Record<MedicalReviewCategory, number>;
+
+export function emptyMedicalReviewFailureCategories(): MedicalReviewFailureCategories {
+  return {
+    medicalAccuracy:        0,
+    singleBestAnswer:       0,
+    distractorPlausibility: 0,
+    difficultyAlignment:    0,
+    explanationQuality:     0,
+  };
+}
+
+export function collectFailedMedicalReviewCategories(result: MedicalReviewResult | null): MedicalReviewCategory[] {
+  if (!result) return [];
+  return MEDICAL_REVIEW_CATEGORIES.filter(cat => result[cat] === 'fail');
+}
+
+function accumulateMedicalReviewFailureCategories(
+  acc: MedicalReviewFailureCategories,
+  src: MedicalReviewFailureCategories,
+): void {
+  for (const cat of MEDICAL_REVIEW_CATEGORIES) {
+    acc[cat] += src[cat];
+  }
 }
 
 // ── Question generation ──────────────────────────────────────────────────────
@@ -530,7 +580,7 @@ async function attemptRepair(
 async function callMedicalReview(
   q: ReviewableQuestion,
   difficulty: string,
-): Promise<{ pass: boolean }> {
+): Promise<{ pass: boolean; result: MedicalReviewResult | null; failedCategories: MedicalReviewCategory[] }> {
   try {
     const prompt = buildMedicalReviewPrompt(q, difficulty);
     const model  = process.env.AI_MEDICAL_REVIEW_MODEL || process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
@@ -543,10 +593,11 @@ async function callMedicalReview(
       .filter(b => b.type === 'text')
       .map(b => (b as Anthropic.TextBlock).text)
       .join('');
-    const { pass } = parseMedicalReviewResponse(text);
-    return { pass };
+    const { pass, result } = parseMedicalReviewResponse(text);
+    const failedCategories = collectFailedMedicalReviewCategories(result);
+    return { pass, result, failedCategories };
   } catch {
-    return { pass: false };
+    return { pass: false, result: null, failedCategories: [] };
   }
 }
 
@@ -556,6 +607,8 @@ export interface BatchTelemetry {
   medicalReviewRejected:  number;
   medicalReviewSkipped:   number;
   ruleRejected:           number;
+  scopeRejected:          number;  // hard-rejected for NBME/UWorld scope mismatch before medical review
+  medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
 export interface BatchResult {
@@ -598,11 +651,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     parsed = JSON.parse(s) as { questions?: unknown[] };
   } catch (parseErr) {
     console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0 } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
   if (!Array.isArray(parsed.questions)) {
     console.warn('[generateBatch] AI response missing questions array');
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0 } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
 
   const rawQuestions: Record<string, any>[] = parsed.questions as Record<string, any>[];
@@ -614,13 +667,37 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   const difficulty  = config.difficulty || 'Balanced';
   const needsReview = requiresMedicalReview(difficulty);
   let mrRequested = 0, mrPassed = 0, mrRejected = 0, mrSkipped = 0;
+  const mrFailureCategories = emptyMedicalReviewFailureCategories();
 
   // ── Phase 1: split rule-based passers from failers ────────────────────────────
   type ScoredItem = { q: ReturnType<typeof normalizeQuestion>; rawQ: Record<string, any>; quality: QuestionQuality; idx: number };
   const passers: ScoredItem[] = [];
   const failers: ScoredItem[] = [];
+
+  // Universal scope rejection: applies to every difficulty whenever the user
+  // requested a specific subject, system, or topic.  Broad values ('', 'All Systems',
+  // 'Multisystem', etc.) are already normalised to '' by resolveScope, so the check
+  // is a no-op for global/mixed generation.  Scope-rejected questions exit via
+  // continue — they never reach callMedicalReview.
+  const requestedScopeForCheck =
+    scope.subject || scope.system || scope.topic
+      ? { subject: scope.subject, system: scope.system, topic: scope.topic }
+      : undefined;
+  let scopeRejected = 0;
+
   for (let i = 0; i < normalized.length; i++) {
     const quality = scoreQuestion(normalized[i], config.mode, difficulty);
+
+    if (requestedScopeForCheck) {
+      const scopeReasons = scoreScopeAlignment(normalized[i], requestedScopeForCheck);
+      if (scopeReasons.length > 0) {
+        scopeRejected++;
+        rejectCount++;
+        console.warn(`[scope] rejected "${normalized[i].testedConcept}" | ${difficulty} | ${scopeReasons.join(', ')}`);
+        continue;
+      }
+    }
+
     (quality.validationStatus === 'pass' ? passers : failers).push({ q: normalized[i], rawQ: rawQuestions[i], quality, idx: i });
   }
 
@@ -632,7 +709,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     const reviewResults = await Promise.all(passers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty)));
     for (let i = 0; i < passers.length; i++) {
       const { q, rawQ, quality } = passers[i];
-      const { pass } = reviewResults[i];
+      const { pass, failedCategories } = reviewResults[i];
       if (pass) {
         results.push({ ...q, ...quality, id: randomUUID() });
         passCount++;
@@ -640,7 +717,9 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       } else {
         rejectCount++;
         mrRejected++;
-        console.warn('[medical-review] rejected:', q.testedConcept);
+        for (const cat of failedCategories) mrFailureCategories[cat]++;
+        const failLabel = failedCategories.length ? failedCategories.join(',') : 'unclassified';
+        console.warn(`[medical-review] rejected: ${q.testedConcept} | ${difficulty} | failed=${failLabel}`);
       }
       if (isSuspectStem(q.stem)) {
         console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition: pass ? 'pass' : 'medical-review-failed' }));
@@ -667,7 +746,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       if (repairedQuality.validationStatus === 'pass') {
         if (needsReview) {
           mrRequested++;
-          const { pass: reviewPass } = await callMedicalReview(repairedNorm as ReviewableQuestion, difficulty);
+          const { pass: reviewPass, failedCategories: repairFailedCats } = await callMedicalReview(repairedNorm as ReviewableQuestion, difficulty);
           if (reviewPass) {
             results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
             repairCount++;
@@ -676,7 +755,9 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
           } else {
             rejectCount++;
             mrRejected++;
-            console.warn('[medical-review] repaired question rejected:', repairedNorm.testedConcept);
+            for (const cat of repairFailedCats) mrFailureCategories[cat]++;
+            const failLabel = repairFailedCats.length ? repairFailedCats.join(',') : 'unclassified';
+            console.warn(`[medical-review] repaired question rejected: ${repairedNorm.testedConcept} | ${difficulty} | failed=${failLabel}`);
             disposition = 'repair-medical-review-failed';
           }
         } else {
@@ -707,11 +788,13 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   return {
     questions: results,
     telemetry: {
-      medicalReviewRequested: mrRequested,
-      medicalReviewPassed:    mrPassed,
-      medicalReviewRejected:  mrRejected,
-      medicalReviewSkipped:   mrSkipped,
-      ruleRejected:           rejectCount - mrRejected,
+      medicalReviewRequested:         mrRequested,
+      medicalReviewPassed:            mrPassed,
+      medicalReviewRejected:          mrRejected,
+      medicalReviewSkipped:           mrSkipped,
+      ruleRejected:                   rejectCount - mrRejected,
+      scopeRejected,
+      medicalReviewFailureCategories: mrFailureCategories,
     },
   };
 }
@@ -738,16 +821,18 @@ export type StoppedReason =
   | 'unknown';
 
 export interface GenerationLoopResult {
-  accepted:           Record<string, any>[];
-  totalGenerated:     number;
-  refillRounds:       number;
-  stoppedReason:      StoppedReason;
-  totalMrRequested:   number;
-  totalMrPassed:      number;
-  totalMrRejected:    number;
-  totalMrSkipped:     number;
-  totalRuleRejected:  number;
-  totalDedupRejected: number;
+  accepted:            Record<string, any>[];
+  totalGenerated:      number;
+  refillRounds:        number;
+  stoppedReason:       StoppedReason;
+  totalMrRequested:    number;
+  totalMrPassed:       number;
+  totalMrRejected:     number;
+  totalMrSkipped:      number;
+  totalRuleRejected:   number;
+  totalDedupRejected:  number;
+  totalScopeRejected:  number;  // sum of scopeRejected across all batches
+  medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
 /**
@@ -773,7 +858,8 @@ export async function runAdaptiveRefill(
   const existingConcepts = new Set<string>();
   let totalGenerated = 0, refillRounds = 0;
   let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
-  let totalRuleRejected = 0, totalDedupRejected = 0;
+  let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
+  const medicalReviewFailureCategories = emptyMedicalReviewFailureCategories();
   let stoppedReason: StoppedReason = 'unknown';
 
   outerLoop: while (accepted.length < targetCount) {
@@ -809,7 +895,9 @@ export async function runAdaptiveRefill(
       totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
       totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
       totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
-      totalRuleRejected += batchResult.telemetry.ruleRejected;
+      totalRuleRejected  += batchResult.telemetry.ruleRejected;
+      totalScopeRejected += batchResult.telemetry.scopeRejected;
+      accumulateMedicalReviewFailureCategories(medicalReviewFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
 
       const beforeFilter  = batchResult.questions.length;
       const newOnes       = filterFn(batchResult.questions, existingConcepts);
@@ -841,11 +929,12 @@ export async function runAdaptiveRefill(
   return {
     accepted, totalGenerated, refillRounds, stoppedReason,
     totalMrRequested, totalMrPassed, totalMrRejected, totalMrSkipped,
-    totalRuleRejected, totalDedupRejected,
+    totalRuleRejected, totalDedupRejected, totalScopeRejected,
+    medicalReviewFailureCategories,
   };
 }
 
-router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
 
   if (!rawConfig?.mode || !rawConfig?.questionCount) {
@@ -906,9 +995,10 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
     let allQuestions: Record<string, any>[] = [];
     let totalGenerated = 0;
     let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
-    let totalRuleRejected = 0, totalDedupRejected = 0;
+    let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
     let refillRounds: number | undefined;
     let stoppedReason: StoppedReason | undefined;
+    const totalMrFailureCategories = emptyMedicalReviewFailureCategories();
 
     if (hardModeCaps) {
       // Hard-mode adaptive refill: keeps generating rounds until target reached or cap hit.
@@ -930,8 +1020,10 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
       totalMrSkipped     = loopResult.totalMrSkipped;
       totalRuleRejected  = loopResult.totalRuleRejected;
       totalDedupRejected = loopResult.totalDedupRejected;
+      totalScopeRejected = loopResult.totalScopeRejected;
       refillRounds       = loopResult.refillRounds;
       stoppedReason      = loopResult.stoppedReason;
+      accumulateMedicalReviewFailureCategories(totalMrFailureCategories, loopResult.medicalReviewFailureCategories);
     } else {
       // Balanced and other modes: existing fast path — no adaptive refill, no medical review.
       const bufferedCount = Math.min(Math.ceil(targetCount * 1.5), 40);
@@ -945,7 +1037,9 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
         totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
         totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
         totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
-        totalRuleRejected += batchResult.telemetry.ruleRejected;
+        totalRuleRejected  += batchResult.telemetry.ruleRejected;
+        totalScopeRejected += batchResult.telemetry.scopeRejected;
+        accumulateMedicalReviewFailureCategories(totalMrFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
         offset            += batchSize;
       }
 
@@ -965,6 +1059,8 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
           totalMrRejected     += retryResult.telemetry.medicalReviewRejected;
           totalMrSkipped      += retryResult.telemetry.medicalReviewSkipped;
           totalRuleRejected   += retryResult.telemetry.ruleRejected;
+          totalScopeRejected  += retryResult.telemetry.scopeRejected;
+          accumulateMedicalReviewFailureCategories(totalMrFailureCategories, retryResult.telemetry.medicalReviewFailureCategories);
           const newDeduped     = dedup(retryResult.questions).filter(q =>
             inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
           );
@@ -974,6 +1070,25 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
           console.warn('[generate-questions] retry failed:', (retryErr as Error).message);
         }
       }
+    }
+
+    // ── Quarantine filter — fail-open: if the check throws, generation proceeds ──
+    let quarantineRejected = 0;
+    try {
+      const quarantinedFps = await getRepositories().questionReports.getQuarantinedFingerprints();
+      if (quarantinedFps.size > 0) {
+        allQuestions = allQuestions.filter(q => {
+          const fp = computeQuestionFingerprint(q.stem || '', q.testedConcept || '');
+          if (quarantinedFps.has(fp)) {
+            quarantineRejected++;
+            console.warn(`[quarantine] filtered "${q.testedConcept}"`);
+            return false;
+          }
+          return true;
+        });
+      }
+    } catch (qErr) {
+      console.warn('[generate-questions] quarantine check skipped:', (qErr as Error).message);
     }
 
     const questions = allQuestions.slice(0, targetCount);
@@ -993,11 +1108,14 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
       medicalReviewSkipped:   totalMrSkipped,
       // New additive telemetry (hard-mode only fields are undefined for Balanced)
       refillRounds,
-      totalGeneratedCandidates: totalGenerated,
-      acceptedCandidates:       allQuestions.length,
-      ruleRejectedCandidates:   totalRuleRejected,
-      dedupRejectedCandidates:  totalDedupRejected,
+      totalGeneratedCandidates:      totalGenerated,
+      acceptedCandidates:            allQuestions.length,
+      ruleRejectedCandidates:        totalRuleRejected,
+      dedupRejectedCandidates:       totalDedupRejected,
+      scopeRejectedCandidates:       totalScopeRejected,
+      quarantineRejectedCandidates:  quarantineRejected,
       stoppedReason,
+      medicalReviewFailureCategories: totalMrFailureCategories,
     };
     console.log('[generate-questions]', JSON.stringify(telemetry));
 
@@ -1020,7 +1138,7 @@ router.post('/generate-questions', optionalAuth, async (req: AuthRequest, res: R
     const errStatus = (err as any)?.status;
     // Safe: logs error class + HTTP status, never the API key or full payload.
     console.error('[generate-questions] error', errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
-    res.status(500).json({ error: msg || 'Question generation failed', code: 'GENERATION_FAILED' });
+    res.status(500).json({ error: 'Question generation failed', code: 'GENERATION_FAILED' });
   }
 });
 
@@ -1094,7 +1212,7 @@ function normalizeFlashcard(raw: Record<string, any>, now: string): Record<strin
   };
 }
 
-router.post('/generate-flashcards', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.post('/generate-flashcards', optionalAuth, aiLimiter, validate(generateFlashcardsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
   const count = Math.min(Math.max(Number(rawConfig?.count ?? 10), 1), 30);
 
@@ -1169,9 +1287,8 @@ router.post('/generate-flashcards', optionalAuth, async (req: AuthRequest, res: 
       adaptiveConcepts:  plan ? plan.targetConcepts : [],
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[generate-flashcards]', msg);
-    res.status(500).json({ error: msg || 'Flashcard generation failed', code: 'GENERATION_FAILED' });
+    console.error('[generate-flashcards]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Flashcard generation failed', code: 'GENERATION_FAILED' });
   }
 });
 
