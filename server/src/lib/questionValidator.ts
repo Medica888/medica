@@ -104,6 +104,7 @@ const NBME_HARD_REJECTIONS = new Set([
   'answer_not_supported',
   'contradictory_explanation',
   'missing_option_explanations',
+  'non_concise_nbme_options',
   // Specialty validators
   'specialty_validation_failed',
 ]);
@@ -135,6 +136,7 @@ export const REPAIR_GUIDANCE: Record<string, string> = {
   'weak_single_best_answer_lead_in': 'End the stem with a clear interrogative lead-in (e.g. "Which of the following...?") and a question mark',
   'teaching_language_in_stem':       'Remove teaching cues (e.g. "remember", "high-yield", "note that") — stems must be pure clinical vignette',
   'weak_distractors':                'Replace generic or too-short options with medically specific alternatives ≥4 characters each',
+  'non_concise_nbme_options':        'Shorten each option to ≤160 chars — NBME-style options are concise single best answers, not explanations',
   'clue_leakage':                    'Rewrite stem so the correct answer text does not appear verbatim or near-verbatim in the question',
   // General distractor hardening
   'generic_option_present':          'Replace generic options (e.g. "All of the above", "None of the above", "Unknown") with specific clinical alternatives',
@@ -388,7 +390,9 @@ export function scoreNbmeOptionStyle(
 
   const hasTooShort = texts.some(t => t.length < 4);
   const hasGeneric  = texts.some(t => GENERIC_OPTION_RE.test(t));
+  const hasTooLong  = texts.some(t => t.length > 160);
   if (hasTooShort || hasGeneric) reasons.push('weak_distractors');
+  if (hasTooLong) reasons.push('non_concise_nbme_options');
 
   let score = hasTooShort || hasGeneric ? 20 : 60;
   const lengths = texts.map(t => t.length);

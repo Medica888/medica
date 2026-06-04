@@ -1389,6 +1389,26 @@ describe('scoreNbmeOptionStyle', () => {
     const result = scoreNbmeOptionStyle(opts);
     expect(result.reasons).toContain('weak_distractors');
   });
+
+  it('rejects any option longer than 160 characters (non_concise_nbme_options)', () => {
+    const longText = 'Right middle cerebral artery occlusion causing contralateral hemiplegia, hemisensory loss, and hemispatial neglect confirmed by diffusion-weighted MRI in the acute setting';
+    expect(longText.length).toBeGreaterThan(160);
+    const opts = makeOptions([
+      'Left posterior cerebral artery occlusion',
+      longText,
+      'Left anterior cerebral artery occlusion',
+      'Basilar artery occlusion',
+    ]);
+    const result = scoreNbmeOptionStyle(opts);
+    expect(result.reasons).toContain('non_concise_nbme_options');
+  });
+
+  it('does not flag options at exactly 160 characters or fewer (boundary)', () => {
+    const exactly160 = 'A'.repeat(160);
+    const opts = makeOptions([exactly160, 'Right middle cerebral artery occlusion', 'Left anterior cerebral artery occlusion', 'Basilar artery occlusion']);
+    const result = scoreNbmeOptionStyle(opts);
+    expect(result.reasons).not.toContain('non_concise_nbme_options');
+  });
 });
 
 // ── scoreNbmeClueLeakage ──────────────────────────────────────────────────────
@@ -2807,5 +2827,108 @@ describe('checkUworldSpecific — scoreQuestion integration', () => {
     expect(result.rejectionReasons).not.toContain('missing_objective_data');
     expect(result.rejectionReasons).not.toContain('missing_uworld_option_explanations');
     expect(result.rejectionReasons).not.toContain('weak_wrong_option_teaching');
+  });
+});
+
+// ── Phase 5: NBME gap tests ───────────────────────────────────────────────────
+
+describe('scoreNbmeQuestion — contradictory explanation (Phase 5 gap)', () => {
+  it('fails when explanation explicitly names a wrong option as the correct answer', () => {
+    // Option B = "Right middle cerebral artery occlusion"; explanation claims it is correct.
+    const result = scoreNbmeQuestion({
+      stem:        NBME_NEURO_STEM,
+      options:     NBME_NEURO_OPTS,
+      correct:     'A',
+      explanation: 'Right middle cerebral artery occlusion is the correct answer in this case, as the right MCA territory produces contralateral visual field deficits.',
+    }, 'practice', 'NBME Difficult');
+    expect(result.rejectionReasons).toContain('contradictory_explanation');
+    expect(result.validationStatus).toBe('fail');
+  });
+});
+
+describe('scoreNbmeQuestion — coach mode requires option explanations (Phase 5 gap)', () => {
+  it('fails in coach mode when optionExplanations are absent', () => {
+    const result = scoreNbmeQuestion({
+      stem:        NBME_NEURO_STEM,
+      options:     NBME_NEURO_OPTS,
+      correct:     'A',
+      explanation: NBME_NEURO_EXPL_SHORT,
+      // no optionExplanations
+    }, 'coach', 'NBME Difficult');
+    expect(result.rejectionReasons).toContain('missing_option_explanations');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('passes in practice mode without optionExplanations', () => {
+    const result = scoreNbmeQuestion({
+      stem:        NBME_NEURO_STEM,
+      options:     NBME_NEURO_OPTS,
+      correct:     'A',
+      explanation: NBME_NEURO_EXPL_SHORT,
+    }, 'practice', 'NBME Difficult');
+    expect(result.rejectionReasons).not.toContain('missing_option_explanations');
+    expect(result.validationStatus).toBe('pass');
+  });
+});
+
+describe('non_concise_nbme_options — scoreQuestion integration', () => {
+  const LONG_OPTION =
+    'Right middle cerebral artery occlusion causing contralateral hemiplegia, hemisensory loss, and hemispatial neglect confirmed by diffusion-weighted MRI in the acute setting';
+
+  it('NBME question with an option > 160 chars fails with non_concise_nbme_options', () => {
+    const result = scoreQuestion({
+      stem:        NBME_NEURO_STEM,
+      options:     makeOptions([
+        'Left posterior cerebral artery occlusion',
+        LONG_OPTION,
+        'Left anterior cerebral artery occlusion',
+        'Basilar artery occlusion',
+      ]),
+      correct:     'A',
+      explanation: NBME_NEURO_EXPL_SHORT,
+    }, 'practice', 'NBME Difficult');
+    expect(result.rejectionReasons).toContain('non_concise_nbme_options');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('NBME question with concise options does not fire non_concise_nbme_options', () => {
+    const result = scoreQuestion({
+      stem:        NBME_NEURO_STEM,
+      options:     NBME_NEURO_OPTS,
+      correct:     'A',
+      explanation: NBME_NEURO_EXPL_SHORT,
+    }, 'practice', 'NBME Difficult');
+    expect(result.rejectionReasons).not.toContain('non_concise_nbme_options');
+  });
+
+  it('Balanced question with a long option does not fire non_concise_nbme_options (NBME-only rule)', () => {
+    const result = scoreQuestion({
+      stem:        'A 35-year-old woman presents with painful swollen joints and serum uric acid of 9.2 mg/dL. She has been taking hydrochlorothiazide for 6 months. Which mechanism best explains her presentation?',
+      options:     makeOptions([
+        'Decreased renal uric acid excretion via URAT1 transporter competition causing urate retention and hyperuricemia',
+        LONG_OPTION,
+        'Decreased xanthine oxidase activity',
+        'Impaired urate transporter function',
+      ]),
+      correct:     'A',
+      explanation: 'Hydrochlorothiazide reduces uric acid excretion at the proximal tubule by competing with urate for the URAT1 transporter, leading to urate retention and hyperuricemia. Distinct from allopurinol mechanism. Patients on thiazides have increased gout risk.',
+    }, 'practice', 'Balanced');
+    expect(result.rejectionReasons).not.toContain('non_concise_nbme_options');
+  });
+
+  it('UWorld question with a long option does not fire non_concise_nbme_options (NBME-only rule)', () => {
+    const result = scoreQuestion({
+      stem:               UW_STEM,
+      options:            makeOptions([
+        'Wire loop lesions with thickened glomerular basement membrane',
+        LONG_OPTION,
+        'Diffuse foot process effacement on electron microscopy',
+        'Congo red staining with apple-green birefringence under polarized light',
+      ]),
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).not.toContain('non_concise_nbme_options');
   });
 });
