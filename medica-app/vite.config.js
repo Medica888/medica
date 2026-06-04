@@ -18,6 +18,20 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('/src/lib/questionBanks/')) {
+              if (id.includes('nbmeQuestions')) return 'question-bank-nbme'
+              if (id.includes('uworldQuestions')) return 'question-bank-uworld'
+              if (id.includes('balancedQuestions')) return 'question-bank-balanced'
+              return 'question-bank'
+            }
+          },
+        },
+      },
+    },
     test: {
       globals: true,
       environment: 'jsdom',

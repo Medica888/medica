@@ -6,7 +6,9 @@ import {
   appendTrustedGeneratedQuestions,
   filterReportedQuestions,
   getTrustedGeneratedQuestionsForConfig,
+  purgeStaleQuestionsFromTrusted,
 } from '../storage.js'
+import { getBankQuestionsForConfig } from '../mockQuestions.js'
 
 /**
  * Calls the server-side AI question generation endpoint.
@@ -32,16 +34,29 @@ export async function generateAIQuestions(config, seenState = null) {
   const controller = new AbortController()
   const timeoutId  = setTimeout(() => controller.abort(), getGenerationTimeoutMs(config))
 
+  // Declared outside try so the catch block can fall back to whatever bank candidates
+  // were collected before an AI failure.
+  let bankCandidates = []
+
   try {
-    const trusted = _getReusableTrustedQuestions(config, seenState)
-    if (trusted.length >= config.questionCount) {
-      return _checkCount(trusted.slice(0, config.questionCount), config)
+    // ── Step 1: bank-first — static bank + trusted AI questions ─────────────
+    bankCandidates = _getBankCandidates(config, seenState)
+
+    if (bankCandidates.length >= config.questionCount) {
+      const questions = bankCandidates.slice(0, config.questionCount)
+      attachGenerationTelemetry(questions, {
+        source:       'validated-local-bank',
+        bankUsed:     questions.length,
+        aiUsed:       0,
+        aiRequested:  0,
+      })
+      return questions
     }
 
-    const remainingConfig = {
-      ...config,
-      questionCount: Math.max(1, config.questionCount - trusted.length),
-    }
+    // ── Step 2: AI fill for remaining count ──────────────────────────────────
+    const remainingCount  = Math.max(1, config.questionCount - bankCandidates.length)
+    const remainingConfig = { ...config, questionCount: remainingCount }
+
     const raw = await _attempt(remainingConfig, exclude, controller.signal)
     const telemetry = raw.generationTelemetry ?? null
 
@@ -66,17 +81,41 @@ export async function generateAIQuestions(config, seenState = null) {
     }
 
     const enrichedValid = valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
-    const enriched = _dedupQuestions([...trusted, ...enrichedValid]).unique
-    const checked = _checkCount(enriched, config)
-    attachGenerationTelemetry(checked, telemetry)
     appendTrustedGeneratedQuestions(enrichedValid, config)
+
+    // ── Step 3: combine bank + AI, dedup, enforce count ──────────────────────
+    const combined = _dedupQuestions([...bankCandidates, ...enrichedValid]).unique
+    const checked  = _checkCount(combined, config)
+
+    const source = bankCandidates.length > 0 ? 'bank-plus-ai' : 'live-ai'
+    attachGenerationTelemetry(checked, {
+      ...telemetry,
+      source,
+      bankUsed:    bankCandidates.length,
+      aiUsed:      enrichedValid.length,
+      aiRequested: remainingCount,
+    })
     return checked
+
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw Object.assign(
         new Error(getGenerationTimeoutMessage(config)),
         { code: 'GENERATION_TIMEOUT' },
       )
+    }
+    // AI failed but bank has partial coverage: use what we have for non-40Q configs
+    const is40QBlock = config.questionCount === 40 && config.mode === 'exam'
+    if (bankCandidates.length > 0 && !is40QBlock) {
+      console.warn(`[generateAIQuestions] AI failed (${err?.code ?? err?.message}), falling back to ${bankCandidates.length} bank question(s)`)
+      const checked = _checkCount(bankCandidates, config)
+      attachGenerationTelemetry(checked, {
+        source:       'fallback-bank',
+        bankUsed:     bankCandidates.length,
+        aiUsed:       0,
+        aiError:      err?.code || 'AI_ERROR',
+      })
+      return checked
     }
     throw err
   } finally {
@@ -107,6 +146,9 @@ export function getGenerationTimeoutMessage(config) {
 }
 
 export function formatGenerationErrorMessage(err, config) {
+  if (err?.code === 'INSUFFICIENT_QUESTIONS') {
+    return 'Not enough validated questions available for this filter. Broaden your filters or reduce the question count.'
+  }
   if (err?.code === 'GENERATION_TIMEOUT' || err?.name === 'AbortError') {
     return getGenerationTimeoutMessage(config)
   }
@@ -206,7 +248,21 @@ function _getReusableTrustedQuestions(config, seenState) {
   const { unique } = _dedupQuestions(trusted)
   const { questions: unseen } = _filterPreviouslySeenQuestions(unique, seenState)
   const { questions: unreported } = _filterReportedQuestions(unseen)
-  const { valid } = _validateGeneratedQuestions(unreported, config)
+  const { valid, rejected } = _validateGeneratedQuestions(unreported, config)
+
+  // Purge entries that fail re-validation under current rules (e.g. thresholds tightened
+  // in a later phase). The AI fill step will regenerate fresh replacements.
+  if (rejected > 0) {
+    const validIds = new Set(valid.map(q => String(q.id || '')))
+    const staleIds = new Set(
+      unreported
+        .filter(q => !validIds.has(String(q.id || '')))
+        .flatMap(q => [String(q.id || ''), getQuestionFingerprint(q)])
+        .filter(Boolean),
+    )
+    purgeStaleQuestionsFromTrusted(staleIds)
+    console.warn(`[generateAIQuestions] purged ${rejected} stale trusted question(s) that failed re-validation`)
+  }
 
   if (valid.length > 0) {
     console.log(`[generateAIQuestions] reused ${valid.length} trusted generated question(s)`)
@@ -214,11 +270,39 @@ function _getReusableTrustedQuestions(config, seenState) {
   return valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
 }
 
+/**
+ * Builds the pre-AI candidate pool: static bank questions + validated trusted AI questions.
+ * Static bank questions are already scope/seen/reported-filtered by _buildMockPool.
+ * Both sets are enriched with USMLE taxonomy and deduped before return.
+ */
+function _getBankCandidates(config, seenState) {
+  // Static bank questions — scope/seen/reported already filtered by _buildMockPool.
+  // Re-validate here so any bank question that fails current rules is excluded and
+  // the AI fill step covers the shortfall (static content can't be repaired in-client).
+  const rawBankQs = getBankQuestionsForConfig(config, seenState)
+    .map(q => enrichQuestionWithUsmleTaxonomy(q, config))
+  const { valid: validBankQs, rejected: bankRejected } = _validateGeneratedQuestions(rawBankQs, config)
+  if (bankRejected > 0) {
+    console.warn(`[generateAIQuestions] excluded ${bankRejected} static bank question(s) that failed validation`)
+  }
+
+  // Trusted AI questions — _getReusableTrustedQuestions validates and purges stale entries.
+  const trustedQs = _getReusableTrustedQuestions(config, seenState)
+
+  const { unique } = _dedupQuestions([...validBankQs, ...trustedQs])
+  if (unique.length > 0) {
+    console.log(`[generateAIQuestions] bank candidates: ${validBankQs.length} static + ${trustedQs.length} trusted = ${unique.length} unique`)
+  }
+  return unique
+}
+
 const STOP_WORDS = new Set([
   'the', 'and', 'with', 'without', 'from', 'that', 'this', 'these', 'those',
   'best', 'most', 'likely', 'primary', 'current', 'patient', 'presentation',
-  'mechanism', 'diagnosis', 'treatment', 'disease', 'disorder', 'syndrome',
+  'mechanism', 'diagnosis', 'treatment',
   'condition', 'effect', 'activity', 'function', 'process',
+  // 'disease', 'disorder', 'syndrome' intentionally excluded — condition names like
+  // "Graves disease" and "Cushing syndrome" must retain their meaningful tokens.
 ])
 
 // Mirrors server/src/lib/questionValidator.ts MEDICAL_ABBREVIATIONS.
@@ -240,6 +324,15 @@ const MEDICAL_ABBREVIATIONS = new Set([
   'MI', 'CHF', 'DVT', 'PE', 'COPD', 'ARDS', 'SIADH', 'DKA',
   'CNS', 'PNS', 'CSF', 'BBB',
 ])
+
+// Returns s-inflection variants for verbatim matching (mirrors server questionValidator.ts).
+// "Antibodies" → ["antibodies","antibody"]  "Aminoglycosides" → ["aminoglycosides","aminoglycoside"]
+function _verbatimVariants(text) {
+  const lower = text.toLowerCase()
+  if (lower.endsWith('ies')) return [lower, lower.slice(0, -3) + 'y']
+  if (lower.endsWith('s'))   return [lower, lower.slice(0, -1)]
+  return [lower, lower + 's']
+}
 
 function _meaningfulTokens(text) {
   return String(text || '')
@@ -286,7 +379,7 @@ function _supportsCorrectAnswer(question) {
 
   if (MEDICAL_ABBREVIATIONS.has(correctText.trim().toUpperCase())) return true
 
-  if (correctText.length >= 8 && explanation.includes(correctText.toLowerCase())) return true
+  if (correctText.length >= 8 && _verbatimVariants(correctText).some(v => explanation.includes(v))) return true
 
   const tokens = _meaningfulTokens(correctText)
   if (tokens.length === 0) return explanation.includes(correctText.toLowerCase())
@@ -296,7 +389,8 @@ function _supportsCorrectAnswer(question) {
 
 function _contradictsCorrectAnswer(question) {
   const correct = getQuestionCorrectLetter(question)
-  const explanation = String(question.explanation || '').toLowerCase()
+  const optExplText = Object.values(question.optionExplanations ?? {}).join(' ')
+  const explanation = [String(question.explanation || ''), optExplText].join(' ').toLowerCase()
 
   return (question.options || []).some(opt => {
     if (!opt || opt.letter === correct) return false

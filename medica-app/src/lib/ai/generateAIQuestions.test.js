@@ -3,6 +3,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Force VITE_USE_BACKEND_API=true for all tests in this file
 vi.stubEnv('VITE_USE_BACKEND_API', 'true')
 
+// Mock the static bank so existing tests that stub fetch still exercise the AI path.
+// Individual bank-first tests override this per-test via mockReturnValue.
+vi.mock('../mockQuestions.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getBankQuestionsForConfig: vi.fn(() => []),
+  }
+})
+
+import { getBankQuestionsForConfig } from '../mockQuestions.js'
+
 import {
   formatGenerationErrorMessage,
   generateAIQuestions,
@@ -47,7 +59,11 @@ function mockFetch(responses) {
 
 const baseConfig = { questionCount: 5, mode: 'practice' }
 
-beforeEach(() => { vi.stubEnv('VITE_USE_BACKEND_API', 'true') })
+beforeEach(() => {
+  vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+  // Reset bank mock to empty so existing tests exercise the full AI path by default.
+  getBankQuestionsForConfig.mockReturnValue([])
+})
 afterEach(() => { localStorage.clear(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('generateAIQuestions - timeout policy', () => {
@@ -577,5 +593,163 @@ describe('generateAIQuestions — USMLE taxonomy', () => {
     const result = await generateAIQuestions(baseConfig)
     expect(result.every(q => q.usmleContentArea && q.usmleContentArea.length > 0)).toBe(true)
     expect(result.every(q => q.physicianTask && q.physicianTask.length > 0)).toBe(true)
+  })
+})
+
+// ── Phase 9.9 bank-first generation flow ─────────────────────────────────────
+
+// Helper: make bank-style questions (enriched with usmleContentArea so they
+// pass through enrichQuestionWithUsmleTaxonomy without losing data).
+const makeBankQuestion = (i, overrides = {}) => ({
+  ...makeQuestion(i + 200),    // distinct ids from AI questions
+  usmleContentArea: 'Cardiovascular System',
+  physicianTask:    'Patient Care: Diagnosis',
+  source:           'bank',
+  ...overrides,
+})
+const makeBankQuestions = (n, offset = 0) =>
+  Array.from({ length: n }, (_, i) => makeBankQuestion(i + offset))
+
+describe('generateAIQuestions — bank-first: no AI call when bank has enough', () => {
+  it('does not call fetch when bank has enough Balanced questions', async () => {
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(5))
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const result = await generateAIQuestions(baseConfig)
+    expect(result).toHaveLength(5)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not call fetch when bank has enough NBME Difficult questions', async () => {
+    const nbmeConfig = { questionCount: 5, mode: 'exam', difficulty: 'NBME Difficult' }
+    getBankQuestionsForConfig.mockReturnValue(
+      makeBankQuestions(5, 0).map(q => ({ ...q, difficulty: 'NBME Difficult' })),
+    )
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const result = await generateAIQuestions(nbmeConfig)
+    expect(result).toHaveLength(5)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('telemetry shows source=validated-local-bank and aiUsed=0 when bank covers all', async () => {
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(5))
+    vi.stubGlobal('fetch', vi.fn())
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.generationTelemetry?.source).toBe('validated-local-bank')
+    expect(result.generationTelemetry?.bankUsed).toBe(5)
+    expect(result.generationTelemetry?.aiUsed).toBe(0)
+    expect(result.generationTelemetry?.aiRequested).toBe(0)
+  })
+})
+
+describe('generateAIQuestions — bank-first: partial bank + AI fill', () => {
+  it('calls AI only for the missing count when bank has partial coverage', async () => {
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(2))
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return { ok: true, json: async () => ({ questions: makeQuestions(3, 50) }) }
+    }))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result).toHaveLength(5)
+    expect(bodies[0].config.questionCount).toBe(3)
+  })
+
+  it('deduplicates bank + AI questions when AI returns a question already in bank', async () => {
+    const shared = makeBankQuestion(0)
+    getBankQuestionsForConfig.mockReturnValue([shared])
+    // AI returns the same stem + concept alongside 4 fresh questions
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [shared, ...makeQuestions(4, 60)] } }]))
+    const result = await generateAIQuestions(baseConfig)
+    // shared appears once, plus 4 fresh = 5 total; no duplicate
+    expect(result.filter(q => q.id === shared.id)).toHaveLength(1)
+    expect(result).toHaveLength(5)
+  })
+
+  it('telemetry shows source=bank-plus-ai with correct bankUsed/aiUsed', async () => {
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(2))
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(3, 70) } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.generationTelemetry?.source).toBe('bank-plus-ai')
+    expect(result.generationTelemetry?.bankUsed).toBe(2)
+    expect(result.generationTelemetry?.aiUsed).toBeGreaterThan(0)
+    expect(result.generationTelemetry?.aiRequested).toBe(3)
+  })
+
+  it('telemetry shows source=live-ai when bank has none', async () => {
+    getBankQuestionsForConfig.mockReturnValue([])
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(5) } }]))
+    const result = await generateAIQuestions(baseConfig)
+    expect(result.generationTelemetry?.source).toBe('live-ai')
+    expect(result.generationTelemetry?.bankUsed).toBe(0)
+  })
+})
+
+describe('generateAIQuestions — bank-first: AI failure handling', () => {
+  it('uses bank questions when AI fails and bank has partial coverage (non-40Q)', async () => {
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(3))
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable' } }]))
+    const result = await generateAIQuestions(baseConfig)
+    // Returns 3 bank questions; partial is accepted for non-40Q
+    expect(result).toHaveLength(3)
+    expect(result.generationTelemetry?.source).toBe('fallback-bank')
+  })
+
+  it('throws AI error when bank has nothing and AI fails', async () => {
+    getBankQuestionsForConfig.mockReturnValue([])
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable' } }]))
+    await expect(generateAIQuestions(baseConfig)).rejects.toThrow('Service unavailable')
+  })
+
+  it('throws AI_INSUFFICIENT_COUNT for 40Q block even when bank has partial questions', async () => {
+    const config40Q = { questionCount: 40, mode: 'exam' }
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(30))
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable' } }]))
+    await expect(generateAIQuestions(config40Q)).rejects.toThrow()
+  })
+})
+
+describe('generateAIQuestions — bank-first: seen/reported filtering', () => {
+  it('seen trusted questions are excluded from bank candidates', async () => {
+    const trusted = makeQuestions(3, 80)
+    appendTrustedGeneratedQuestions(trusted, baseConfig)
+
+    const seenState = {
+      seenIds:          new Set([trusted[0].id, trusted[1].id]),
+      seenBaseIds:      new Set([trusted[0].id, trusted[1].id]),
+      seenFingerprints: new Set(),
+    }
+    // bank returns nothing; trusted has 1 unseen → AI called for 4
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(4, 90) } }]))
+    const result = await generateAIQuestions(baseConfig, seenState)
+
+    expect(result.find(q => q.id === trusted[0].id)).toBeUndefined()
+    expect(result.find(q => q.id === trusted[1].id)).toBeUndefined()
+    expect(result).toHaveLength(5)
+  })
+
+  it('reported trusted questions are excluded from bank candidates', async () => {
+    const trusted = makeQuestions(5, 100)
+    appendTrustedGeneratedQuestions(trusted, baseConfig)
+    saveQuestionReport(trusted[0], 'wrong_answer', baseConfig)
+    saveQuestionReport(trusted[1], 'bad_explanation', baseConfig)
+
+    // bank returns nothing; 3 trusted unreported → AI called for 2
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(2, 110) } }]))
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result.find(q => q.id === trusted[0].id)).toBeUndefined()
+    expect(result.find(q => q.id === trusted[1].id)).toBeUndefined()
+    expect(result).toHaveLength(5)
+  })
+})
+
+describe('generateAIQuestions — formatGenerationErrorMessage INSUFFICIENT_QUESTIONS', () => {
+  it('returns user-friendly message for INSUFFICIENT_QUESTIONS code', () => {
+    const err = Object.assign(new Error('Not enough'), { code: 'INSUFFICIENT_QUESTIONS', available: 2, requested: 5 })
+    const msg = formatGenerationErrorMessage(err, baseConfig)
+    expect(msg).toContain('Broaden your filters')
+    expect(msg).toContain('reduce the question count')
   })
 })

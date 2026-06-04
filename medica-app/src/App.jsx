@@ -2,15 +2,6 @@ import { lazy, Suspense, useState, useCallback, useMemo, useEffect } from 'react
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
-import Dashboard from './components/Dashboard'
-import QuizBuilder from './components/quiz-builder/QuizBuilder'
-import ExamLoadingScreen from './components/loading/ExamLoadingScreen'
-import { createQuizSession, getDifficultyAvailability } from './lib/mockQuestions'
-import {
-  formatGenerationErrorMessage,
-  generateAIQuestions,
-  isHardMedicalReviewGeneration,
-} from './lib/ai/generateAIQuestions'
 import { savePracticeResults, saveCoachResults, getSessionHistory, getFlashcards } from './lib/storage'
 import { saveSession as persistSession } from './lib/dataProvider'
 import { shuffleQuestionOptions } from './lib/questionNormalizer'
@@ -19,6 +10,9 @@ import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
 import { restoreToken, setAuthToken, clearToken } from './lib/apiClient'
 
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
+const ExamLoadingScreen = lazy(() => import('./components/loading/ExamLoadingScreen'))
 const SkillsPlatform = lazy(() => import('./components/SkillsPlatform'))
 const QuizSession = lazy(() => import('./components/session/QuizSession'))
 const PracticeInterface = lazy(() => import('./components/practice/PracticeInterface'))
@@ -33,9 +27,17 @@ const FlashcardsPage = lazy(() => import('./components/flashcards/FlashcardsPage
 const SettingsPage = lazy(() => import('./components/settings/SettingsPage'))
 
 const MOCK_FALLBACK_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
+const LOCAL_HARD_BANK_COUNTS = {
+  'NBME Difficult': 80,
+  'UWorld Challenge': 40,
+}
+
+function isHardMedicalReviewConfig(config) {
+  return ['NBME Difficult', 'UWorld Challenge'].includes(config?.difficulty)
+}
 
 export function shouldUseValidatedLocalFallback(aiErr, config) {
-  if (!isHardMedicalReviewGeneration(config)) return false
+  if (!isHardMedicalReviewConfig(config)) return false
 
   const recoverable = aiErr?.code === 'GENERATION_TIMEOUT'
     || aiErr?.code === 'AI_INSUFFICIENT_COUNT'
@@ -44,7 +46,8 @@ export function shouldUseValidatedLocalFallback(aiErr, config) {
 
   if (!recoverable) return false
 
-  return getDifficultyAvailability(config).enoughForLocalFallback
+  const available = LOCAL_HARD_BANK_COUNTS[config?.difficulty] || 0
+  return available >= (config?.questionCount || 0)
 }
 
 function getValidatedLocalFallbackReason(aiErr) {
@@ -57,6 +60,8 @@ function getValidatedLocalFallbackReason(aiErr) {
 
 function buildAISession(config, questions, seenState) {
   const validation = validateUniqueQuestions(questions)
+  const telemetry  = questions.generationTelemetry ?? null
+  const qSource    = telemetry?.source ?? 'ai'
   const session = {
     id:    `session_${Date.now()}`,
     mode:  config.mode,
@@ -65,15 +70,15 @@ function buildAISession(config, questions, seenState) {
     answers:   {},
     currentIndex: 0,
     startedAt:    new Date().toISOString(),
-    source:               'ai',
-    questionSource:       'ai',
+    source:               qSource,
+    questionSource:       qSource,
     generatedAt:          new Date().toISOString(),
     requestedQuestionCount:        config.questionCount,
     uniqueQuestionCount:           validation.uniqueCount,
     hasDuplicateQuestions:         !validation.valid,
     hasClonedQuestions:            false,
     hasReusedQuestions:            false,
-    generationTelemetry:           questions.generationTelemetry ?? null,
+    generationTelemetry:           telemetry,
     generationConfigSnapshot:      config,
     excludedPreviousQuestionCount: seenState ? seenState.seenIds.size : 0,
   }
@@ -169,6 +174,7 @@ export default function App() {
     const config         = normalizeGenerationConfig(rawConfig)
     const IS_40Q_BLOCK   = config.questionCount === 40 && config.mode === 'exam'
     const seenState      = buildSeenState(getSessionHistory())
+    const aiModule       = await import('./lib/ai/generateAIQuestions')
 
     setQuizConfig(config)
     setQuizSession(null)
@@ -179,7 +185,7 @@ export default function App() {
     let useValidatedLocalFallback = false
 
     try {
-      const questions = await generateAIQuestions(config, seenState)
+      const questions = await aiModule.generateAIQuestions(config, seenState)
       setQuizSession(buildAISession(config, questions, seenState))
       return
     } catch (aiErr) {
@@ -189,9 +195,9 @@ export default function App() {
       // when the backend generator is unavailable.
       if (aiErr.code !== 'BACKEND_DISABLED' && !MOCK_FALLBACK_ALLOWED && !useValidatedLocalFallback) {
         if (IS_40Q_BLOCK) {
-          setGenerationError(formatGenerationErrorMessage(aiErr, config))
+          setGenerationError(aiModule.formatGenerationErrorMessage(aiErr, config))
         } else {
-          setGenerationError(formatGenerationErrorMessage(aiErr, config))
+          setGenerationError(aiModule.formatGenerationErrorMessage(aiErr, config))
         }
         setQuizPhase('builder')
         return
@@ -202,6 +208,7 @@ export default function App() {
     // Mock fallback - used when backend API is disabled or local fallback is allowed.
     if (MOCK_FALLBACK_ALLOWED || shouldUseValidatedLocalFallback) {
       try {
+        const { createQuizSession } = await import('./lib/mockQuestions')
         const fallbackConfig = shouldUseValidatedLocalFallback
           ? { ...config, fallbackReason: getValidatedLocalFallbackReason(aiGenerationError) }
           : config

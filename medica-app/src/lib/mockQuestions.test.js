@@ -223,12 +223,12 @@ describe('QUESTION_BANK — structural and semantic validation', () => {
     expect(QUESTION_BANK.length).toBeGreaterThanOrEqual(100)
   })
 
-  it('tracks hard-difficulty bank coverage against the 40-question product target', () => {
+  it('tracks hard-difficulty bank coverage against the hard-mode product targets', () => {
     const stats = getQuestionBankDifficultyStats()
 
     expect(stats['NBME Difficult']).toBeGreaterThan(0)
     expect(stats['UWorld Challenge']).toBeGreaterThan(0)
-    expect(stats['NBME Difficult']).toBeGreaterThanOrEqual(40)
+    expect(stats['NBME Difficult']).toBeGreaterThanOrEqual(80)
     expect(stats['UWorld Challenge']).toBeGreaterThanOrEqual(40)
 
     const nbme = getDifficultyAvailability({ difficulty: 'NBME Difficult', questionCount: 40 })
@@ -393,6 +393,82 @@ describe('QUESTION_BANK — structural and semantic validation', () => {
     )
   })
 
+  it('accepts concise text-only NBME-style questions without requiring UWorld teaching depth', () => {
+    const nbme = {
+      id: 'validator-nbme-concise-pass',
+      subject: 'Pathology',
+      system: 'Musculoskeletal',
+      difficulty: 'NBME Difficult',
+      testedConcept: 'Osteoarthritis cartilage degeneration',
+      questionAngle: 'pathology-finding',
+      usmleContentArea: 'Musculoskeletal System',
+      physicianTask: 'Patient Care: Diagnosis',
+      stem: 'A 61-year-old man has gradually worsening knee pain that is worse at the end of the day and improves with rest. Examination shows crepitus with passive movement, and radiographs show asymmetric joint-space narrowing with osteophytes. Tissue from the affected joint would most likely show which finding?',
+      options: [
+        { letter: 'A', text: 'Crystal deposition within neutrophil cytoplasm' },
+        { letter: 'B', text: 'Degeneration of articular cartilage with subchondral bone sclerosis' },
+        { letter: 'C', text: 'Granulomatous inflammation with caseous necrosis' },
+        { letter: 'D', text: 'Immune complex deposition along synovial capillaries' },
+      ],
+      correct: 'B',
+      explanation: '',
+    }
+
+    expect(validateHardDifficultyQuestion(nbme)).toHaveLength(0)
+  })
+
+  it('rejects weak NBME questions with no patient anchor or clinical signal', () => {
+    const weak = {
+      id: 'validator-nbme-weak-fail',
+      subject: 'Physiology',
+      system: 'Respiratory',
+      difficulty: 'NBME Difficult',
+      testedConcept: 'Pulmonary pressure',
+      questionAngle: 'mechanism',
+      usmleContentArea: 'Respiratory System',
+      physicianTask: 'Medical Knowledge: Applying Foundational Science Concepts',
+      stem: 'What is the mechanism?',
+      options: [
+        { letter: 'A', text: 'Increased vascular resistance' },
+        { letter: 'B', text: 'Decreased venous return' },
+        { letter: 'C', text: 'Reduced surfactant production' },
+        { letter: 'D', text: 'Increased airway secretion' },
+      ],
+      correct: 'A',
+      explanation: '',
+    }
+
+    expect(validateHardDifficultyQuestion(weak)).toEqual(
+      expect.arrayContaining(['nbme_stem_too_short', 'missing_patient_anchor', 'weak_clinical_signal']),
+    )
+  })
+
+  it('keeps UWorld stricter than NBME for the same concise exam-style item', () => {
+    const concise = {
+      id: 'validator-style-separation',
+      subject: 'Pathology',
+      system: 'Musculoskeletal',
+      testedConcept: 'Osteoarthritis cartilage degeneration',
+      questionAngle: 'pathology-finding',
+      usmleContentArea: 'Musculoskeletal System',
+      physicianTask: 'Patient Care: Diagnosis',
+      stem: 'A 61-year-old man has gradually worsening knee pain that is worse at the end of the day and improves with rest. Examination shows crepitus with passive movement, and radiographs show asymmetric joint-space narrowing with osteophytes. Tissue from the affected joint would most likely show which finding?',
+      options: [
+        { letter: 'A', text: 'Crystal deposition within neutrophil cytoplasm' },
+        { letter: 'B', text: 'Degeneration of articular cartilage with subchondral bone sclerosis' },
+        { letter: 'C', text: 'Granulomatous inflammation with caseous necrosis' },
+        { letter: 'D', text: 'Immune complex deposition along synovial capillaries' },
+      ],
+      correct: 'B',
+      explanation: '',
+    }
+
+    expect(validateHardDifficultyQuestion({ ...concise, difficulty: 'NBME Difficult' })).toHaveLength(0)
+    expect(validateHardDifficultyQuestion({ ...concise, difficulty: 'UWorld Challenge' })).toEqual(
+      expect.arrayContaining(['insufficient_reasoning_depth', 'hard_explanation_too_short', 'missing_uworld_option_explanations']),
+    )
+  })
+
   it('every ENRICHED_ID question passes coach mode validation', () => {
     const config = { mode: 'coach', questionCount: 1 }
     const failures = []
@@ -479,6 +555,33 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
 
   it('ENRICHED_IDS is exactly 50', () => {
     expect(ENRICHED_IDS.size).toBe(50)
+  })
+
+  it('Balanced bank has at least 100 questions', () => {
+    const difficultyCounts = _counts(QUESTION_BANK, 'difficulty')
+    expect(difficultyCounts.get('Balanced')).toBeGreaterThanOrEqual(100)
+  })
+
+  it('every subject has at least 10 questions', () => {
+    const subjectCounts = _counts(QUESTION_BANK, 'subject')
+    const underfilled = [...subjectCounts.entries()].filter(([, count]) => count < 10)
+
+    expect(
+      underfilled,
+      `Subjects below 10Q: ${underfilled.map(([subject, count]) => `${subject}(${count})`).join(', ')}`,
+    ).toHaveLength(0)
+  })
+
+  it('every system has at least 10 questions and no legacy system labels remain', () => {
+    const systemCounts = _counts(QUESTION_BANK, 'system')
+    const underfilled = [...systemCounts.entries()].filter(([, count]) => count < 10)
+
+    expect(systemCounts.has('Loop Diuretics')).toBe(false)
+    expect(systemCounts.has('Nervous System')).toBe(false)
+    expect(
+      underfilled,
+      `Systems below 10Q: ${underfilled.map(([system, count]) => `${system}(${count})`).join(', ')}`,
+    ).toHaveLength(0)
   })
 
   it('at least 8 distinct usmleContentArea values are represented', () => {
