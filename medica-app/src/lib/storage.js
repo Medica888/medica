@@ -1,5 +1,6 @@
 import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
 import { validateClinicalCard } from './flashcardValidator.js'
+import { getQuestionFingerprint } from './questionDedup.js'
 
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
@@ -60,20 +61,6 @@ export function clearLastQuizSession() {
   } catch { /* ignore */ }
 }
 
-function _questionFingerprint(question) {
-  const stem = String(question?.stem || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120)
-  const concept = String(question?.testedConcept || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return `${stem}||${concept}`
-}
 
 export function getQuestionReports() {
   if (typeof window === 'undefined') return []
@@ -89,7 +76,7 @@ export function saveQuestionReport(question, reason, context = {}) {
   if (typeof window === 'undefined' || !question?.id || !reason) return null
   try {
     const reports = getQuestionReports()
-    const fingerprint = _questionFingerprint(question)
+    const fingerprint = getQuestionFingerprint(question)
     const now = new Date().toISOString()
     const taggedQuestion = enrichQuestionWithUsmleTaxonomy(question, context)
     const report = {
@@ -173,13 +160,45 @@ export function filterReportedQuestions(questions) {
   if (reports.length === 0) return questions
 
   const reportedIds = new Set(reports.map(r => String(r.questionId || '')).filter(Boolean))
-  const reportedFingerprints = new Set(reports.map(r => String(r.fingerprint || '')).filter(Boolean))
+  // Guard: exclude the empty-fingerprint sentinel '||' so a question with no stem/concept
+  // doesn't block every other empty-fingerprint question in the pool.
+  const reportedFingerprints = new Set(
+    reports.map(r => String(r.fingerprint || '')).filter(fp => fp && fp !== '||'),
+  )
 
   return questions.filter(q => {
     const id = String(q?.id || '')
-    const fingerprint = _questionFingerprint(q)
-    return !reportedIds.has(id) && !reportedFingerprints.has(fingerprint)
+    const fingerprint = getQuestionFingerprint(q)
+    return !reportedIds.has(id) && (!fingerprint || fingerprint === '||' || !reportedFingerprints.has(fingerprint))
   })
+}
+
+/**
+ * Removes a previously saved report so the question re-enters the pool.
+ * If `reason` is provided, only that specific report is removed.
+ * If omitted, all reports for the question (matched by id or fingerprint) are removed.
+ *
+ * @param {string} questionId
+ * @param {string|null} [reason]
+ * @returns {number} count of records removed
+ */
+export function unreportQuestion(questionId, reason = null) {
+  if (typeof window === 'undefined' || !questionId) return 0
+  try {
+    const reports = getQuestionReports()
+    const qId = String(questionId)
+    const filtered = reason
+      ? reports.filter(r => r.id !== `${qId}:${reason}`)
+      : reports.filter(r => String(r.questionId || '') !== qId)
+    const removed = reports.length - filtered.length
+    if (removed > 0) {
+      localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(filtered))
+      window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
+    }
+    return removed
+  } catch {
+    return 0
+  }
 }
 
 export function getTrustedGeneratedQuestions() {
@@ -219,17 +238,45 @@ export function getTrustedGeneratedQuestionsForConfig(config = {}) {
   })
 }
 
+/**
+ * Removes questions from trusted storage whose id or fingerprint is in `staleIds`.
+ * Called when re-validation under updated rules finds a previously-trusted question
+ * no longer meets quality standards — the stale entry is purged so the AI fill
+ * step regenerates a fresh replacement on the next session.
+ *
+ * @param {Set<string>} staleIds  — set of id or fingerprint strings to remove
+ * @returns {number}              — count of entries removed
+ */
+export function purgeStaleQuestionsFromTrusted(staleIds) {
+  if (!staleIds?.size || typeof window === 'undefined') return 0
+  try {
+    const all = getTrustedGeneratedQuestions()
+    const filtered = all.filter(q => {
+      const id = String(q.id || '')
+      const fp = q.fingerprint || getQuestionFingerprint(q)
+      return !staleIds.has(id) && !staleIds.has(fp)
+    })
+    const removed = all.length - filtered.length
+    if (removed > 0) {
+      localStorage.setItem(TRUSTED_QUESTIONS_KEY, JSON.stringify(filtered))
+    }
+    return removed
+  } catch {
+    return 0
+  }
+}
+
 export function appendTrustedGeneratedQuestions(questions, config = {}) {
   if (typeof window === 'undefined' || !questions?.length) return 0
   try {
     const existing = getTrustedGeneratedQuestions()
-    const seen = new Set(existing.map(q => q.fingerprint || _questionFingerprint(q)))
+    const seen = new Set(existing.map(q => q.fingerprint || getQuestionFingerprint(q)))
     const now = new Date().toISOString()
     const additions = []
 
     for (const rawQuestion of questions) {
       const q = enrichQuestionWithUsmleTaxonomy(rawQuestion, config)
-      const fingerprint = _questionFingerprint(q)
+      const fingerprint = getQuestionFingerprint(q)
       if (!fingerprint || fingerprint === '||' || seen.has(fingerprint)) continue
       seen.add(fingerprint)
       additions.push({

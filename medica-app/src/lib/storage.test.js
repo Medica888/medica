@@ -4,8 +4,10 @@ import {
   filterReportedQuestions,
   appendTrustedGeneratedQuestions,
   getQuestionReportAnalytics,
+  getQuestionReports,
   getTrustedGeneratedQuestionsForConfig,
   saveQuestionReport,
+  unreportQuestion,
 } from './storage.js'
 
 const question = (id, overrides = {}) => ({
@@ -72,6 +74,99 @@ describe('question report analytics', () => {
     const filtered = filterReportedQuestions([rewritten, clean])
 
     expect(filtered).toEqual([clean])
+  })
+
+  it('does not block all questions when a reported question has an empty fingerprint', () => {
+    // A question with no stem and no testedConcept produces fingerprint '||'.
+    // Reporting it should NOT exclude every other question with an empty fingerprint.
+    const emptyQ = { id: 'empty-q', stem: '', testedConcept: '' }
+    const normalQ = question('normal-q')
+    saveQuestionReport(emptyQ, 'off_topic', { mode: 'practice' })
+
+    const filtered = filterReportedQuestions([emptyQ, normalQ])
+
+    // emptyQ is excluded by id match; normalQ survives because its fingerprint is not '||'
+    expect(filtered).not.toContainEqual(expect.objectContaining({ id: 'empty-q' }))
+    expect(filtered).toContainEqual(expect.objectContaining({ id: 'normal-q' }))
+  })
+
+  it('fingerprint matching uses the same logic as questionDedup.getQuestionFingerprint', () => {
+    // The report stores the fingerprint computed by getQuestionFingerprint.
+    // When filtering, the same function is used — so a question that matches
+    // by fingerprint is excluded even if its id is different.
+    const original = question('orig', { stem: 'A 45-year-old woman presents with fatigue and cold intolerance.', testedConcept: 'Hypothyroidism' })
+    const sameContent = question('clone', { stem: original.stem, testedConcept: original.testedConcept })
+    const different = question('other', { stem: 'Different stem entirely.', testedConcept: 'Hypertension' })
+    saveQuestionReport(original, 'wrong_answer', { mode: 'practice' })
+
+    const filtered = filterReportedQuestions([sameContent, different])
+
+    expect(filtered).not.toContainEqual(expect.objectContaining({ id: 'clone' }))
+    expect(filtered).toContainEqual(expect.objectContaining({ id: 'other' }))
+  })
+})
+
+describe('unreportQuestion', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  it('removes all reports for a question when no reason is specified', () => {
+    const q = question('q1')
+    saveQuestionReport(q, 'wrong_answer', { mode: 'practice' })
+    saveQuestionReport(q, 'off_topic', { mode: 'practice' })
+
+    const removed = unreportQuestion('q1')
+
+    expect(removed).toBe(2)
+    expect(getQuestionReports()).toHaveLength(0)
+    expect(filterReportedQuestions([q])).toContainEqual(expect.objectContaining({ id: 'q1' }))
+  })
+
+  it('removes only the specific reason when reason is provided', () => {
+    const q = question('q1')
+    saveQuestionReport(q, 'wrong_answer', { mode: 'practice' })
+    saveQuestionReport(q, 'off_topic', { mode: 'practice' })
+
+    const removed = unreportQuestion('q1', 'wrong_answer')
+
+    expect(removed).toBe(1)
+    expect(getQuestionReports()).toHaveLength(1)
+    expect(getQuestionReports()[0].reason).toBe('off_topic')
+    // Still excluded because off_topic report remains
+    expect(filterReportedQuestions([q])).toHaveLength(0)
+  })
+
+  it('removes report for one question without affecting reports for others', () => {
+    const q1 = question('q1')
+    const q2 = question('q2')
+    saveQuestionReport(q1, 'wrong_answer', { mode: 'practice' })
+    saveQuestionReport(q2, 'bad_explanation', { mode: 'practice' })
+
+    unreportQuestion('q1')
+
+    const reports = getQuestionReports()
+    expect(reports).toHaveLength(1)
+    expect(reports[0].questionId).toBe('q2')
+    // q1 is back in pool; q2 is still excluded
+    const filtered = filterReportedQuestions([q1, q2])
+    expect(filtered).toContainEqual(expect.objectContaining({ id: 'q1' }))
+    expect(filtered).not.toContainEqual(expect.objectContaining({ id: 'q2' }))
+  })
+
+  it('returns 0 and does nothing when question was never reported', () => {
+    const removed = unreportQuestion('never-reported')
+    expect(removed).toBe(0)
+    expect(getQuestionReports()).toHaveLength(0)
+  })
+
+  it('dispatches QUESTION_REPORTS_UPDATED_EVENT when a report is removed', () => {
+    const q = question('q1')
+    saveQuestionReport(q, 'wrong_answer', { mode: 'practice' })
+
+    let eventFired = false
+    window.addEventListener('medica:question-reports-updated', () => { eventFired = true }, { once: true })
+    unreportQuestion('q1')
+
+    expect(eventFired).toBe(true)
   })
 })
 
