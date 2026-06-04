@@ -5,7 +5,7 @@ import {
   isNbmeDifficulty,
   scoreNbmePatientAnchor, scoreNbmeClinicalSignal, scoreNbmeLeadIn,
   scoreNbmeOptionStyle, scoreNbmeClueLeakage, scoreNbmeQuestion,
-  scoreScopeAlignment, checkDifficultyFit,
+  scoreScopeAlignment, checkDifficultyFit, checkUworldSpecific,
   type QuestionQuality,
 } from './questionValidator.js';
 
@@ -1622,11 +1622,17 @@ describe('Test 13: concise item — NBME Difficult passes, UWorld Challenge fail
     expect(result.validationStatus).toBe('fail');
   });
 
-  it('both NBME and UWorld pass in exam mode (no explanation required in either)', () => {
+  it('NBME passes in exam mode — explanation absent is fine for NBME', () => {
     const nbme = scoreQuestion({ stem: conciseStem, options: NBME_NEURO_OPTS, correct: 'A', explanation: '' }, 'exam', 'NBME Difficult');
-    const uw   = scoreQuestion({ stem: conciseStem, options: NBME_NEURO_OPTS, correct: 'A', explanation: '' }, 'exam', 'UWorld Challenge');
     expect(nbme.validationStatus).toBe('pass');
-    expect(uw.validationStatus).toBe('pass');
+  });
+
+  it('UWorld fails in exam mode with a concise stem — uworld_stem_too_short is mode-independent', () => {
+    // Phase 4: stem < 180 chars hard-rejects UWorld regardless of mode.
+    // NBME_NEURO_STEM is ~134 chars — valid for NBME, too short for UWorld.
+    const uw = scoreQuestion({ stem: conciseStem, options: NBME_NEURO_OPTS, correct: 'A', explanation: '' }, 'exam', 'UWorld Challenge');
+    expect(uw.rejectionReasons).toContain('uworld_stem_too_short');
+    expect(uw.validationStatus).toBe('fail');
   });
 });
 
@@ -2450,5 +2456,356 @@ describe('checkDifficultyFit — scoreQuestion integration', () => {
     );
     expect(result.rejectionReasons).not.toContain('excessive_complexity_for_easy');
     expect(result.rejectionReasons).not.toContain('insufficient_reasoning_depth');
+  });
+});
+
+// ── Phase 4: UWorld Challenge Backend Parity ──────────────────────────────────
+
+// ── Shared UWorld fixtures ────────────────────────────────────────────────────
+
+// Well-formed UWorld question — passes all Phase 4 checks in practice mode.
+const UW_STEM =
+  'A 38-year-old woman with a 6-year history of systemic lupus erythematosus presents with ' +
+  'worsening fatigue, periorbital edema, and foamy urine for 3 weeks. Blood pressure is ' +
+  '158/94 mmHg. Serum creatinine is 2.1 mg/dL, albumin 2.2 g/dL, and urinalysis shows 4+ ' +
+  'proteinuria with RBC casts. A renal biopsy is performed. Which pathological finding on ' +
+  'light microscopy is most characteristic of this patient\'s condition?';
+
+const UW_OPTS = makeOptions([
+  'Wire loop lesions with thickened glomerular basement membrane',
+  'Mesangial IgA deposits with focal hypercellularity',
+  'Diffuse foot process effacement on electron microscopy',
+  'Congo red staining with apple-green birefringence under polarized light',
+]);
+
+const UW_EXPL =
+  'Wire loop lesions are the hallmark of diffuse proliferative lupus nephritis (ISN/RPS class IV), ' +
+  'representing massive subendothelial immune complex deposition that thickens glomerular capillary ' +
+  'walls. This class causes the most severe renal injury, with combined nephrotic and nephritic ' +
+  'features. Treatment requires high-dose corticosteroids plus cyclophosphamide or mycophenolate ' +
+  'mofetil to prevent progression to end-stage renal disease. Complement levels (C3, C4) and ' +
+  'anti-dsDNA antibodies are monitored to guide disease activity.';
+
+// Option explanations with contrast language for B, C, D (wrongOptionContrastCount = 3).
+const UW_OPTS_EXPL_WITH_CONTRAST: Record<string, string> = {
+  A: 'Wire loop lesions are correct — they represent massive subendothelial immune complex deposition in lupus nephritis class IV, the most severe form with both nephrotic and nephritic features requiring aggressive immunosuppression.',
+  B: 'Mesangial IgA deposits are incorrect because they characterize IgA nephropathy (Berger disease), not lupus nephritis. IgA nephropathy typically follows mucosal infections in younger males rather than presenting with longstanding SLE.',
+  C: 'Diffuse foot process effacement is incorrect because minimal change disease presents with nephrotic syndrome without hematuria or RBC casts. It does not produce the immune complex deposits seen in SLE and lacks the subendothelial deposition pattern.',
+  D: 'Congo red positive deposits are incorrect — amyloidosis causes protein deposition without immune complex formation. Unlike lupus nephritis, amyloidosis does not produce RBC casts and lacks the anti-dsDNA antibody association.',
+};
+
+// Same option explanations but without contrast language (for weak_wrong_option_teaching soft test).
+const UW_OPTS_EXPL_NO_CONTRAST: Record<string, string> = {
+  A: 'Wire loop lesions represent the hallmark finding in diffuse proliferative lupus nephritis class IV, caused by massive subendothelial immune complex deposition and associated with the most severe nephritis requiring aggressive immunosuppression.',
+  B: 'Mesangial IgA deposits are found in IgA nephropathy (Berger disease), a condition characterized by hematuria following mucosal infections in younger males. The clinical presentation and demographics differ substantially from this case.',
+  C: 'Minimal change disease presents with nephrotic syndrome in children and young adults, featuring foot process effacement on electron microscopy. The clinical course responds well to steroids, with complete remission expected in most cases.',
+  D: 'Amyloidosis causes progressive protein deposition in multiple organs and produces characteristic apple-green birefringence on Congo red staining. The clinical presentation and laboratory findings would show patterns diverging from this context.',
+};
+
+// ── checkUworldSpecific — unit tests ─────────────────────────────────────────
+
+describe('checkUworldSpecific — unit tests', () => {
+  // ── uworld_stem_too_short ─────────────────────────────────────────────────────
+
+  it('returns [uworld_stem_too_short] when stem < 180 chars', () => {
+    const q = {
+      stem:        'A 45-year-old woman presents with shortness of breath and creatinine 2.1 mg/dL. Which test is best?',
+      options:     makeOptions(['Chest CT pulmonary angiography', 'Ventilation perfusion scan', 'Echocardiogram with Doppler', 'Pulmonary function testing']),
+      correct:     'A',
+      explanation: UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    };
+    expect(checkUworldSpecific(q, 'practice')).toContain('uworld_stem_too_short');
+  });
+
+  it('does not return uworld_stem_too_short when stem >= 180 chars', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('uworld_stem_too_short');
+  });
+
+  // ── missing_objective_data ────────────────────────────────────────────────────
+
+  it('returns [missing_objective_data] when stem contains no lab/vital/imaging signals', () => {
+    // 180+ chars but purely narrative — no numbers, no units, no imaging terms
+    const narrativeStem =
+      'A middle-aged man with a chronic autoimmune condition comes to the office with worsening ' +
+      'fatigue and swelling around his eyes for several weeks. His family reports he has been ' +
+      'producing frothy urine. He has no prior kidney disease. A tissue sample is requested. ' +
+      'Which pathological finding is most characteristic of his condition?';
+    const q = { stem: narrativeStem, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toContain('missing_objective_data');
+  });
+
+  it('does not return missing_objective_data when stem has lab value (mg/dL)', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('missing_objective_data');
+  });
+
+  it('does not return missing_objective_data when stem has vital sign (mmHg)', () => {
+    const stemWithVitals = UW_STEM; // contains "158/94 mmHg"
+    expect(checkUworldSpecific({ stem: stemWithVitals, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('missing_objective_data');
+  });
+
+  // ── hard_explanation_too_short ────────────────────────────────────────────────
+
+  it('returns [hard_explanation_too_short] when explanation < 350 chars in practice', () => {
+    const shortExpl = 'Wire loop lesions are pathognomonic of lupus nephritis class IV, caused by immune complex deposition and treated with steroids plus cyclophosphamide.';
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: shortExpl, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toContain('hard_explanation_too_short');
+  });
+
+  it('does not return hard_explanation_too_short when explanation >= 350 chars', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('hard_explanation_too_short');
+  });
+
+  it('does not return hard_explanation_too_short in exam mode when explanation is empty', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: '', optionExplanations: {} };
+    expect(checkUworldSpecific(q, 'exam')).not.toContain('hard_explanation_too_short');
+  });
+
+  it('returns hard_explanation_too_short in exam mode when explanation is non-empty but too short', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: 'Wire loop lesions.', optionExplanations: {} };
+    expect(checkUworldSpecific(q, 'exam')).toContain('hard_explanation_too_short');
+  });
+
+  // ── weak_hard_distractors ─────────────────────────────────────────────────────
+
+  it('returns [weak_hard_distractors] when any option is fewer than 12 chars', () => {
+    const q = { stem: UW_STEM, options: makeOptions(['Wire loop lesions and basement membrane thickening', 'IgA deposits', 'Foot process effacement on electron', 'Congo red staining birefringence']), correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toContain('weak_hard_distractors');
+  });
+
+  it('returns [weak_hard_distractors] when any option has fewer than 3 words', () => {
+    const q = { stem: UW_STEM, options: makeOptions(['Wire loop lesions with thickened basement membrane', 'IgA nephropathy', 'Diffuse foot process effacement on electron microscopy', 'Congo red positive amyloid deposits']), correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toContain('weak_hard_distractors');
+  });
+
+  it('does not return weak_hard_distractors when all options are 12+ chars and 3+ words', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('weak_hard_distractors');
+  });
+
+  // ── missing_uworld_option_explanations ────────────────────────────────────────
+
+  it('returns [missing_uworld_option_explanations] in practice when optionExplanations absent', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL };
+    expect(checkUworldSpecific(q, 'practice')).toContain('missing_uworld_option_explanations');
+  });
+
+  it('returns [missing_uworld_option_explanations] in coach when optionExplanations absent', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL };
+    expect(checkUworldSpecific(q, 'coach')).toContain('missing_uworld_option_explanations');
+  });
+
+  it('does NOT return missing_uworld_option_explanations in exam mode', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: '' };
+    expect(checkUworldSpecific(q, 'exam')).not.toContain('missing_uworld_option_explanations');
+  });
+
+  it('does not return missing_uworld_option_explanations when all 4 are present', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('missing_uworld_option_explanations');
+  });
+
+  // ── shallow_uworld_option_explanations ────────────────────────────────────────
+
+  it('returns [shallow_uworld_option_explanations] when any option explanation < 60 chars in practice', () => {
+    const q = {
+      stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL,
+      optionExplanations: { A: UW_OPTS_EXPL_WITH_CONTRAST.A, B: 'Incorrect.', C: UW_OPTS_EXPL_WITH_CONTRAST.C, D: UW_OPTS_EXPL_WITH_CONTRAST.D },
+    };
+    expect(checkUworldSpecific(q, 'practice')).toContain('shallow_uworld_option_explanations');
+  });
+
+  it('does NOT return shallow_uworld_option_explanations when missing_uworld_option_explanations fires', () => {
+    // When explanations are absent the missing check fires; shallow check is skipped.
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL };
+    const reasons = checkUworldSpecific(q, 'practice');
+    expect(reasons).toContain('missing_uworld_option_explanations');
+    expect(reasons).not.toContain('shallow_uworld_option_explanations');
+  });
+
+  it('does not return shallow_uworld_option_explanations when all explanations are 60+ chars', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('shallow_uworld_option_explanations');
+  });
+
+  it('does NOT return shallow_uworld_option_explanations in exam mode', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: '' };
+    expect(checkUworldSpecific(q, 'exam')).not.toContain('shallow_uworld_option_explanations');
+  });
+
+  // ── weak_wrong_option_teaching (soft) ─────────────────────────────────────────
+
+  it('returns [weak_wrong_option_teaching] when < 2 wrong-option explanations use contrast language', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_NO_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toContain('weak_wrong_option_teaching');
+  });
+
+  it('does not return weak_wrong_option_teaching when 2+ wrong-option explanations use contrast', () => {
+    expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
+      .not.toContain('weak_wrong_option_teaching');
+  });
+
+  it('does NOT return weak_wrong_option_teaching in exam mode', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: '' };
+    expect(checkUworldSpecific(q, 'exam')).not.toContain('weak_wrong_option_teaching');
+  });
+
+  // ── clean question returns [] ─────────────────────────────────────────────────
+
+  it('returns [] for a fully valid UWorld practice question', () => {
+    const q = { stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST };
+    expect(checkUworldSpecific(q, 'practice')).toEqual([]);
+  });
+});
+
+// ── checkUworldSpecific — scoreQuestion integration ───────────────────────────
+
+describe('checkUworldSpecific — scoreQuestion integration', () => {
+  // ── Hard rejections each cause validationStatus fail ─────────────────────────
+
+  it('UWorld short stem causes uworld_stem_too_short and fails', () => {
+    const result = scoreQuestion({
+      stem:               'A 45-year-old woman with creatinine 2.1 mg/dL presents with edema. Which test is best?',
+      options:            makeOptions(['Renal ultrasound with Doppler flow', 'Kidney biopsy for pathology', 'Urine protein electrophoresis test', 'Serum complement level assay']),
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('uworld_stem_too_short');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('UWorld short explanation causes hard_explanation_too_short and fails', () => {
+    const shortExpl = 'Wire loop lesions are pathognomonic of lupus nephritis class IV caused by immune complex deposits treated with steroids plus cyclophosphamide.';
+    const result = scoreQuestion({
+      stem:               UW_STEM,
+      options:            UW_OPTS,
+      correct:            'A',
+      explanation:        shortExpl,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('hard_explanation_too_short');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('UWorld weak distractors cause weak_hard_distractors and fail', () => {
+    const result = scoreQuestion({
+      stem:               UW_STEM,
+      options:            makeOptions(['Wire loop lesions with thickened basement membrane', 'Metoprolol', 'Diffuse foot process effacement on electron microscopy', 'Congo red positive amyloid deposits staining']),
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('weak_hard_distractors');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('UWorld stem missing objective data causes missing_objective_data and fails', () => {
+    const narrativeStem =
+      'A middle-aged woman with longstanding autoimmune disease presents with worsening fatigue, ' +
+      'visible swelling around both eyes, and frothy urine for several weeks. She has no prior ' +
+      'kidney problems but reports weight gain and reduced urine output. Her physician orders a ' +
+      'tissue sample to identify the underlying renal pathology causing her symptoms. Which ' +
+      'pathological finding is most characteristic of her condition?';
+    const result = scoreQuestion({
+      stem:               narrativeStem,
+      options:            UW_OPTS,
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('missing_objective_data');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('UWorld practice missing optionExplanations causes missing_uworld_option_explanations and fails', () => {
+    const result = scoreQuestion({
+      stem:        UW_STEM,
+      options:     UW_OPTS,
+      correct:     'A',
+      explanation: UW_EXPL,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('missing_uworld_option_explanations');
+    expect(result.validationStatus).toBe('fail');
+  });
+
+  it('UWorld exam mode without optionExplanations does NOT trigger missing_uworld_option_explanations', () => {
+    const result = scoreQuestion({
+      stem:        UW_STEM,
+      options:     UW_OPTS,
+      correct:     'A',
+      explanation: '',
+    }, 'exam', 'UWorld Challenge');
+    expect(result.rejectionReasons).not.toContain('missing_uworld_option_explanations');
+    expect(result.rejectionReasons).not.toContain('shallow_uworld_option_explanations');
+  });
+
+  // ── Soft reason does not fail alone ──────────────────────────────────────────
+
+  it('UWorld weak_wrong_option_teaching alone does not cause validationStatus fail', () => {
+    // Question passes all hard checks but optionExplanations have no contrast language.
+    const result = scoreQuestion({
+      stem:               UW_STEM,
+      options:            UW_OPTS,
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_NO_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).toContain('weak_wrong_option_teaching');
+    expect(result.validationStatus).toBe('pass');
+  });
+
+  // ── Well-formed UWorld question passes ───────────────────────────────────────
+
+  it('well-formed UWorld practice question passes all checks', () => {
+    const result = scoreQuestion({
+      stem:               UW_STEM,
+      options:            UW_OPTS,
+      correct:            'A',
+      explanation:        UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+    }, 'practice', 'UWorld Challenge');
+    expect(result.rejectionReasons).not.toContain('uworld_stem_too_short');
+    expect(result.rejectionReasons).not.toContain('hard_explanation_too_short');
+    expect(result.rejectionReasons).not.toContain('weak_hard_distractors');
+    expect(result.rejectionReasons).not.toContain('missing_objective_data');
+    expect(result.rejectionReasons).not.toContain('missing_uworld_option_explanations');
+    expect(result.rejectionReasons).not.toContain('shallow_uworld_option_explanations');
+    expect(result.rejectionReasons).not.toContain('weak_wrong_option_teaching');
+    expect(result.validationStatus).toBe('pass');
+  });
+
+  // ── NBME and Balanced are unaffected ─────────────────────────────────────────
+
+  it('NBME Difficult question acquires no UWorld-specific reasons', () => {
+    const result = scoreQuestion(
+      { stem: NBME_NEURO_STEM, options: NBME_NEURO_OPTS, correct: 'A', explanation: NBME_NEURO_EXPL_SHORT },
+      'practice', 'NBME Difficult',
+    );
+    expect(result.rejectionReasons).not.toContain('uworld_stem_too_short');
+    expect(result.rejectionReasons).not.toContain('hard_explanation_too_short');
+    expect(result.rejectionReasons).not.toContain('weak_hard_distractors');
+    expect(result.rejectionReasons).not.toContain('missing_objective_data');
+    expect(result.rejectionReasons).not.toContain('missing_uworld_option_explanations');
+    expect(result.rejectionReasons).not.toContain('weak_wrong_option_teaching');
+  });
+
+  it('Balanced question acquires no UWorld-specific reasons', () => {
+    const result = scoreQuestion({
+      stem:        'A 35-year-old woman presents with painful swollen joints and serum uric acid of 9.2 mg/dL. She has been taking hydrochlorothiazide for hypertension for 6 months. Which mechanism best explains her presentation?',
+      options:     makeOptions(['Decreased renal uric acid excretion', 'Increased de novo purine synthesis', 'Decreased xanthine oxidase activity', 'Impaired urate transporter function']),
+      correct:     'A',
+      explanation: 'Hydrochlorothiazide reduces uric acid excretion at the proximal tubule by competing with urate for the URAT1 transporter. This leads to urate retention and hyperuricemia. The mechanism is distinct from allopurinol (xanthine oxidase inhibition) or colchicine (anti-inflammatory). Patients on thiazide diuretics have increased gout risk that requires monitoring and potential dose adjustment.',
+    }, 'practice', 'Balanced');
+    expect(result.rejectionReasons).not.toContain('uworld_stem_too_short');
+    expect(result.rejectionReasons).not.toContain('hard_explanation_too_short');
+    expect(result.rejectionReasons).not.toContain('weak_hard_distractors');
+    expect(result.rejectionReasons).not.toContain('missing_objective_data');
+    expect(result.rejectionReasons).not.toContain('missing_uworld_option_explanations');
+    expect(result.rejectionReasons).not.toContain('weak_wrong_option_teaching');
   });
 });

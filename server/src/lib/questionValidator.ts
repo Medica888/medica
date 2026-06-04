@@ -79,6 +79,13 @@ const HARD_REJECTIONS = new Set([
   'specialty_validation_failed',
   // Universal difficulty fit
   'excessive_complexity_for_easy',
+  // UWorld Challenge — structural parity (Phase 4)
+  'uworld_stem_too_short',
+  'hard_explanation_too_short',
+  'weak_hard_distractors',
+  'missing_objective_data',
+  'missing_uworld_option_explanations',
+  'shallow_uworld_option_explanations',
 ]);
 
 // Hard rejections specific to the NBME Difficult path.
@@ -134,6 +141,14 @@ export const REPAIR_GUIDANCE: Record<string, string> = {
   // Universal difficulty fit
   'excessive_complexity_for_easy':   'Simplify to a 1-step direct clinical question — remove multi-step reasoning and dense clinical context for More Easy difficulty',
   'insufficient_reasoning_depth':    'Add multi-step clinical reasoning, laboratory findings, or pathophysiological mechanisms to meet the required difficulty depth',
+  // UWorld Challenge-specific repair guidance
+  'uworld_stem_too_short':              'Expand stem to 180+ chars with full clinical vignette: demographics, presenting symptoms, objective findings, and timeline',
+  'hard_explanation_too_short':         'Expand explanation to 350+ chars covering the mechanism, why the correct answer is right, and why each distractor fails',
+  'weak_hard_distractors':              'Rewrite each option as a specific 3+ word clinical phrase (12+ chars) — avoid single drug names, abbreviations, or vague terms',
+  'missing_objective_data':             'Add objective clinical data to the stem: lab values (e.g. creatinine, hemoglobin, mg/dL), vital signs (e.g. BP, HR, mmHg), or imaging/biopsy findings',
+  'missing_uworld_option_explanations': 'Add per-option explanations for A, B, C, and D explaining why each option is correct or incorrect with specific mechanistic detail',
+  'shallow_uworld_option_explanations': 'Expand each per-option explanation to 60+ chars with specific mechanistic reasoning about why the option is right or wrong',
+  'weak_wrong_option_teaching':         'Add contrast/why-wrong teaching to 2+ wrong-option explanations (e.g. "incorrect because...", "unlike X this does not...", "does not explain...")',
 };
 
 // ── Semantic consistency helpers ──────────────────────────────────────────────
@@ -668,7 +683,7 @@ export function checkDifficultyFit(depthScore: number, stemLength: number, diffi
 
     case 'UWorld Challenge':
       // depthMin for UWorld is 65.  Soft-warn anything below that floor.
-      // UWorld-specific structural rules (stemMin 180, option depth, etc.) are Phase 4.
+      // UWorld-specific structural rules are enforced by checkUworldSpecific (Phase 4).
       if (depthScore < 65) {
         reasons.push('insufficient_reasoning_depth');
       }
@@ -679,6 +694,94 @@ export function checkDifficultyFit(depthScore: number, stemLength: number, diffi
     // NBME Difficult: scoreNbmeQuestion handles its own depth signals.
     // 'standardized', '': no difficulty-fit check.
   }
+  return reasons;
+}
+
+// ── Phase 4: UWorld Challenge — structural parity rules ──────────────────────
+
+/**
+ * Objective clinical data required in UWorld stems:
+ * lab values, vital sign measurements, or imaging/procedure findings.
+ * Mirrors medica-app/src/lib/mockQuestions.js OBJECTIVE_DATA_RE.
+ */
+const UWORLD_OBJECTIVE_DATA_RE = /\b(mg\/dl|mmol\/l|bpm|mmhg|creatinine|hemoglobin|hematocrit|wbc|platelet|sodium|potassium|ph|paco2|pao2|hco3|ecg|ekg|x-ray|mri|ct scan|biopsy|blood pressure|heart rate|temperature|antibody|enzyme|mutation|urinalysis|csf|serum|plasma|oxygen|spo2|troponin|lactate|glucose|calcium|albumin|bilirubin|inr|bp|hr)\b/i;
+
+/**
+ * Contrast / why-wrong teaching language expected in UWorld wrong-option explanations.
+ * Mirrors medica-app/src/lib/mockQuestions.js WRONG_OPTION_CONTRAST_RE.
+ */
+const UWORLD_CONTRAST_RE = /\b(not|does not|do not|instead|whereas|however|although|unlike|lacks?|incorrect|wrong|rather than|in contrast|less likely|rules out|incompatible|not the|fails to|neither|not seen|not consistent|not associated|not caused by)\b/i;
+
+/**
+ * UWorld Challenge structural and quality checks applied on top of the general path.
+ *
+ * Hard reasons (in HARD_REJECTIONS):
+ *   uworld_stem_too_short             — stem < 180 chars
+ *   hard_explanation_too_short        — explanation < 350 chars (skipped in exam mode when empty)
+ *   weak_hard_distractors             — any option < 12 chars or < 3 words
+ *   missing_objective_data            — no lab/vital/imaging signal in stem
+ *   missing_uworld_option_explanations — not all A–D explanations present (practice/coach)
+ *   shallow_uworld_option_explanations — any option explanation < 60 chars (practice/coach)
+ *
+ * Soft reason (NOT in HARD_REJECTIONS):
+ *   weak_wrong_option_teaching        — < 2 wrong-option explanations use contrast language
+ */
+export function checkUworldSpecific(q: QuestionInput, mode: string): string[] {
+  const reasons: string[] = [];
+  const stem        = (q.stem        || '').trim();
+  const explanation = (q.explanation || '').trim();
+  const exps        = q.optionExplanations ?? {};
+  const isExam      = mode === 'exam';
+
+  // ── Stem ─────────────────────────────────────────────────────────────────────
+  if (stem.length < 180) {
+    reasons.push('uworld_stem_too_short');
+  }
+
+  if (!UWORLD_OBJECTIVE_DATA_RE.test(stem)) {
+    reasons.push('missing_objective_data');
+  }
+
+  // ── Explanation ───────────────────────────────────────────────────────────────
+  // Exam mode with no explanation: intentionally absent — do not penalise.
+  // Exam mode with a non-empty explanation that is still too short: apply the check.
+  if (!isExam || explanation.length > 0) {
+    if (explanation.length < 350) {
+      reasons.push('hard_explanation_too_short');
+    }
+  }
+
+  // ── Options ───────────────────────────────────────────────────────────────────
+  if ((q.options || []).some(o => {
+    const text  = (o.text || '').trim();
+    const words = text.split(/\s+/).filter(Boolean).length;
+    return text.length < 12 || words < 3;
+  })) {
+    reasons.push('weak_hard_distractors');
+  }
+
+  // ── Option explanations (practice / coach only) ───────────────────────────────
+  if (!isExam) {
+    const hasAll = VALID_LETTERS.every(l => String(exps[l] ?? '').trim().length > 0);
+    if (!hasAll) {
+      reasons.push('missing_uworld_option_explanations');
+    } else {
+      if (VALID_LETTERS.some(l => String(exps[l] ?? '').trim().length < 60)) {
+        reasons.push('shallow_uworld_option_explanations');
+      }
+    }
+
+    // ── Wrong-option contrast teaching (soft) ────────────────────────────────────
+    const contrastCount = VALID_LETTERS.filter(l => {
+      if (l === q.correct) return false;
+      const expl = String(exps[l] ?? '').trim();
+      return expl.length > 0 && UWORLD_CONTRAST_RE.test(expl);
+    }).length;
+    if (contrastCount < 2) {
+      reasons.push('weak_wrong_option_teaching');
+    }
+  }
+
   return reasons;
 }
 
@@ -746,6 +849,11 @@ export function scoreQuestion(
 
   // Universal difficulty fit — sibling to scoreDifficultyCalibration
   rejectionReasons.push(...checkDifficultyFit(depthScore, stem.length, difficulty));
+
+  // UWorld Challenge — structural and quality rules specific to this tier (Phase 4)
+  if (difficulty === 'UWorld Challenge') {
+    rejectionReasons.push(...checkUworldSpecific(q, mode));
+  }
 
   const qualityScore = Math.round(
     0.18 * nbme.score +
