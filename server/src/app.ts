@@ -9,6 +9,7 @@ import analyticsRouter from './routes/analytics.js';
 import flashcardsRouter from './routes/flashcards.js';
 import aiRouter from './routes/ai.js';
 import masteryRouter from './routes/mastery.js';
+import questionReportsRouter from './routes/questionReports.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -22,6 +23,7 @@ export function createApp(): express.Application {
   app.use('/api/analytics', analyticsRouter);
   app.use('/api/flashcards', flashcardsRouter);
   app.use('/api/mastery', masteryRouter);
+  app.use('/api/question-reports', questionReportsRouter);
   app.use('/api', aiRouter);
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

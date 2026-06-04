@@ -387,3 +387,80 @@ export interface ConceptReviewHistory {
   lastReview:          ConceptReviewEntry | null; // reviews[0], or null
   reviews:             ConceptReviewEntry[];      // newest first, max 50
 }
+
+// ── Question reports ──────────────────────────────────────────────────────────
+
+export type QuestionReportReason    = 'wrong_answer' | 'bad_explanation' | 'off_topic';
+export type QuestionQuarantineStatus = 'clear' | 'watch' | 'quarantined';
+export type QuestionRecommendedAction = 'none' | 'review' | 'repair_explanation' | 'quarantine';
+
+/** Raw per-fingerprint count row returned by the repository (no quarantine logic). */
+export interface FingerprintCountRow {
+  fingerprint:    string;
+  total:          number;
+  wrong_answer:   number;
+  bad_explanation: number;
+  off_topic:      number;
+  unique_users:   number;
+}
+
+/** Full per-fingerprint report with quarantine status — produced by QuestionReportService. */
+export interface QuestionFingerprintReport {
+  fingerprint:       string;
+  totalReports:      number;
+  byReason: {
+    wrong_answer:    number;
+    bad_explanation: number;
+    off_topic:       number;
+  };
+  uniqueUsers:       number;
+  quarantineStatus:  QuestionQuarantineStatus;
+  primaryReason:     QuestionReportReason | null;
+  recommendedAction: QuestionRecommendedAction;
+}
+
+/** Entry in the summary's topFingerprints list (flat shape for easy table rendering). */
+export interface QuestionReportSummaryEntry {
+  fingerprint:           string;
+  totalReports:          number;
+  wrongAnswerReports:    number;
+  badExplanationReports: number;
+  offTopicReports:       number;
+  uniqueUsers:           number;
+  quarantineStatus:      QuestionQuarantineStatus;
+  primaryReason:         QuestionReportReason | null;
+  recommendedAction:     QuestionRecommendedAction;
+}
+
+/** Top-level analytics summary returned by GET /api/question-reports/summary. */
+export interface QuestionReportSummary {
+  totalReports: number;
+  byReason: {
+    wrong_answer:    number;
+    bad_explanation: number;
+    off_topic:       number;
+  };
+  topFingerprints: QuestionReportSummaryEntry[];
+}
+
+export interface QuestionReport {
+  id:                 string;
+  user_id:            string | null;  // null for anonymous reporters
+  question_id:        string | null;  // TEXT — bank question IDs are non-UUID strings
+  fingerprint:        string;
+  reason:             'wrong_answer' | 'bad_explanation' | 'off_topic';
+  source:             string | null;
+  mode:               string | null;
+  difficulty:         string | null;
+  requested_subject:  string | null;
+  requested_system:   string | null;
+  requested_topic:    string | null;
+  actual_subject:     string | null;
+  actual_system:      string | null;
+  actual_topic:       string | null;
+  tested_concept:     string | null;
+  usmle_content_area: string | null;
+  physician_task:     string | null;
+  stem_preview:       string | null;
+  created_at:         Date;
+}

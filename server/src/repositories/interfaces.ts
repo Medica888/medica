@@ -11,6 +11,8 @@ import type {
   MasterySnapshot,
   ReviewStats,
   ConceptReviewEntry,
+  QuestionReport,
+  FingerprintCountRow,
   PaginationParams,
   PaginatedResult,
 } from '../types/index.js';
@@ -186,6 +188,34 @@ export interface IUserConceptMasteryRepository {
     ease: 'again' | 'hard' | 'good' | 'easy',
     tx?: unknown,
   ): Promise<{ reviewIntervalDays: number; nextReviewAt: Date | null } | null>;
+}
+
+export interface IQuestionReportsRepository {
+  create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport>;
+
+  /**
+   * Returns global totals plus per-fingerprint breakdown, sorted by total desc then fingerprint asc.
+   * The service layer applies quarantine thresholds on top of these raw counts.
+   */
+  getCountsByFingerprint(limit: number): Promise<{
+    globalTotal:       number;
+    globalWrongAnswer: number;
+    globalBadExpl:     number;
+    globalOffTopic:    number;
+    fingerprints:      FingerprintCountRow[];
+  }>;
+
+  /**
+   * Returns counts for a single fingerprint. Returns zeroes when the fingerprint has no reports.
+   */
+  getCountsForFingerprint(fingerprint: string): Promise<FingerprintCountRow>;
+
+  /**
+   * Returns fingerprints meeting any quarantine threshold:
+   * wrong_answer >= 2 OR off_topic >= 3 OR total >= 5.
+   * Used to filter quarantined questions from AI generation results.
+   */
+  getQuarantinedFingerprints(): Promise<Set<string>>;
 }
 
 export interface IConceptReviewLogRepository {
