@@ -105,15 +105,19 @@ describe('createQuizSession — 40Q block behavior', () => {
     expect(pool.every(q => q.difficulty !== 'standardized')).toBe(true)
   })
 
-  it('still throws when the unseen pool drops below 40 via seen history', () => {
-    // Mark enough questions as seen so <40 remain unseen (need to mark all but 39)
+  it('still starts when old seen history leaves fewer than 40 unseen questions', () => {
+    // Mark enough questions as seen so <40 remain unseen; standardized blocks
+    // may reuse old-session questions while preserving in-block uniqueness.
     const allIds = QUESTION_BANK.slice(0, QUESTION_BANK.length - 39).map(q => q.id)
     vi.mocked(getSessionHistory).mockReturnValueOnce([{ questionIds: allIds, missedQuestions: [] }])
-    expect(() => createQuizSession(standardized40Config)).toThrow('Not enough unique questions')
+    const session = createQuizSession(standardized40Config)
+
+    expect(session.questions).toHaveLength(40)
+    expect(validateUniqueQuestions(session.questions).valid).toBe(true)
   })
 
   it('still throws when reported questions reduce the standardized pool below 40', () => {
-    vi.mocked(filterReportedQuestions).mockImplementationOnce(questions => questions.slice(0, 39))
+    vi.mocked(filterReportedQuestions).mockImplementation(questions => questions.slice(0, 39))
 
     expect(() => createQuizSession(standardized40Config)).toThrow('Not enough unique questions')
   })

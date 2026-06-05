@@ -1,6 +1,6 @@
 import { shuffleQuestionOptions } from './questionNormalizer.js'
 import { getQuestionCorrectLetter } from './answerNormalize.js'
-import { normalizeQuizConfigForGeneration } from './quizTypes.js'
+import { isStandardized40QuestionBlock, normalizeQuizConfigForGeneration } from './quizTypes.js'
 import { enrichQuestionWithUsmleTaxonomy, PHYSICIAN_TASKS, USMLE_CONTENT_AREAS } from './usmleTaxonomy.js'
 import {
   resolveGenerationScope,
@@ -365,7 +365,23 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
   }
 
   const totalBeforeExclusion = pool.length
-  pool = filterReportedQuestions(filterUnseenQuestions(pool, seenState)).sort(() => Math.random() - 0.5)
+  const unseenPool = filterReportedQuestions(filterUnseenQuestions(pool, seenState))
+  const isStandardized40Q =
+    isStandardized40QuestionBlock(normalizedConfig) &&
+    normalizedConfig.mode === 'exam' &&
+    normalizedConfig.questionCount === 40
+
+  // Standardized blocks must be unique within the block, but old session history
+  // should not permanently prevent a user from starting another 40Q exam.
+  const dedupedPool = pool
+  pool = unseenPool
+  if (isStandardized40Q && pool.length < normalizedConfig.questionCount) {
+    const reportedFilteredPool = filterReportedQuestions(dedupedPool)
+    if (reportedFilteredPool.length >= normalizedConfig.questionCount) {
+      pool = reportedFilteredPool
+    }
+  }
+  pool = pool.sort(() => Math.random() - 0.5)
   const excludedCount = totalBeforeExclusion - pool.length
 
   return { questions: pool, expandedScope, originalScopeType, expandedScopeTo, excludedCount }
