@@ -443,6 +443,16 @@ function computeNbmeStyleScore(stem: string): number {
   return Math.min(score, 100);
 }
 
+// ── Layer 4 helper: specialty rule-pack validators ────────────────────────────
+// Runs all subject/system rule-pack validators and mutates rejectionReasons.
+// Centralises the identical call block that would otherwise live in both
+// scoreNbmeQuestion and scoreQuestion.
+function applySpecialtyValidation(q: QuestionInput, rejectionReasons: string[]): SpecialtyValidationResult {
+  const result = validateCardiovascularPathology(q);
+  if (result.status === 'fail') rejectionReasons.push('specialty_validation_failed');
+  return result;
+}
+
 /**
  * NBME Difficult-specific question scorer. Rule-based: pass/fail is determined
  * entirely by whether any NBME_HARD_REJECTIONS reason is present.
@@ -456,17 +466,16 @@ export function scoreNbmeQuestion(
   const rejectionReasons: string[] = [];
   const stem = (q.stem || '').trim();
 
-  // Structural checks
+  // ── Layer 1: base structural ─────────────────────────────────────────────────
   if (stem.length < 70) rejectionReasons.push('nbme_stem_too_short');
   if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
 
-  // NBME format checks
+  // ── Layer 5: NBME-only format checks ─────────────────────────────────────────
   rejectionReasons.push(...scoreNbmePatientAnchor(stem).reasons);
   rejectionReasons.push(...scoreNbmeClinicalSignal(stem).reasons);
   rejectionReasons.push(...scoreNbmeLeadIn(stem).reasons);
   if (NBME_TEACHING_STEM_RE.test(stem)) rejectionReasons.push('teaching_language_in_stem');
 
-  // Option style
   const optStyle = scoreNbmeOptionStyle(q.options);
   rejectionReasons.push(...optStyle.reasons);
 
@@ -474,8 +483,8 @@ export function scoreNbmeQuestion(
   const leakage = scoreNbmeClueLeakage(stem, q.options, q.correct);
   rejectionReasons.push(...leakage.reasons);
 
+  // ── Layer 1 continued: base semantic consistency ──────────────────────────────
   // Explanation quality — scored but shallow_explanation is NOT a hard NBME rejection.
-  // Exam mode → score 100, no reasons. Practice mode → check but don't hard-reject short explanations.
   const expl = scoreExplanationQuality(q.explanation, mode);
   rejectionReasons.push(...expl.reasons);
 
@@ -501,11 +510,8 @@ export function scoreNbmeQuestion(
     0.15 * calibration,
   );
 
-  // Specialty validation (additive — runs after structural checks)
-  const specialtyValidation = validateCardiovascularPathology(q);
-  if (specialtyValidation.status === 'fail') {
-    rejectionReasons.push('specialty_validation_failed');
-  }
+  // ── Layer 4: specialty rule-pack validators ──────────────────────────────────
+  const specialtyValidation = applySpecialtyValidation(q, rejectionReasons);
 
   // Pass/fail is rule-based only — qualityScore is telemetry, not a gate.
   const hasHardRejection = rejectionReasons.some(r => NBME_HARD_REJECTIONS.has(r));
@@ -527,7 +533,7 @@ export function scoreNbmeQuestion(
 
 // ── Sub-scorers ───────────────────────────────────────────────────────────────
 
-function scoreNbmeStyle(stem: string): { score: number; reasons: string[] } {
+function scoreClinicalVignetteStyle(stem: string): { score: number; reasons: string[] } {
   const s = stem.toLowerCase();
   const reasons: string[] = [];
 
@@ -825,10 +831,11 @@ export function scoreQuestion(
   const rejectionReasons: string[] = [];
   const stem = (q.stem || '').trim();
 
+  // ── Layer 1: base structural and vignette format ──────────────────────────────
   if (stem.length < 80) rejectionReasons.push('stem_too_short');
   if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
 
-  const nbme        = scoreNbmeStyle(stem);
+  const nbme        = scoreClinicalVignetteStyle(stem);
   const depthScore  = scoreReasoningDepth(stem);
   const distractor  = scoreDistractorQuality(q.options);
   const leakage     = scoreClueLeakage(stem, q.options, q.correct);
@@ -837,8 +844,7 @@ export function scoreQuestion(
 
   rejectionReasons.push(...nbme.reasons, ...distractor.reasons, ...leakage.reasons, ...expl.reasons);
 
-  // Semantic consistency checks — skipped when structural issues already make the question fail,
-  // mirroring the frontend's early-return-on-structural-failure pattern.
+  // Semantic consistency — skipped when structural issues already make the question fail.
   const hasStructuralFailure = rejectionReasons.some(r =>
     r === 'stem_too_short' || r === 'invalid_correct_letter' ||
     r === 'insufficient_options' || r === 'duplicate_options' ||
@@ -851,10 +857,10 @@ export function scoreQuestion(
     rejectionReasons.push(...answerSupport.reasons, ...contradiction.reasons, ...coachExpl.reasons);
   }
 
-  // Universal difficulty fit — sibling to scoreDifficultyCalibration
+  // ── Layer 3: universal difficulty fit ────────────────────────────────────────
   rejectionReasons.push(...checkDifficultyFit(depthScore, stem.length, difficulty));
 
-  // UWorld Challenge — structural and quality rules specific to this tier (Phase 4)
+  // ── Layer 6: UWorld-only structural and quality rules ────────────────────────
   if (difficulty === 'UWorld Challenge') {
     rejectionReasons.push(...checkUworldSpecific(q, mode));
   }
@@ -868,11 +874,8 @@ export function scoreQuestion(
     0.10 * depthScore,
   );
 
-  // Specialty validation (additive — runs after structural checks)
-  const specialtyValidation = validateCardiovascularPathology(q);
-  if (specialtyValidation.status === 'fail') {
-    rejectionReasons.push('specialty_validation_failed');
-  }
+  // ── Layer 4: specialty rule-pack validators ──────────────────────────────────
+  const specialtyValidation = applySpecialtyValidation(q, rejectionReasons);
 
   const hasHardRejection = rejectionReasons.some(r => HARD_REJECTIONS.has(r));
   const validationStatus: 'pass' | 'fail' = qualityScore >= 60 && !hasHardRejection ? 'pass' : 'fail';
