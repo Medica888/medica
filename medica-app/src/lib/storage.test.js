@@ -246,6 +246,43 @@ describe('flashcard storage quality gate', () => {
   })
 })
 
+// ── saveQuestionReport — ambiguous_or_insufficient_clues reason ──────────────
+
+describe('saveQuestionReport — ambiguous_or_insufficient_clues reason', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  it('saves with the new reason to localStorage', () => {
+    const q = question('q-ambig')
+    saveQuestionReport(q, 'ambiguous_or_insufficient_clues', { mode: 'practice' })
+    const reports = getQuestionReports()
+    expect(reports).toHaveLength(1)
+    expect(reports[0].reason).toBe('ambiguous_or_insufficient_clues')
+    expect(reports[0].questionId).toBe('q-ambig')
+  })
+
+  it('filterReportedQuestions hides a question reported as ambiguous', () => {
+    const q = question('q-hide-ambig')
+    const other = question('q-other')
+    saveQuestionReport(q, 'ambiguous_or_insufficient_clues', { mode: 'practice' })
+    const filtered = filterReportedQuestions([q, other])
+    expect(filtered.find(x => x.id === 'q-hide-ambig')).toBeUndefined()
+    expect(filtered.find(x => x.id === 'q-other')).toBeDefined()
+  })
+
+  it('existing reasons still work alongside new reason', () => {
+    const q1 = question('q-wa')
+    const q2 = question('q-be')
+    const q3 = question('q-ot')
+    const q4 = question('q-ambig2')
+    saveQuestionReport(q1, 'wrong_answer', { mode: 'practice' })
+    saveQuestionReport(q2, 'bad_explanation', { mode: 'practice' })
+    saveQuestionReport(q3, 'off_topic', { mode: 'practice' })
+    saveQuestionReport(q4, 'ambiguous_or_insufficient_clues', { mode: 'practice' })
+    expect(getQuestionReports()).toHaveLength(4)
+    expect(filterReportedQuestions([q1, q2, q3, q4])).toHaveLength(0)
+  })
+})
+
 // ── saveQuestionReport — backend fire-and-forget POST ─────────────────────────
 
 describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
@@ -331,6 +368,17 @@ describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
     saveQuestionReport(q('q-event'), 'off_topic', { mode: 'practice' })
 
     expect(fired).toBe(true)
+  })
+
+  it('backend POST is sent with the ambiguous_or_insufficient_clues reason', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+    vi.stubGlobal('fetch', mockFetch)
+
+    saveQuestionReport(q('q-ambig-post'), 'ambiguous_or_insufficient_clues', { mode: 'practice' })
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.reason).toBe('ambiguous_or_insufficient_clues')
   })
 
   it('backend POST body stemPreview is truncated to 100 chars', () => {

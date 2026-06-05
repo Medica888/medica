@@ -12,6 +12,12 @@ import { useReadiness, useMasteryProgress, useMasteryTimeline } from '../../hook
 import { getQuestionReportAnalytics, subscribeQuestionReports } from '../../lib/storage'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
+const FILTER_TO_RANGE = { 'Week': 'week', 'Month': 'month', 'All time': 'all' }
+const RANGE_NOTE = {
+  week:  'Showing last 7 days',
+  month: 'Showing last 30 days',
+  all:   null,
+}
 
 const SUBJECT_STATUS = (pct) => {
   if (pct < 65) return { label: 'Priority',   variant: 'priority' }
@@ -21,17 +27,60 @@ const SUBJECT_STATUS = (pct) => {
 }
 
 export default function AnalyticsDashboard({ onNavigate }) {
-  const data = useMemo(() => buildAnalyticsData(), [])
-  const [reportAnalytics, setReportAnalytics] = useState(() => getQuestionReportAnalytics())
   const [timeFilter, setTimeFilter] = useState('All time')
+  const range = FILTER_TO_RANGE[timeFilter] ?? 'all'
+
+  const data = useMemo(() => buildAnalyticsData(range), [range])
+
+  // reportsVersion bumps whenever a report is saved; drives the memo below
+  const [reportsVersion, setReportsVersion] = useState(0)
+  useEffect(() => subscribeQuestionReports(() => setReportsVersion(v => v + 1)), [])
+  const reportAnalytics = useMemo(
+    () => getQuestionReportAnalytics(range),
+    [range, reportsVersion],
+  )
+
   const rdHook       = useReadiness()
   const progressHook = useMasteryProgress()
   const timelineHook = useMasteryTimeline()
 
-  useEffect(() => subscribeQuestionReports(() => {
-    setReportAnalytics(getQuestionReportAnalytics())
-  }), [])
+  // Range empty: sessions exist overall but none in selected range
+  if (data.empty && data.rangeEmpty) {
+    return (
+      <div className="an-page">
+        <div className="an-scroll">
+          <div className="an-intel-hdr">
+            <div>
+              <h1 className="an-intel-title">Analytics</h1>
+              <p className="an-intel-sub">Performance Intelligence · Step 1</p>
+            </div>
+            <div className="an-time-filter" role="group" aria-label="Time filter">
+              {TIME_FILTERS.map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`an-time-btn${timeFilter === t ? ' active' : ''}`}
+                  onClick={() => setTimeFilter(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="an-empty">
+            <div className="an-empty-icon" aria-hidden="true">📅</div>
+            <div className="an-empty-title">No sessions in this range</div>
+            <p className="an-empty-body">
+              No sessions completed in the selected {timeFilter.toLowerCase()} window.
+              Switch to <strong>All time</strong> to see your full history.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
+  // Global empty: no sessions at all
   if (data.empty) {
     return (
       <div className="an-page">
@@ -63,6 +112,8 @@ export default function AnalyticsDashboard({ onNavigate }) {
     ? Math.max(40, Math.round(100 - (overview.flashcardsDue / 20) * 10))
     : 70
 
+  const rangeNote = RANGE_NOTE[range]
+
   return (
     <div className="an-page">
       <div className="an-scroll">
@@ -87,6 +138,11 @@ export default function AnalyticsDashboard({ onNavigate }) {
           </div>
         </div>
 
+        {/* Range subtitle */}
+        {rangeNote && (
+          <p className="an-range-note" data-testid="range-note">{rangeNote}</p>
+        )}
+
         {/* Two-column layout */}
         <div className="an-intel-grid">
 
@@ -98,7 +154,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
               <div className="an-traj-hdr">
                 <div>
                   <div className="an-intel-card-title">Score Trajectory</div>
-                  <div className="an-intel-card-sub">Predicted score over {trends.length} session{trends.length !== 1 ? 's' : ''}</div>
+                  <div className="an-intel-card-sub" data-testid="trajectory-sub">
+                    Predicted score over {overview.totalSessions} session{overview.totalSessions !== 1 ? 's' : ''}
+                  </div>
                 </div>
                 {overview.latestMedicaScore != null && (
                   <div className="an-traj-badge">
@@ -276,6 +334,11 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
           </div>
         </div>
+
+        {/* ── Backend-powered panels — all-time data, not range-filtered ── */}
+        <p className="an-backend-note" data-testid="backend-all-time-note">
+          Learning Progress, Concept Mastery, and Study Prescription reflect all-time data from the backend — not affected by the time filter above.
+        </p>
 
         {/* ── Progress tracking (backend-powered; needs ≥1 snapshot to show) */}
         <ProgressPanel progressHook={progressHook} timelineHook={timelineHook} />

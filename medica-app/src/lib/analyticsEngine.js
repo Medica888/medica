@@ -1,5 +1,21 @@
 import { getSessionHistory, getLastPracticeResults, getLastCoachResults, getFlashcards } from './storage'
 import { normalizeTopicForAnalytics } from './topicNormalizer.js'
+import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
+
+export { getRangeStartDate }
+
+/**
+ * Filters a sorted sessions array to only those whose completedAt falls within the range.
+ * Sessions with no valid completedAt are excluded from week/month (included only in 'all').
+ * @param {object[]} sessions
+ * @param {'week'|'month'|'all'} range
+ * @param {Date} [now]
+ */
+export function filterSessionsByRange(sessions, range, now = new Date()) {
+  const start = getRangeStartDate(range, now)
+  if (!start) return sessions
+  return sessions.filter(s => isTimestampInRange(s.completedAt, start))
+}
 
 // ── USMLE Step 1 discipline yield weights ──────────────────────────────────
 const USMLE_STEP1_YIELD_MAP = {
@@ -57,15 +73,21 @@ const PHYSICIAN_TASK_YIELD_MAP = {
   'Practice-Based Learning and Improvement': { weight: 1.05, testedAs: 'Evidence interpretation, study design, bias, and research ethics.' },
 }
 
-export function buildAnalyticsData() {
+/**
+ * @param {'week'|'month'|'all'} [range]
+ * @param {Date} [now]  — injectable for deterministic tests
+ */
+export function buildAnalyticsData(range = 'all', now = new Date()) {
   const rawHistory = getSessionHistory()
   const lastPractice = getLastPracticeResults()
   const lastCoach = getLastCoachResults()
 
-  const sessions = _buildSessions(rawHistory, lastPractice, lastCoach)
+  const allSessions = _buildSessions(rawHistory, lastPractice, lastCoach)
+  const sessions    = filterSessionsByRange(allSessions, range, now)
 
   if (sessions.length === 0) {
-    return { empty: true }
+    // rangeEmpty=true means sessions exist overall but none in this range
+    return { empty: true, rangeEmpty: range !== 'all' && allSessions.length > 0 }
   }
 
   const overview = _computeOverview(sessions)

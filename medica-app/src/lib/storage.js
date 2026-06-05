@@ -1,6 +1,7 @@
 import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
 import { validateClinicalCard } from './flashcardValidator.js'
 import { getQuestionFingerprint } from './questionDedup.js'
+import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
@@ -170,12 +171,23 @@ function _topCounts(items, key, limit = 3) {
     .slice(0, limit)
 }
 
-export function getQuestionReportAnalytics() {
-  const reports = getQuestionReports()
+/**
+ * @param {'week'|'month'|'all'} [range]
+ * @param {Date} [now]
+ * Reports without a valid reportedAt are excluded from week/month ranges.
+ */
+export function getQuestionReportAnalytics(range = 'all', now = new Date()) {
+  const allReports = getQuestionReports()
+  let reports = allReports
+  if (range !== 'all') {
+    const start = getRangeStartDate(range, now)
+    reports = allReports.filter(r => isTimestampInRange(r.reportedAt, start))
+  }
   const reasonLabels = {
     wrong_answer: 'Wrong answer',
     bad_explanation: 'Bad explanation',
     off_topic: 'Off topic',
+    ambiguous_or_insufficient_clues: 'Ambiguous clues',
   }
   const reasonCounts = reports.reduce((acc, r) => {
     const key = r.reason || 'unknown'
