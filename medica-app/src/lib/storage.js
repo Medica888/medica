@@ -97,10 +97,52 @@ export function saveQuestionReport(question, reason, context = {}) {
     const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
     localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
+    // Best-effort backend sync — fire-and-forget, never blocks the UI
+    _postReportToBackend(report, question, context)
     return report
   } catch {
     return null
   }
+}
+
+/**
+ * Fire-and-forget: mirrors the local report to the backend so cross-user
+ * quarantine thresholds can accumulate.  Silently swallows all errors —
+ * localStorage is the primary store; backend is best-effort.
+ *
+ * Only runs when VITE_USE_BACKEND_API === 'true' (i.e. the backend is reachable).
+ * The backend route uses optionalAuth so unauthenticated reports are accepted.
+ */
+function _postReportToBackend(report, question, context) {
+  if (typeof window === 'undefined') return
+  if (typeof fetch === 'undefined') return
+  // Env guard — mirrors the convention used in generateAIQuestions.js
+  try {
+    if (import.meta.env?.VITE_USE_BACKEND_API !== 'true') return
+  } catch {
+    return
+  }
+  fetch('/api/question-reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fingerprint:      report.fingerprint,
+      reason:           report.reason,
+      questionId:       question?.id ?? null,
+      stemPreview:      String(question?.stem || '').slice(0, 100) || null,
+      testedConcept:    report.testedConcept || null,
+      source:           context?.source ?? null,
+      mode:             report.mode || null,
+      difficulty:       question?.difficulty ?? null,
+      requestedSubject: context?.subject ?? null,
+      requestedSystem:  context?.system ?? null,
+      requestedTopic:   context?.topic ?? null,
+      actualSubject:    report.subject || null,
+      actualSystem:     report.system || null,
+      usmleContentArea: report.usmleContentArea || null,
+      physicianTask:    report.physicianTask || null,
+    }),
+  }).catch(() => { /* silently ignore — local save is primary */ })
 }
 
 export function subscribeQuestionReports(listener) {

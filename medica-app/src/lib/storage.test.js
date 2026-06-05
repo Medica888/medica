@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import {
   appendFlashcards,
   filterReportedQuestions,
@@ -243,5 +243,105 @@ describe('flashcard storage quality gate', () => {
     const saved = JSON.parse(localStorage.getItem('medica:flashcards') || '[]')
     expect(added).toBe(1)
     expect(saved[0].id).toBe('good-card')
+  })
+})
+
+// ── saveQuestionReport — backend fire-and-forget POST ─────────────────────────
+
+describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
+  const q = (id, overrides = {}) => ({
+    id,
+    stem: `A 45-year-old patient presents with ${id}.`,
+    testedConcept: 'ACE inhibitor cough',
+    subject: 'Pharmacology',
+    system: 'Cardiovascular',
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  it('still saves locally when the backend POST fails', () => {
+    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
+
+    saveQuestionReport(q('q-net-fail'), 'wrong_answer', { mode: 'practice' })
+
+    expect(getQuestionReports()).toHaveLength(1)
+    expect(getQuestionReports()[0].questionId).toBe('q-net-fail')
+  })
+
+  it('attempts backend POST when VITE_USE_BACKEND_API is true', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'srv-1' }) })
+    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+    vi.stubGlobal('fetch', mockFetch)
+
+    saveQuestionReport(q('q-post'), 'wrong_answer', { mode: 'practice' })
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/question-reports',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('does NOT attempt backend POST when VITE_USE_BACKEND_API is not true', () => {
+    const mockFetch = vi.fn()
+    vi.stubEnv('VITE_USE_BACKEND_API', 'false')
+    vi.stubGlobal('fetch', mockFetch)
+
+    saveQuestionReport(q('q-no-post'), 'wrong_answer', { mode: 'practice' })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    // Local save still happened
+    expect(getQuestionReports()).toHaveLength(1)
+  })
+
+  it('backend POST payload includes fingerprint and reason', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+    vi.stubGlobal('fetch', mockFetch)
+
+    const question = q('q-payload', { stem: 'A 38-year-old woman presents with persistent dry cough after starting lisinopril.' })
+    saveQuestionReport(question, 'bad_explanation', { mode: 'coach', source: 'ai' })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [url, opts] = mockFetch.mock.calls[0]
+    expect(url).toBe('/api/question-reports')
+    const body = JSON.parse(opts.body)
+    expect(body.fingerprint).toBeDefined()
+    expect(body.fingerprint).not.toBe('')
+    expect(body.reason).toBe('bad_explanation')
+    expect(body.questionId).toBe('q-payload')
+    expect(body.mode).toBe('coach')
+    expect(body.source).toBe('ai')
+  })
+
+  it('local QUESTION_REPORTS_UPDATED_EVENT still fires regardless of backend status', () => {
+    // Backend disabled — event should still fire from local save
+    vi.stubEnv('VITE_USE_BACKEND_API', 'false')
+    let fired = false
+    window.addEventListener('medica:question-reports-updated', () => { fired = true }, { once: true })
+
+    saveQuestionReport(q('q-event'), 'off_topic', { mode: 'practice' })
+
+    expect(fired).toBe(true)
+  })
+
+  it('backend POST body stemPreview is truncated to 100 chars', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+    vi.stubGlobal('fetch', mockFetch)
+    const longStem = 'A'.repeat(200)
+
+    saveQuestionReport(q('q-trunc', { stem: longStem }), 'wrong_answer', {})
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.stemPreview.length).toBeLessThanOrEqual(100)
   })
 })
