@@ -62,6 +62,7 @@ describe('QuizSession exam answer display', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /beta blocker/i }))
     fireEvent.click(screen.getByRole('button', { name: /submit exam/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm and submit exam/i }))
 
     expect(screen.getByText('1/1 correct')).toBeInTheDocument()
     expect(screen.getByText('Correct - B is right')).toBeInTheDocument()
@@ -80,6 +81,7 @@ describe('QuizSession exam answer display', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: /submit exam/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm and submit exam/i }))
 
     expect(screen.getByText('1/1 correct')).toBeInTheDocument()
   })
@@ -217,6 +219,7 @@ describe('QuizSession — Question Navigator (exam mode)', () => {
       <QuizSession session={session} onExit={vi.fn()} onComplete={vi.fn()} />
     )
     fireEvent.click(screen.getByRole('button', { name: /submit/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm and submit exam/i }))
     expect(container.querySelector('.qn-tile.correct')).toBeTruthy()
     expect(container.querySelector('.qn-tile.incorrect')).toBeTruthy()
   })

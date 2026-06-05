@@ -4,6 +4,9 @@ import { saveQuizSession } from '../../lib/storage'
 import { normalizeQuestion } from '../../lib/mockQuestions'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
 import QuestionNavigator from '../session/QuestionNavigator'
+import LabDrawer from '../session/LabDrawer'
+import NotesDrawer from '../session/NotesDrawer'
+import CalculatorDrawer from '../session/CalculatorDrawer'
 
 /**
  * @param {{
@@ -13,15 +16,16 @@ import QuestionNavigator from '../session/QuestionNavigator'
  * }} props
  */
 export default function PracticeInterface({ session: initialSession, onComplete, onExit }) {
-  // Normalize all questions to A-D on mount
   const normalizedQuestions = initialSession.questions.map(normalizeQuestion)
   const [session] = useState({ ...initialSession, questions: normalizedQuestions })
 
   const [currentIndex, setCurrentIndex] = useState(0)
-  // answers: Record<questionId, OptionLetter>
-  const [answers, setAnswers] = useState({})
-  // revealed: Record<questionId, boolean> - explanation shown
-  const [revealed, setRevealed] = useState({})
+  const [answers, setAnswers]           = useState({})
+  const [revealed, setRevealed]         = useState({})
+  const [openDrawer, setOpenDrawer]     = useState(null)
+  const [notes, setNotes]               = useState({})
+  const [highlights, setHighlights]     = useState({})
+  const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
 
   const questions  = session.questions
   const totalQ     = questions.length
@@ -30,7 +34,6 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const isRevealed = revealed[question?.id] ?? false
   const isLastQ    = currentIndex === totalQ - 1
 
-  // Persist session progress
   useEffect(() => {
     saveQuizSession({ ...session, answers, currentIndex })
   }, [answers, currentIndex, session])
@@ -57,6 +60,15 @@ export default function PracticeInterface({ session: initialSession, onComplete,
     const sessionWithAnswers = { ...session, answers }
     const results = calculatePracticeResults(sessionWithAnswers)
     onComplete(results, sessionWithAnswers)
+  }
+
+  const closeDrawer = () => setOpenDrawer(null)
+
+  const handleHighlight = (start, end, color) => {
+    setHighlights(h => ({
+      ...h,
+      [question.id]: [...(h[question.id] || []), { start, end, color }],
+    }))
   }
 
   if (!question) {
@@ -97,8 +109,52 @@ export default function PracticeInterface({ session: initialSession, onComplete,
         </div>
 
         <div className="pi-hdr-right">
-          {/* No timer in practice mode */}
-          <span className="pi-no-timer-label">No time limit</span>
+          <div className="exam-utility-row" role="toolbar" aria-label="Study tools">
+            <button
+              type="button"
+              className={`exam-util-btn${openDrawer === 'labs' ? ' active' : ''}`}
+              onClick={() => setOpenDrawer(d => d === 'labs' ? null : 'labs')}
+              aria-expanded={openDrawer === 'labs'}
+            >
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M5 1.5v5L2 12h10L9 6.5V1.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5 1.5h4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+                <path d="M3.5 8.5h7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
+              Lab Values
+            </button>
+            <button
+              type="button"
+              className={`exam-util-btn${openDrawer === 'calc' ? ' active' : ''}`}
+              onClick={() => setOpenDrawer(d => d === 'calc' ? null : 'calc')}
+              aria-expanded={openDrawer === 'calc'}
+            >
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <rect x="1.5" y="1" width="11" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+                <rect x="3" y="2.5" width="8" height="2.5" rx=".75" fill="currentColor" opacity=".3"/>
+                <circle cx="4" cy="8" r=".9" fill="currentColor"/>
+                <circle cx="7" cy="8" r=".9" fill="currentColor"/>
+                <circle cx="10" cy="8" r=".9" fill="currentColor"/>
+                <circle cx="4" cy="11" r=".9" fill="currentColor"/>
+                <circle cx="7" cy="11" r=".9" fill="currentColor"/>
+                <circle cx="10" cy="11" r=".9" fill="currentColor"/>
+              </svg>
+              Calculator
+            </button>
+            <button
+              type="button"
+              className={`exam-util-btn${notes[question.id] ? ' has-notes' : ''}${openDrawer === 'notes' ? ' active' : ''}`}
+              onClick={() => setOpenDrawer(d => d === 'notes' ? null : 'notes')}
+              aria-expanded={openDrawer === 'notes'}
+            >
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+                <path d="M4.5 5h5M4.5 7.5h5M4.5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              Notes
+              {notes[question.id] && <span className="exam-util-dot" aria-hidden="true" />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -112,6 +168,11 @@ export default function PracticeInterface({ session: initialSession, onComplete,
             revealed={isRevealed}
             onAnswer={handleAnswer}
             onCheckAnswer={handleCheckAnswer}
+            highlights={highlights[question.id] || []}
+            activeHighlightColor={activeHighlightColor}
+            onHighlight={handleHighlight}
+            onChangeHighlightColor={setActiveHighlightColor}
+            onClearHighlights={() => setHighlights(h => ({ ...h, [question.id]: [] }))}
           />
         </div>
       </div>
@@ -171,6 +232,17 @@ export default function PracticeInterface({ session: initialSession, onComplete,
           </button>
         )}
       </div>
+
+      {/* Non-blocking drawers */}
+      <LabDrawer isOpen={openDrawer === 'labs'} onClose={closeDrawer} />
+      <CalculatorDrawer isOpen={openDrawer === 'calc'} onClose={closeDrawer} />
+      <NotesDrawer
+        isOpen={openDrawer === 'notes'}
+        onClose={closeDrawer}
+        questionId={question.id}
+        notes={notes}
+        onNotesChange={(id, val) => setNotes(n => ({ ...n, [id]: val }))}
+      />
     </div>
   )
 }

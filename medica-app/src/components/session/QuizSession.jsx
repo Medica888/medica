@@ -1,10 +1,14 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { saveQuestionReport, saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
 import QuestionNavigator from './QuestionNavigator'
+import HighlightedText from './HighlightedText'
+import LabDrawer from './LabDrawer'
+import NotesDrawer from './NotesDrawer'
+import CalculatorDrawer from './CalculatorDrawer'
+import SubmitConfirmModal from './SubmitConfirmModal'
 
-// Normalize legacy or unexpected mode strings to the canonical three
 function normalizeMode(mode) {
   if (mode === 'timed')       return 'exam'
   if (mode === 'unlimited')   return 'practice'
@@ -47,41 +51,6 @@ function getMedicalReviewLabel(telemetry) {
   return `${telemetry.medicalReviewPassed}/${telemetry.medicalReviewRequested} medically reviewed`
 }
 
-const LAB_REFERENCE = [
-  { name: 'Na⁺',       range: '136–145 mEq/L' },
-  { name: 'K⁺',        range: '3.5–5.0 mEq/L' },
-  { name: 'Cl⁻',       range: '98–106 mEq/L' },
-  { name: 'HCO₃⁻',     range: '22–28 mEq/L' },
-  { name: 'BUN',        range: '7–20 mg/dL' },
-  { name: 'Creatinine', range: '0.6–1.2 mg/dL' },
-  { name: 'Glucose',    range: '70–110 mg/dL' },
-  { name: 'Ca²⁺',       range: '8.5–10.5 mg/dL' },
-  { name: 'Mg²⁺',       range: '1.5–2.5 mEq/L' },
-  { name: 'PO₄³⁻',      range: '2.5–4.5 mg/dL' },
-  { name: 'Hgb ♂',      range: '13.5–17.5 g/dL' },
-  { name: 'Hgb ♀',      range: '12.0–16.0 g/dL' },
-  { name: 'Hct ♂',      range: '41–53%' },
-  { name: 'Hct ♀',      range: '36–46%' },
-  { name: 'WBC',        range: '4.5–11.0 ×10³/µL' },
-  { name: 'Platelets',  range: '150–400 ×10³/µL' },
-  { name: 'MCV',        range: '80–100 fL' },
-  { name: 'PT',         range: '11–15 s' },
-  { name: 'aPTT',       range: '25–35 s' },
-  { name: 'INR',        range: '0.8–1.2' },
-  { name: 'ALT',        range: '7–40 U/L' },
-  { name: 'AST',        range: '10–40 U/L' },
-  { name: 'ALP',        range: '25–100 U/L' },
-  { name: 'T. Bili',    range: '0.2–1.2 mg/dL' },
-  { name: 'Albumin',    range: '3.5–5.0 g/dL' },
-  { name: 'TSH',        range: '0.5–5.0 µIU/mL' },
-  { name: 'Free T₄',    range: '0.9–2.4 ng/dL' },
-  { name: 'HbA1c',      range: '< 5.7%' },
-  { name: 'pH (art.)',  range: '7.35–7.45' },
-  { name: 'PaO₂',       range: '75–100 mmHg' },
-  { name: 'PaCO₂',      range: '35–45 mmHg' },
-  { name: 'O₂ sat',     range: '> 95%' },
-]
-
 /** @param {{ session: import('../../lib/quizTypes').QuizSession, onExit: () => void, onComplete?: (results: object) => void }} props */
 export default function QuizSession({ session: initialSession, onExit, onComplete }) {
   const normalizedInitial = {
@@ -102,6 +71,11 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const [reportedQuestionId, setReportedQuestionId] = useState(null)
   const [confidences, setConfidences]   = useState({})
   const [notes, setNotes]               = useState({})
+  const [openDrawer, setOpenDrawer]     = useState(null)
+  const [highlights, setHighlights]     = useState({})
+  const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
+
   const timerRef      = useRef(null)
   const onCompleteRef = useRef(onComplete)
   const markedRef     = useRef({})
@@ -109,27 +83,22 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   useEffect(() => { markedRef.current = marked }, [marked])
 
   const { mode, questions, answers, currentIndex } = session
-  const isExam  = mode === 'exam'
-  const totalQ  = questions?.length ?? 0
+  const isExam   = mode === 'exam'
+  const totalQ   = questions?.length ?? 0
   const question = questions?.[currentIndex] ?? questions?.[0]
-  const sourceLabel        = getSessionSourceLabel(initialSession)
+  const sourceLabel         = getSessionSourceLabel(initialSession)
   const fallbackReasonLabel = formatFallbackReason(initialSession.config?.fallbackReason)
   const medicalReviewLabel  = getMedicalReviewLabel(initialSession.generationTelemetry)
   const stopReasonLabel     = formatStopReason(initialSession.generationTelemetry?.stoppedReason)
 
-  // Persist session on every state change - BEFORE early return
-  useEffect(() => {
-    saveQuizSession(session)
-  }, [session])
+  useEffect(() => { saveQuizSession(session) }, [session])
 
-  // Timer countdown
   useEffect(() => {
     if (!isExam || examSubmitted || secondsLeft === null || secondsLeft <= 0) return
     timerRef.current = setTimeout(() => setSecondsLeft(s => s - 1), 1000)
     return () => clearTimeout(timerRef.current)
   }, [secondsLeft, examSubmitted, isExam])
 
-  // Auto-submit when timer reaches 0
   useEffect(() => {
     if (!isExam || examSubmitted || secondsLeft !== 0 || totalQ === 0) return
     clearTimeout(timerRef.current)
@@ -140,7 +109,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     onCompleteRef.current?.({ ...results, mode: 'exam' }, finalSession)
   }, [isExam, examSubmitted, secondsLeft, totalQ, session])
 
-  // Safety guard - AFTER all hooks
   if (!questions || questions.length === 0) {
     return (
       <div className="qs-page" style={{ alignItems: 'center', justifyContent: 'center', gap: 16 }}>
@@ -154,18 +122,21 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     )
   }
 
-  const answered = answers[question.id]
+  const answered        = answers[question.id]
   const correctLetter   = getQuestionCorrectLetter(question)
   const normalizedAnswer = normalizeAnswerLetter(answered)
   const isCorrect = normalizedAnswer === correctLetter
 
   const updateSession = (patch) => setSession(s => ({ ...s, ...patch }))
+  const toggleMark = () => setMarked(m => ({ ...m, [question.id]: !m[question.id] }))
+  const closeDrawer = () => setOpenDrawer(null)
+  const allAnswered = Object.keys(answers).length === totalQ
+  const markedCount = Object.values(marked).filter(Boolean).length
 
-  const toggleMark = () => {
-    setMarked(m => ({ ...m, [question.id]: !m[question.id] }))
-  }
+  const handleSubmitRequest = () => setShowSubmitConfirm(true)
 
-  const handleExamSubmit = () => {
+  const handleConfirmSubmit = () => {
+    setShowSubmitConfirm(false)
     clearTimeout(timerRef.current)
     setSubmitted(true)
     setShowExpl(true)
@@ -175,6 +146,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
       onCompleteRef.current({ ...results, mode: 'exam' }, finalSession)
     }
   }
+
 
   const handleAnswer = (letter) => {
     if (isExam && examSubmitted) return
@@ -188,13 +160,22 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     if (saved) setReportedQuestionId(question.id)
   }
 
-  const allAnswered = Object.keys(answers).length === totalQ
-
   const handleNav = (dir) => {
     const next = currentIndex + dir
     if (next < 0 || next >= totalQ) return
     setShowExpl(false)
     updateSession({ currentIndex: next })
+  }
+
+  const handleHighlight = (start, end, color) => {
+    setHighlights(h => ({
+      ...h,
+      [question.id]: [...(h[question.id] || []), { start, end, color }],
+    }))
+  }
+
+  const handleClearHighlights = () => {
+    setHighlights(h => ({ ...h, [question.id]: [] }))
   }
 
   const formatTime = (secs) => {
@@ -210,7 +191,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   return (
     <div className="qs-page exam-layout">
 
-      {/* ── Top header ──────────────────────────────────────────────────────── */}
+      {/* ── Top header ─────────────────────────────────────────────────────── */}
       <header className="exam-hdr">
         <div className="exam-hdr-left">
           <svg width="22" height="26" viewBox="0 0 22 26" fill="none" aria-hidden="true">
@@ -220,20 +201,10 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
           <span className="exam-hdr-wordmark">MEDICA</span>
           <div className="exam-hdr-sep" />
           <span className="exam-hdr-mode-lbl">Exam Mode</span>
-
-          {/* Provenance / telemetry badges */}
-          {sourceLabel && (
-            <span className="exam-badge-meta">{sourceLabel}</span>
-          )}
-          {fallbackReasonLabel && (
-            <span className="exam-badge-warn">Fallback: {fallbackReasonLabel}</span>
-          )}
-          {medicalReviewLabel && (
-            <span className="exam-badge-meta">{medicalReviewLabel}</span>
-          )}
-          {stopReasonLabel && (
-            <span className="exam-badge-meta">{stopReasonLabel}</span>
-          )}
+          {sourceLabel         && <span className="exam-badge-meta">{sourceLabel}</span>}
+          {fallbackReasonLabel && <span className="exam-badge-warn">Fallback: {fallbackReasonLabel}</span>}
+          {medicalReviewLabel  && <span className="exam-badge-meta">{medicalReviewLabel}</span>}
+          {stopReasonLabel     && <span className="exam-badge-meta">{stopReasonLabel}</span>}
         </div>
 
         <div className="exam-hdr-center">
@@ -264,7 +235,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             <div className="exam-score-badge">{score}/{totalQ} correct</div>
           )}
           {!examSubmitted && (
-            <button className={`exam-hdr-finish-btn${allAnswered ? ' ready' : ''}`} onClick={handleExamSubmit}>
+            <button className={`exam-hdr-finish-btn${allAnswered ? ' ready' : ''}`} onClick={handleSubmitRequest}>
               Finish Exam
             </button>
           )}
@@ -277,7 +248,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
         </div>
       </header>
 
-      {/* ── 3-column body ───────────────────────────────────────────────────── */}
+      {/* ── 2-column body (nav + full-width center) ─────────────────────────── */}
       <div className="exam-body">
 
         {/* Left: question navigator */}
@@ -305,19 +276,100 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
           />
         </aside>
 
-        {/* Center: question content */}
+        {/* Center: full-width question content */}
         <main className="exam-center" aria-label="Question">
           <div className="exam-center-inner">
 
-            {/* Subject / system — difficulty hidden in exam mode */}
+            {/* Meta row: subject / system tags + utility buttons */}
             <div className="exam-q-meta">
-              {question.subject && <span className="exam-q-tag">{question.subject}</span>}
-              {question.system  && <span className="exam-q-tag">{question.system}</span>}
+              <div className="exam-q-tags">
+                {question.subject && <span className="exam-q-tag">{question.subject}</span>}
+                {question.system  && <span className="exam-q-tag">{question.system}</span>}
+              </div>
+              <div className="exam-utility-row" role="toolbar" aria-label="Exam utilities">
+                <button
+                  type="button"
+                  className={`exam-util-btn${openDrawer === 'labs' ? ' active' : ''}`}
+                  onClick={() => setOpenDrawer(d => d === 'labs' ? null : 'labs')}
+                  aria-expanded={openDrawer === 'labs'}
+                >
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M5 1.5v5L2 12h10L9 6.5V1.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M5 1.5h4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
+                    <path d="M3.5 8.5h7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                  </svg>
+                  Lab Values
+                </button>
+                <button
+                  type="button"
+                  className={`exam-util-btn${openDrawer === 'calc' ? ' active' : ''}`}
+                  onClick={() => setOpenDrawer(d => d === 'calc' ? null : 'calc')}
+                  aria-expanded={openDrawer === 'calc'}
+                >
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <rect x="1.5" y="1" width="11" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+                    <rect x="3" y="2.5" width="8" height="2.5" rx=".75" fill="currentColor" opacity=".3"/>
+                    <circle cx="4" cy="8"  r=".9" fill="currentColor"/>
+                    <circle cx="7" cy="8"  r=".9" fill="currentColor"/>
+                    <circle cx="10" cy="8" r=".9" fill="currentColor"/>
+                    <circle cx="4" cy="11"  r=".9" fill="currentColor"/>
+                    <circle cx="7" cy="11"  r=".9" fill="currentColor"/>
+                    <circle cx="10" cy="11" r=".9" fill="currentColor"/>
+                  </svg>
+                  Calculator
+                </button>
+                <button
+                  type="button"
+                  className={`exam-util-btn${notes[question.id] ? ' has-notes' : ''}${openDrawer === 'notes' ? ' active' : ''}`}
+                  onClick={() => setOpenDrawer(d => d === 'notes' ? null : 'notes')}
+                  aria-expanded={openDrawer === 'notes'}
+                >
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
+                    <path d="M4.5 5h5M4.5 7.5h5M4.5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  </svg>
+                  Notes
+                  {notes[question.id] && <span className="exam-util-dot" aria-hidden="true" />}
+                </button>
+              </div>
             </div>
 
-            {/* Clinical vignette / stem */}
+            {/* Highlight toolbar */}
+            {!examSubmitted && (
+              <div className="hl-toolbar" role="toolbar" aria-label="Highlight tool">
+                <span className="hl-label">Highlight</span>
+                {['yellow', 'blue', 'green', 'pink'].map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`hl-btn hl-${color}${activeHighlightColor === color ? ' active' : ''}`}
+                    onClick={() => setActiveHighlightColor(color)}
+                    aria-label={`${color} highlight`}
+                    aria-pressed={activeHighlightColor === color}
+                  />
+                ))}
+                {highlights[question.id]?.length > 0 && (
+                  <button
+                    type="button"
+                    className="hl-btn hl-clear"
+                    onClick={handleClearHighlights}
+                    aria-label="Clear all highlights"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Clinical vignette */}
             <div className="exam-stem" role="article" aria-label="Question stem">
-              <p>{question.stem}</p>
+              <HighlightedText
+                text={question.stem}
+                highlights={highlights[question.id] || []}
+                activeColor={activeHighlightColor}
+                onHighlight={handleHighlight}
+                enabled={!examSubmitted}
+              />
             </div>
 
             {/* Answer options */}
@@ -328,9 +380,9 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
                   if (!examSubmitted) {
                     state = opt.letter === normalizedAnswer ? 'selected' : ''
                   } else {
-                    if (opt.letter === correctLetter)                                       state = 'correct'
+                    if (opt.letter === correctLetter)                                             state = 'correct'
                     else if (opt.letter === normalizedAnswer && normalizedAnswer !== correctLetter) state = 'wrong'
-                    else                                                                     state = 'neutral'
+                    else                                                                           state = 'neutral'
                   }
                 }
                 return (
@@ -358,7 +410,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
               })}
             </div>
 
-            {/* Confidence selector — local state only, not persisted */}
+            {/* Confidence selector */}
             {answered && !examSubmitted && (
               <div className="exam-confidence">
                 <span className="exam-conf-label">Confidence</span>
@@ -375,13 +427,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
                     </button>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Answer-recorded hint */}
-            {answered && !examSubmitted && (
-              <div className="exam-hint">
-                Answer recorded — you can change it before submitting.
               </div>
             )}
 
@@ -419,42 +464,9 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
 
           </div>
         </main>
-
-        {/* Right: utility sidebar */}
-        <aside className="exam-sidebar-panel" aria-label="Exam utilities">
-
-          {/* Scratchpad — local state only, per question, not persisted */}
-          <div className="exam-notes-card">
-            <div className="exam-notes-hdr">
-              <span>Scratch Pad</span>
-              <span className="exam-notes-local-tag">local only</span>
-            </div>
-            <textarea
-              className="exam-notes-area"
-              placeholder="Notes for this question..."
-              value={notes[question.id] || ''}
-              onChange={e => setNotes(n => ({ ...n, [question.id]: e.target.value }))}
-              aria-label="Question scratch pad"
-            />
-          </div>
-
-          {/* USMLE lab reference card */}
-          <div className="exam-lab-card">
-            <div className="exam-lab-hdr">Lab Reference</div>
-            <div className="exam-lab-list" aria-label="USMLE normal lab values">
-              {LAB_REFERENCE.map(item => (
-                <div key={item.name} className="exam-lab-row">
-                  <span className="exam-lab-name">{item.name}</span>
-                  <span className="exam-lab-range">{item.range}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </aside>
       </div>
 
-      {/* ── Footer navigation ───────────────────────────────────────────────── */}
+      {/* ── Footer navigation ──────────────────────────────────────────────── */}
       <footer className="exam-footer">
         <div className="exam-footer-left">
           <button
@@ -468,6 +480,14 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             </svg>
             Previous
           </button>
+          {!examSubmitted && (
+            <button
+              className={`exam-foot-submit-btn${allAnswered ? ' ready' : ''}`}
+              onClick={handleSubmitRequest}
+            >
+              {allAnswered ? 'Submit Exam' : 'Submit All'}
+            </button>
+          )}
         </div>
 
         <div className="exam-footer-center">
@@ -498,16 +518,29 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
               <path d="M5.5 2.5L10 7L5.5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          {!examSubmitted && (
-            <button
-              className={`exam-foot-submit-btn${allAnswered ? ' ready' : ''}`}
-              onClick={handleExamSubmit}
-            >
-              {allAnswered ? 'Submit Exam' : 'Submit All'}
-            </button>
-          )}
         </div>
       </footer>
+
+      {/* ── Non-blocking drawers ────────────────────────────────────────────── */}
+      <LabDrawer isOpen={openDrawer === 'labs'} onClose={closeDrawer} />
+      <CalculatorDrawer isOpen={openDrawer === 'calc'} onClose={closeDrawer} />
+      <NotesDrawer
+        isOpen={openDrawer === 'notes'}
+        onClose={closeDrawer}
+        questionId={question.id}
+        notes={notes}
+        onNotesChange={(id, val) => setNotes(n => ({ ...n, [id]: val }))}
+      />
+
+      {/* ── Submit confirmation modal ───────────────────────────────────────── */}
+      <SubmitConfirmModal
+        isOpen={showSubmitConfirm}
+        onConfirm={handleConfirmSubmit}
+        onCancel={() => setShowSubmitConfirm(false)}
+        answered={Object.keys(answers).length}
+        total={totalQ}
+        markedCount={markedCount}
+      />
 
     </div>
   )

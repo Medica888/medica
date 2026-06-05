@@ -3,6 +3,7 @@ import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } fro
 import PracticeAnswerOption from './PracticeAnswerOption'
 import PracticeExplanationPanel from './PracticeExplanationPanel'
 import { saveQuestionReport } from '../../lib/storage'
+import HighlightedText from '../session/HighlightedText'
 
 /**
  * @param {{
@@ -12,9 +13,14 @@ import { saveQuestionReport } from '../../lib/storage'
  *   revealed: boolean
  *   onAnswer: (letter: import('../../lib/quizTypes').OptionLetter) => void
  *   onCheckAnswer: () => void
+ *   highlights?: Array<{start:number,end:number,color:string}>
+ *   activeHighlightColor?: string
+ *   onHighlight?: (start:number,end:number,color:string) => void
+ *   onChangeHighlightColor?: (color:string) => void
+ *   onClearHighlights?: () => void
  * }} props
  */
-export default function PracticeQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer }) {
+export default function PracticeQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer, highlights = [], activeHighlightColor = 'yellow', onHighlight, onChangeHighlightColor, onClearHighlights }) {
   const options = normalizeOptions(question.options)
   const normalizedCorrect  = getQuestionCorrectLetter(question)
   const normalizedAnswered = normalizeAnswerLetter(answered)
@@ -44,8 +50,36 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
         {question.difficulty && <span className="pi-q-tag diff">{question.difficulty}</span>}
       </div>
 
+      {/* Highlight toolbar */}
+      {onHighlight && (
+        <div className="hl-toolbar" role="toolbar" aria-label="Highlight tool">
+          <span className="hl-label">Highlight</span>
+          {['yellow', 'blue', 'green', 'pink'].map(color => (
+            <button
+              key={color}
+              type="button"
+              className={`hl-btn hl-${color}${activeHighlightColor === color ? ' active' : ''}`}
+              onClick={() => onChangeHighlightColor?.(color)}
+              aria-label={`${color} highlight`}
+              aria-pressed={activeHighlightColor === color}
+            />
+          ))}
+          {highlights.length > 0 && (
+            <button type="button" className="hl-btn hl-clear" onClick={onClearHighlights} aria-label="Clear all highlights">
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="pi-stem">
-        <p>{question.stem}</p>
+        <HighlightedText
+          text={question.stem}
+          highlights={highlights}
+          activeColor={activeHighlightColor}
+          onHighlight={onHighlight}
+          enabled={!!onHighlight}
+        />
       </div>
 
       <div className="question-report-row">
