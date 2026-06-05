@@ -3,6 +3,7 @@ import CoachQuestion from './CoachQuestion'
 import { saveQuizSession } from '../../lib/storage'
 import { normalizeQuestion } from '../../lib/mockQuestions'
 import { calculateCoachResults } from '../../lib/coachScoring'
+import QuestionNavigator from '../session/QuestionNavigator'
 
 /**
  * @param {{
@@ -121,6 +122,20 @@ export default function CoachInterface({ session: initialSession, onComplete, on
         </div>
       </div>
 
+      {/* Question Navigator */}
+      <QuestionNavigator
+        questions={questions}
+        currentIndex={currentIndex}
+        onSelect={(i) => setCurrentIndex(i)}
+        getStatus={(q, i) => {
+          if (i === currentIndex) return 'current'
+          if (revealed[q.id]) return 'revealed'
+          if (answers[q.id])  return 'selected'
+          return 'unanswered'
+        }}
+        mode="coach"
+      />
+
       {/* Navigation footer */}
       <div className="ci-nav">
         <button
@@ -135,28 +150,6 @@ export default function CoachInterface({ session: initialSession, onComplete, on
           </svg>
           Previous
         </button>
-
-        <div className="ci-nav-dots" aria-label="Question navigation">
-          {questions.map((q, i) => {
-            const isExplained = revealed[q.id]
-            const isSelected  = !isExplained && answers[q.id]
-            const dotClass = [
-              'ci-dot',
-              i === currentIndex ? 'active' : '',
-              isExplained ? 'explained' : isSelected ? 'selected' : '',
-            ].filter(Boolean).join(' ')
-            const ariaState = isExplained ? ', explained' : isSelected ? ', answered' : ''
-            return (
-              <button
-                key={i}
-                type="button"
-                className={dotClass}
-                onClick={() => setCurrentIndex(i)}
-                aria-label={`Question ${i + 1}${ariaState}`}
-              />
-            )
-          })}
-        </div>
 
         {isLastQ && isRevealed ? (
           <button

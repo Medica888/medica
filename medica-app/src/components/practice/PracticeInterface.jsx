@@ -3,6 +3,7 @@ import PracticeQuestion from './PracticeQuestion'
 import { saveQuizSession } from '../../lib/storage'
 import { normalizeQuestion } from '../../lib/mockQuestions'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
+import QuestionNavigator from '../session/QuestionNavigator'
 
 /**
  * @param {{
@@ -115,6 +116,20 @@ export default function PracticeInterface({ session: initialSession, onComplete,
         </div>
       </div>
 
+      {/* Question Navigator */}
+      <QuestionNavigator
+        questions={questions}
+        currentIndex={currentIndex}
+        onSelect={(i) => setCurrentIndex(i)}
+        getStatus={(q, i) => {
+          if (i === currentIndex) return 'current'
+          if (revealed[q.id]) return 'revealed'
+          if (answers[q.id])   return 'selected'
+          return 'unanswered'
+        }}
+        mode="practice"
+      />
+
       {/* Navigation footer */}
       <div className="pi-nav">
         <button
@@ -129,19 +144,6 @@ export default function PracticeInterface({ session: initialSession, onComplete,
           </svg>
           Previous
         </button>
-
-        {/* Question dot navigator */}
-        <div className="pi-nav-dots" aria-label="Question navigation">
-          {questions.map((q, i) => (
-            <button
-              key={i}
-              type="button"
-              className={`pi-dot${i === currentIndex ? ' active' : ''}${revealed[q.id] ? ' answered' : ''}`}
-              onClick={() => setCurrentIndex(i)}
-              aria-label={`Question ${i + 1}${answers[q.id] ? ', answered' : ''}`}
-            />
-          ))}
-        </div>
 
         {isLastQ && isRevealed ? (
           <button

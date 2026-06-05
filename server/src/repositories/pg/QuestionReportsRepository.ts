@@ -45,28 +45,31 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
     globalWrongAnswer: number;
     globalBadExpl:     number;
     globalOffTopic:    number;
+    globalAmbiguous:   number;
     fingerprints:      FingerprintCountRow[];
   }> {
-    type GlobalRow = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string };
+    type GlobalRow = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string; ambiguous_or_insufficient_clues: string };
     type FpRow    = GlobalRow & { fingerprint: string; unique_users: string };
 
     const [totals, fps] = await Promise.all([
       this.pool.query<GlobalRow>(`
         SELECT
-          COUNT(*)                                          AS total,
-          COUNT(*) FILTER (WHERE reason = 'wrong_answer')   AS wrong_answer,
-          COUNT(*) FILTER (WHERE reason = 'bad_explanation') AS bad_explanation,
-          COUNT(*) FILTER (WHERE reason = 'off_topic')       AS off_topic
+          COUNT(*)                                                                       AS total,
+          COUNT(*) FILTER (WHERE reason = 'wrong_answer')                               AS wrong_answer,
+          COUNT(*) FILTER (WHERE reason = 'bad_explanation')                            AS bad_explanation,
+          COUNT(*) FILTER (WHERE reason = 'off_topic')                                  AS off_topic,
+          COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues
         FROM question_reports
       `),
       this.pool.query<FpRow>(`
         SELECT
           fingerprint,
-          COUNT(*)                                          AS total,
-          COUNT(*) FILTER (WHERE reason = 'wrong_answer')   AS wrong_answer,
-          COUNT(*) FILTER (WHERE reason = 'bad_explanation') AS bad_explanation,
-          COUNT(*) FILTER (WHERE reason = 'off_topic')       AS off_topic,
-          COUNT(DISTINCT user_id)                            AS unique_users
+          COUNT(*)                                                                       AS total,
+          COUNT(*) FILTER (WHERE reason = 'wrong_answer')                               AS wrong_answer,
+          COUNT(*) FILTER (WHERE reason = 'bad_explanation')                            AS bad_explanation,
+          COUNT(*) FILTER (WHERE reason = 'off_topic')                                  AS off_topic,
+          COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues,
+          COUNT(DISTINCT user_id)                                                        AS unique_users
         FROM question_reports
         GROUP BY fingerprint
         ORDER BY total DESC, fingerprint ASC
@@ -74,33 +77,36 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       `, [limit]),
     ]);
 
-    const g = totals.rows[0] ?? { total: '0', wrong_answer: '0', bad_explanation: '0', off_topic: '0' };
+    const g = totals.rows[0] ?? { total: '0', wrong_answer: '0', bad_explanation: '0', off_topic: '0', ambiguous_or_insufficient_clues: '0' };
 
     return {
       globalTotal:       parseInt(g.total, 10),
       globalWrongAnswer: parseInt(g.wrong_answer, 10),
       globalBadExpl:     parseInt(g.bad_explanation, 10),
       globalOffTopic:    parseInt(g.off_topic, 10),
+      globalAmbiguous:   parseInt(g.ambiguous_or_insufficient_clues, 10),
       fingerprints: fps.rows.map(r => ({
-        fingerprint:    r.fingerprint,
-        total:          parseInt(r.total, 10),
-        wrong_answer:   parseInt(r.wrong_answer, 10),
-        bad_explanation: parseInt(r.bad_explanation, 10),
-        off_topic:      parseInt(r.off_topic, 10),
-        unique_users:   parseInt(r.unique_users, 10),
+        fingerprint:                    r.fingerprint,
+        total:                          parseInt(r.total, 10),
+        wrong_answer:                   parseInt(r.wrong_answer, 10),
+        bad_explanation:                parseInt(r.bad_explanation, 10),
+        off_topic:                      parseInt(r.off_topic, 10),
+        ambiguous_or_insufficient_clues: parseInt(r.ambiguous_or_insufficient_clues, 10),
+        unique_users:                   parseInt(r.unique_users, 10),
       })),
     };
   }
 
   async getCountsForFingerprint(fingerprint: string): Promise<FingerprintCountRow> {
-    type Row = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string; unique_users: string };
+    type Row = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string; ambiguous_or_insufficient_clues: string; unique_users: string };
     const res = await this.pool.query<Row>(`
       SELECT
-        COUNT(*)                                          AS total,
-        COUNT(*) FILTER (WHERE reason = 'wrong_answer')   AS wrong_answer,
-        COUNT(*) FILTER (WHERE reason = 'bad_explanation') AS bad_explanation,
-        COUNT(*) FILTER (WHERE reason = 'off_topic')       AS off_topic,
-        COUNT(DISTINCT user_id)                            AS unique_users
+        COUNT(*)                                                                     AS total,
+        COUNT(*) FILTER (WHERE reason = 'wrong_answer')                             AS wrong_answer,
+        COUNT(*) FILTER (WHERE reason = 'bad_explanation')                          AS bad_explanation,
+        COUNT(*) FILTER (WHERE reason = 'off_topic')                                AS off_topic,
+        COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')          AS ambiguous_or_insufficient_clues,
+        COUNT(DISTINCT user_id)                                                      AS unique_users
       FROM question_reports
       WHERE fingerprint = $1
     `, [fingerprint]);
@@ -108,11 +114,12 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
     const r = res.rows[0]!;
     return {
       fingerprint,
-      total:          parseInt(r.total, 10),
-      wrong_answer:   parseInt(r.wrong_answer, 10),
-      bad_explanation: parseInt(r.bad_explanation, 10),
-      off_topic:      parseInt(r.off_topic, 10),
-      unique_users:   parseInt(r.unique_users, 10),
+      total:                          parseInt(r.total, 10),
+      wrong_answer:                   parseInt(r.wrong_answer, 10),
+      bad_explanation:                parseInt(r.bad_explanation, 10),
+      off_topic:                      parseInt(r.off_topic, 10),
+      ambiguous_or_insufficient_clues: parseInt(r.ambiguous_or_insufficient_clues, 10),
+      unique_users:                   parseInt(r.unique_users, 10),
     };
   }
 

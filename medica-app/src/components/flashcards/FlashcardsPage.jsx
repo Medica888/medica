@@ -58,10 +58,10 @@ const CARD_ANSWER_LABEL = {
 }
 
 const EASE_META = [
-  { ease: 'again', label: 'Relearn',    hint: 'Forgot it',  cls: 'again', color: 'var(--status-critical)' },
-  { ease: 'hard',  label: 'Unstable',   hint: 'Struggled',  cls: 'hard',  color: 'var(--status-warn)'     },
-  { ease: 'good',  label: 'Reinforced', hint: 'Got it',     cls: 'good',  color: 'var(--status-stable)'   },
-  { ease: 'easy',  label: 'Mastered',   hint: 'Nailed it',  cls: 'easy',  color: '#2E64C8'                },
+  { ease: 'again', label: 'Relearn',    hint: 'I missed it',      cls: 'again', color: 'var(--status-critical)' },
+  { ease: 'hard',  label: 'Unstable',   hint: 'I guessed / weak', cls: 'hard',  color: 'var(--status-warn)'     },
+  { ease: 'good',  label: 'Reinforced', hint: 'I knew it',        cls: 'good',  color: 'var(--status-stable)'   },
+  { ease: 'easy',  label: 'Mastered',   hint: 'automatic',        cls: 'easy',  color: '#2E64C8'                },
 ]
 
 const getCardStatus = (card) => card.reviewStatus || 'new'
@@ -578,8 +578,14 @@ export default function FlashcardsPage({ onNavigate }) {
             Exit
           </button>
           <div className="fc-rev-hdr-center">
-            <span className="fc-rev-progress">{reviewIndex + 1} / {reviewCards.length}</span>
-            {topicGroupLabel && <span className="fc-rev-topic-label">{topicGroupLabel}</span>}
+            <span className="fc-rev-progress" aria-label={`Card ${reviewIndex + 1} of ${reviewCards.length}`}>
+              Card {reviewIndex + 1} of {reviewCards.length}
+            </span>
+            {([card.subject, card.system, topicGroupLabel].filter(Boolean).length > 0) && (
+              <span className="fc-rev-topic-label">
+                {[card.subject, card.system, topicGroupLabel].filter(Boolean).join(' · ')}
+              </span>
+            )}
           </div>
           <div className="fc-rev-hdr-spacer" />
         </div>

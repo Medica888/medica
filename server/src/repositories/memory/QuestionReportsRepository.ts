@@ -17,17 +17,19 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
     globalWrongAnswer: number;
     globalBadExpl:     number;
     globalOffTopic:    number;
+    globalAmbiguous:   number;
     fingerprints:      FingerprintCountRow[];
   }> {
     const reports = [...this.store.values()];
 
-    let globalWrongAnswer = 0, globalBadExpl = 0, globalOffTopic = 0;
+    let globalWrongAnswer = 0, globalBadExpl = 0, globalOffTopic = 0, globalAmbiguous = 0;
     const fmap = new Map<string, QuestionReport[]>();
 
     for (const r of reports) {
-      if (r.reason === 'wrong_answer')   globalWrongAnswer++;
-      if (r.reason === 'bad_explanation') globalBadExpl++;
-      if (r.reason === 'off_topic')      globalOffTopic++;
+      if (r.reason === 'wrong_answer')                   globalWrongAnswer++;
+      if (r.reason === 'bad_explanation')                globalBadExpl++;
+      if (r.reason === 'off_topic')                      globalOffTopic++;
+      if (r.reason === 'ambiguous_or_insufficient_clues') globalAmbiguous++;
       if (!fmap.has(r.fingerprint)) fmap.set(r.fingerprint, []);
       fmap.get(r.fingerprint)!.push(r);
     }
@@ -38,12 +40,13 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
         reps.filter(r => r.user_id !== null).map(r => r.user_id),
       ).size;
       rows.push({
-        fingerprint:    fp,
-        total:          reps.length,
-        wrong_answer:   reps.filter(r => r.reason === 'wrong_answer').length,
-        bad_explanation: reps.filter(r => r.reason === 'bad_explanation').length,
-        off_topic:      reps.filter(r => r.reason === 'off_topic').length,
-        unique_users:   uniqueUsers,
+        fingerprint:                    fp,
+        total:                          reps.length,
+        wrong_answer:                   reps.filter(r => r.reason === 'wrong_answer').length,
+        bad_explanation:                reps.filter(r => r.reason === 'bad_explanation').length,
+        off_topic:                      reps.filter(r => r.reason === 'off_topic').length,
+        ambiguous_or_insufficient_clues: reps.filter(r => r.reason === 'ambiguous_or_insufficient_clues').length,
+        unique_users:                   uniqueUsers,
       });
     }
 
@@ -55,6 +58,7 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
       globalWrongAnswer,
       globalBadExpl,
       globalOffTopic,
+      globalAmbiguous,
       fingerprints:      rows.slice(0, limit),
     };
   }
@@ -63,7 +67,15 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
     const reports = [...this.store.values()].filter(r => r.fingerprint === fingerprint);
 
     if (reports.length === 0) {
-      return { fingerprint, total: 0, wrong_answer: 0, bad_explanation: 0, off_topic: 0, unique_users: 0 };
+      return {
+        fingerprint,
+        total:                          0,
+        wrong_answer:                   0,
+        bad_explanation:                0,
+        off_topic:                      0,
+        ambiguous_or_insufficient_clues: 0,
+        unique_users:                   0,
+      };
     }
 
     const uniqueUsers = new Set(
@@ -72,11 +84,12 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
 
     return {
       fingerprint,
-      total:          reports.length,
-      wrong_answer:   reports.filter(r => r.reason === 'wrong_answer').length,
-      bad_explanation: reports.filter(r => r.reason === 'bad_explanation').length,
-      off_topic:      reports.filter(r => r.reason === 'off_topic').length,
-      unique_users:   uniqueUsers,
+      total:                          reports.length,
+      wrong_answer:                   reports.filter(r => r.reason === 'wrong_answer').length,
+      bad_explanation:                reports.filter(r => r.reason === 'bad_explanation').length,
+      off_topic:                      reports.filter(r => r.reason === 'off_topic').length,
+      ambiguous_or_insufficient_clues: reports.filter(r => r.reason === 'ambiguous_or_insufficient_clues').length,
+      unique_users:                   uniqueUsers,
     };
   }
 

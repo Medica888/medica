@@ -13,9 +13,12 @@ vi.mock('./apiClient.js', () => ({
 }))
 
 import { filterReportedQuestions, getSessionHistory } from './storage.js'
+import { STANDARDIZED_40Q_BLOCK } from './quizTypes.js'
 import {
   createQuizSession,
   ensureQuestionCount,
+  getAvailableQuestionCountForConfig,
+  getBankQuestionsForConfig,
   QUESTION_BANK,
   ENRICHED_IDS,
   getDifficultyAvailability,
@@ -32,6 +35,14 @@ const baseConfig = {
   questionCount: 5,
   difficulty:    'Balanced',
   clinicalFocus: '',
+}
+
+const standardized40Config = {
+  ...baseConfig,
+  mode:          'exam',
+  questionCount: 40,
+  difficulty:    'standardized',
+  blockType:     STANDARDIZED_40Q_BLOCK,
 }
 
 beforeEach(() => {
@@ -78,18 +89,60 @@ describe('ensureQuestionCount — test 10: 40Q block rejects insufficient pool',
 describe('createQuizSession — 40Q block behavior', () => {
   it('succeeds when bank has ≥40 unique unseen questions', () => {
     // Bank now has ≥50 questions — 40Q block should work
-    const config = { ...baseConfig, mode: 'exam', questionCount: 40 }
-    const session = createQuizSession(config)
+    const session = createQuizSession(standardized40Config)
     expect(session.questions).toHaveLength(40)
     expect(validateUniqueQuestions(session.questions).valid).toBe(true)
+    expect(session.config.blockType).toBe(STANDARDIZED_40Q_BLOCK)
+    expect(session.config.difficulty).toBe('Balanced')
+  })
+
+  it('does not filter standardized 40Q by fake standardized difficulty', () => {
+    expect(getAvailableQuestionCountForConfig(standardized40Config)).toBe(QUESTION_BANK.length)
+
+    const pool = getBankQuestionsForConfig(standardized40Config)
+
+    expect(pool.length).toBeGreaterThanOrEqual(40)
+    expect(pool.every(q => q.difficulty !== 'standardized')).toBe(true)
   })
 
   it('still throws when the unseen pool drops below 40 via seen history', () => {
     // Mark enough questions as seen so <40 remain unseen (need to mark all but 39)
     const allIds = QUESTION_BANK.slice(0, QUESTION_BANK.length - 39).map(q => q.id)
     vi.mocked(getSessionHistory).mockReturnValueOnce([{ questionIds: allIds, missedQuestions: [] }])
-    const config = { ...baseConfig, mode: 'exam', questionCount: 40 }
-    expect(() => createQuizSession(config)).toThrow('Not enough unique questions')
+    expect(() => createQuizSession(standardized40Config)).toThrow('Not enough unique questions')
+  })
+
+  it('still throws when reported questions reduce the standardized pool below 40', () => {
+    vi.mocked(filterReportedQuestions).mockImplementationOnce(questions => questions.slice(0, 39))
+
+    expect(() => createQuizSession(standardized40Config)).toThrow('Not enough unique questions')
+  })
+
+  it('keeps NBME 40Q difficulty behavior unchanged', () => {
+    const session = createQuizSession({
+      ...baseConfig,
+      mode: 'exam',
+      questionCount: 40,
+      difficulty: 'NBME Difficult',
+    })
+
+    expect(session.questions).toHaveLength(40)
+    expect(session.questions.every(q => q.difficulty === 'NBME Difficult')).toBe(true)
+  })
+
+  it('keeps UWorld 40Q difficulty behavior unchanged', () => {
+    const config = {
+      ...baseConfig,
+      mode: 'exam',
+      questionCount: 40,
+      difficulty: 'UWorld Challenge',
+    }
+    const availability = getDifficultyAvailability(config)
+    const pool = getBankQuestionsForConfig(config)
+
+    expect(availability.target).toBe(40)
+    expect(availability.requiresBackend).toBe(false)
+    expect(pool.every(q => q.difficulty === 'UWorld Challenge')).toBe(true)
   })
 })
 

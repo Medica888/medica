@@ -225,7 +225,7 @@ describe('FlashcardsPage — session done screen', () => {
     render(<FlashcardsPage />)
     fireEvent.click(screen.getByText('Reinforce Now'))
     fireEvent.click(screen.getByText('Reveal Mechanism'))
-    fireEvent.click(screen.getByRole('button', { name: 'Mastered: Nailed it' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mastered: automatic' }))
   }
 
   it('shows "Reinforcement Complete" headline', () => {
@@ -301,5 +301,185 @@ describe('FlashcardsPage — backward compat: front/back-only cards', () => {
     fireEvent.click(screen.getByText('Reinforce Now'))
     fireEvent.click(screen.getByText('Reveal Mechanism'))
     expect(screen.getByText('Beta-1 blockade reduces heart rate and contractility.')).toBeInTheDocument()
+  })
+})
+
+// ── Long pearl text — no truncation ───────────────────────────────────────────
+
+describe('FlashcardsPage — long pearl text is never lost', () => {
+  const LONG_PEARL = 'ACE inhibitors block conversion of angiotensin I to angiotensin II, reducing aldosterone, ' +
+    'decreasing sodium retention, lowering preload and afterload, and causing bradykinin accumulation — ' +
+    'which explains both the dry cough and angioedema adverse effects seen clinically.'
+
+  it('renders full long pearl text in review card after reveal (no truncation)', () => {
+    const pearlCard = {
+      ...sampleCard,
+      id: 'fc_pearl_long',
+      tag: 'Pearl',
+      coreMechanism: LONG_PEARL,
+    }
+    seedCards([pearlCard])
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    // The full text must be present — not truncated
+    expect(screen.getByText(LONG_PEARL)).toBeInTheDocument()
+  })
+
+  it('renders full long pearl text in library list (fc-card-back-preview no longer clamps)', () => {
+    const pearlCard = {
+      ...sampleCard,
+      id: 'fc_pearl_long_lib',
+      tag: 'Pearl',
+      coreMechanism: LONG_PEARL,
+    }
+    seedCards([pearlCard])
+    const { container } = render(<FlashcardsPage />)
+    // Preview element exists and contains the full text (not clipped)
+    const preview = container.querySelector('.fc-card-back-preview')
+    expect(preview).toBeTruthy()
+    expect(preview.textContent).toBe(LONG_PEARL)
+  })
+
+  it('renders full long memory anchor text without truncation', () => {
+    const LONG_ANCHOR = 'BRAINSTEM = B-blockers Reduce Angina, Inner-ear symptoms; NOT for asthma, Sinus bradycardia, ' +
+      'TEETH (Thyrotoxicosis, Elderly, Eating disorders, Tachycardia, Heart block, Sex dysfunction)'
+    const cardWithAnchor = { ...sampleCard, id: 'fc_anchor_long', memoryAnchor: LONG_ANCHOR }
+    seedCards([cardWithAnchor])
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    expect(screen.getByText(LONG_ANCHOR)).toBeInTheDocument()
+  })
+
+  it('renders full long common trap text without truncation', () => {
+    const LONG_TRAP = 'Do not confuse loop diuretics (which act on the thick ascending limb) with ' +
+      'thiazide diuretics (which act on the DCT). Loop diuretics are the only diuretics that ' +
+      'can be given IV for acute decompensated heart failure.'
+    const cardWithTrap = { ...sampleCard, id: 'fc_trap_long', commonTrap: LONG_TRAP }
+    seedCards([cardWithTrap])
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    expect(screen.getByText(LONG_TRAP)).toBeInTheDocument()
+  })
+})
+
+// ── Rating buttons — updated hints, same handlers ────────────────────────────
+
+describe('FlashcardsPage — updated rating button hints', () => {
+  function enterReviewAndReveal() {
+    seedCards()
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+  }
+
+  it('shows new hint "I missed it" on Relearn button', () => {
+    enterReviewAndReveal()
+    expect(screen.getByText('I missed it')).toBeInTheDocument()
+  })
+
+  it('shows new hint "I guessed / weak" on Unstable button', () => {
+    enterReviewAndReveal()
+    expect(screen.getByText('I guessed / weak')).toBeInTheDocument()
+  })
+
+  it('shows new hint "I knew it" on Reinforced button', () => {
+    enterReviewAndReveal()
+    expect(screen.getByText('I knew it')).toBeInTheDocument()
+  })
+
+  it('shows new hint "automatic" on Mastered button', () => {
+    enterReviewAndReveal()
+    // "automatic" appears once as the hint text
+    expect(screen.getByText('automatic')).toBeInTheDocument()
+  })
+
+  it('Relearn button aria-label reflects updated hint', () => {
+    enterReviewAndReveal()
+    expect(screen.getByRole('button', { name: 'Relearn: I missed it' })).toBeInTheDocument()
+  })
+
+  it('Mastered button aria-label reflects updated hint', () => {
+    enterReviewAndReveal()
+    expect(screen.getByRole('button', { name: 'Mastered: automatic' })).toBeInTheDocument()
+  })
+
+  it('clicking Reinforced button still calls the handler and advances session', () => {
+    enterReviewAndReveal()
+    fireEvent.click(screen.getByRole('button', { name: 'Reinforced: I knew it' }))
+    // Session done (single card) — shows Reinforcement Complete
+    expect(screen.getByText('Reinforcement Complete')).toBeInTheDocument()
+  })
+
+  it('clicking Relearn button still advances session', () => {
+    enterReviewAndReveal()
+    fireEvent.click(screen.getByRole('button', { name: 'Relearn: I missed it' }))
+    expect(screen.getByText('Reinforcement Complete')).toBeInTheDocument()
+  })
+})
+
+// ── Keyboard shortcut keycap labels ──────────────────────────────────────────
+
+describe('FlashcardsPage — keyboard shortcut keycap labels', () => {
+  function enterReviewAndReveal() {
+    seedCards()
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+  }
+
+  it('shows keycap "1" on the Relearn button', () => {
+    seedCards()
+    const { container } = render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    const keys = container.querySelectorAll('.fc-ease-key')
+    expect(keys.length).toBe(4)
+    expect(keys[0].textContent).toBe('1')
+    expect(keys[1].textContent).toBe('2')
+    expect(keys[2].textContent).toBe('3')
+    expect(keys[3].textContent).toBe('4')
+  })
+
+  it('shows keyboard hint line with all four labels', () => {
+    enterReviewAndReveal()
+    expect(screen.getByText('1 Relearn · 2 Unstable · 3 Reinforced · 4 Mastered')).toBeInTheDocument()
+  })
+})
+
+// ── Progress label ─────────────────────────────────────────────────────────────
+
+describe('FlashcardsPage — progress label in review', () => {
+  it('shows "Card 1 of 1" format in review header', () => {
+    seedCards()
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    expect(screen.getByText('Card 1 of 1')).toBeInTheDocument()
+  })
+
+  it('shows subject and system in the header meta label', () => {
+    seedCards()
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    // sampleCard has subject='Pharmacology', system='Renal', topicGroup='Loop Diuretics'
+    expect(screen.getByText('Pharmacology · Renal · Loop Diuretics')).toBeInTheDocument()
+  })
+
+  it('shows "Card 2 of 3" after advancing past first card', () => {
+    const cards = [
+      { ...sampleCard, id: 'c1' },
+      { ...sampleCard, id: 'c2' },
+      { ...sampleCard, id: 'c3' },
+    ]
+    seedCards(cards)
+    render(<FlashcardsPage />)
+    fireEvent.click(screen.getByText('Reinforce Now'))
+    expect(screen.getByText('Card 1 of 3')).toBeInTheDocument()
+    // Advance: reveal then rate easy
+    fireEvent.click(screen.getByText('Reveal Mechanism'))
+    fireEvent.click(screen.getByRole('button', { name: 'Mastered: automatic' }))
+    expect(screen.getByText('Card 2 of 3')).toBeInTheDocument()
   })
 })

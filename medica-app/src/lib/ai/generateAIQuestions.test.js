@@ -27,6 +27,7 @@ import {
   getTrustedGeneratedQuestions,
   saveQuestionReport,
 } from '../storage.js'
+import { STANDARDIZED_40Q_BLOCK } from '../quizTypes.js'
 
 const makeQuestion = (i, overrides = {}) => ({
   id:            `uuid-${i}`,            // server-assigned UUID format
@@ -618,6 +619,30 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     const result = await generateAIQuestions(baseConfig)
     expect(result).toHaveLength(5)
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('standardized 40Q uses Balanced difficulty for bank-first selection', async () => {
+    const config = {
+      questionCount: 40,
+      mode: 'exam',
+      difficulty: 'standardized',
+      blockType: STANDARDIZED_40Q_BLOCK,
+    }
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(40))
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await generateAIQuestions(config)
+
+    expect(result).toHaveLength(40)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(getBankQuestionsForConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blockType: STANDARDIZED_40Q_BLOCK,
+        difficulty: 'Balanced',
+      }),
+      null,
+    )
   })
 
   it('does not call fetch when bank has enough NBME Difficult questions', async () => {

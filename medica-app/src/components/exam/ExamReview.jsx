@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import ExamReviewCard from './ExamReviewCard'
 import { isQuestionAnswered, isQuestionCorrect } from '../../lib/examReviewHelpers'
+import QuestionNavigator from '../session/QuestionNavigator'
 
 /**
  * @param {{
@@ -11,11 +12,24 @@ import { isQuestionAnswered, isQuestionCorrect } from '../../lib/examReviewHelpe
  * }} props
  */
 export default function ExamReview({ session, initialFilter = 'all', onBack, onNewQuiz }) {
-  const [filter, setFilter] = useState(initialFilter)
+  const [filter, setFilter]           = useState(initialFilter)
+  const [focusedIdx, setFocusedIdx]   = useState(null)
+  // pendingScrollId: set when the target card isn't in the current filter;
+  // cleared by the effect once the filter changes and the card is in the DOM.
+  const [pendingScrollId, setPendingScrollId] = useState(null)
 
   const questions = session.questions
   const answers   = session.answers
   const marked    = session.marked ?? {}
+
+  // Scroll to a pending card after filter change makes it visible
+  useEffect(() => {
+    if (!pendingScrollId) return
+    const el = document.getElementById(`qnav-${pendingScrollId}`)
+    if (!el) return
+    el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    setPendingScrollId(null)
+  }, [pendingScrollId, filter])
 
   const incorrectQs  = questions.filter(q => isQuestionAnswered(answers[q.id]) && !isQuestionCorrect(q, answers[q.id]))
   const markedQs     = questions.filter(q => marked[q.id])
@@ -98,6 +112,31 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
         </button>
       </div>
 
+      {/* Question Navigator — outside the scrollable list */}
+      <QuestionNavigator
+        questions={questions}
+        currentIndex={focusedIdx}
+        onSelect={(i) => {
+          const q = questions[i]
+          setFocusedIdx(i)
+          const el = document.getElementById(`qnav-${q.id}`)
+          if (el) {
+            el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+          } else {
+            // Card is filtered out — switch to 'all' then scroll once it renders
+            setFilter('all')
+            setPendingScrollId(q.id)
+          }
+        }}
+        getStatus={(q, i) => {
+          if (i === focusedIdx) return 'current'
+          const ua = answers[q.id]
+          if (!isQuestionAnswered(ua)) return marked[q.id] ? 'marked' : 'unanswered'
+          return isQuestionCorrect(q, ua) ? 'correct' : 'incorrect'
+        }}
+        mode="review"
+      />
+
       {/* Cards list — scrolls independently */}
       <div className="erv-list">
         {filtered.length === 0 ? (
@@ -110,13 +149,15 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
           </div>
         ) : (
           filtered.map((q) => (
-            <ExamReviewCard
-              key={q.id}
-              question={q}
-              userAnswer={answers[q.id] ?? null}
-              questionNumber={questionIndexMap[q.id]}
-              isMarked={!!marked[q.id]}
-            />
+            <div key={q.id} id={`qnav-${q.id}`}>
+              <ExamReviewCard
+                question={q}
+                userAnswer={answers[q.id] ?? null}
+                questionNumber={questionIndexMap[q.id]}
+                isMarked={!!marked[q.id]}
+                sessionConfig={session.config}
+              />
+            </div>
           ))
         )}
       </div>

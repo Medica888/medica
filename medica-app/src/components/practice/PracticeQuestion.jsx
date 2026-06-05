@@ -58,6 +58,7 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
           <option value="wrong_answer">Wrong answer</option>
           <option value="bad_explanation">Bad explanation</option>
           <option value="off_topic">Off topic</option>
+          <option value="ambiguous_or_insufficient_clues">Ambiguous / insufficient clinical clues</option>
         </select>
         <button type="button" className="question-report-btn" onClick={handleReport}>
           Report

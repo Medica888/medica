@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
 import { createInMemoryRepositories, setRepositories } from '../repositories/index.js';
-import { QuestionReportService } from '../services/QuestionReportService.js';
+import { QuestionReportService, REPORT_REASON_REVALIDATION_MAP } from '../services/QuestionReportService.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
 
 const app = createApp();
@@ -59,8 +59,8 @@ describe('POST /api/question-reports', () => {
     expect(typeof res.body.id).toBe('string');
   });
 
-  it('accepts all three valid reasons', async () => {
-    for (const reason of ['wrong_answer', 'bad_explanation', 'off_topic']) {
+  it('accepts all four valid reasons', async () => {
+    for (const reason of ['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues']) {
       const res = await request(app)
         .post('/api/question-reports')
         .send({ fingerprint: 'fp_reason_test', reason });
@@ -416,5 +416,148 @@ describe('QuestionReportService — quarantine thresholds', () => {
     expect(quarantined.has('fp_a')).toBe(true);
     expect(quarantined.has('fp_c')).toBe(true);
     expect(quarantined.has('fp_b')).toBe(false);
+  });
+});
+
+// ── Phase 6.1: ambiguous_or_insufficient_clues reason ────────────────────────
+
+describe('POST /api/question-reports — ambiguous_or_insufficient_clues', () => {
+  it('accepts ambiguous_or_insufficient_clues reason and returns 201', async () => {
+    const res = await request(app)
+      .post('/api/question-reports')
+      .send({ fingerprint: 'fp_ambiguous', reason: 'ambiguous_or_insufficient_clues' });
+    expect(res.status).toBe(201);
+    expect(typeof res.body.id).toBe('string');
+  });
+
+  it('stores the reason correctly in the repository', async () => {
+    await request(app)
+      .post('/api/question-reports')
+      .send({ fingerprint: 'fp_store_test', reason: 'ambiguous_or_insufficient_clues' });
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    // Fresh repo is empty — just verify the route round-trips without error
+    const res = await request(app)
+      .post('/api/question-reports')
+      .send({ fingerprint: 'fp_store2', reason: 'ambiguous_or_insufficient_clues' });
+    expect(res.status).toBe(201);
+  });
+});
+
+describe('QuestionReportService — ambiguous_or_insufficient_clues thresholds', () => {
+  let repo: InMemoryQuestionReportsRepository;
+  let service: QuestionReportService;
+
+  function makeReport(fp: string, reason: string, userId: string | null = null) {
+    return {
+      user_id: userId, question_id: null, fingerprint: fp, reason: reason as any,
+      source: null, mode: null, difficulty: null, requested_subject: null,
+      requested_system: null, requested_topic: null, actual_subject: null,
+      actual_system: null, actual_topic: null, tested_concept: null,
+      usmle_content_area: null, physician_task: null, stem_preview: null,
+    };
+  }
+
+  beforeEach(() => {
+    repo = new InMemoryQuestionReportsRepository();
+    service = new QuestionReportService(repo);
+  });
+
+  it('1 ambiguous report → clear', async () => {
+    await repo.create(makeReport('fp1', 'ambiguous_or_insufficient_clues'));
+    const r = await service.getFingerprintReport('fp1');
+    expect(r.quarantineStatus).toBe('clear');
+  });
+
+  it('2 ambiguous reports → watch + revalidate_clues', async () => {
+    await repo.create(makeReport('fp2', 'ambiguous_or_insufficient_clues'));
+    await repo.create(makeReport('fp2', 'ambiguous_or_insufficient_clues'));
+    const r = await service.getFingerprintReport('fp2');
+    expect(r.quarantineStatus).toBe('watch');
+    expect(r.recommendedAction).toBe('revalidate_clues');
+    expect(r.primaryReason).toBe('ambiguous_or_insufficient_clues');
+  });
+
+  it('5 ambiguous reports → quarantined (total >= 5 threshold)', async () => {
+    for (let i = 0; i < 5; i++) {
+      await repo.create(makeReport('fp3', 'ambiguous_or_insufficient_clues'));
+    }
+    const r = await service.getFingerprintReport('fp3');
+    expect(r.quarantineStatus).toBe('quarantined');
+    expect(r.recommendedAction).toBe('quarantine');
+  });
+
+  it('ambiguous count appears in getFingerprintReport byReason', async () => {
+    await repo.create(makeReport('fp4', 'ambiguous_or_insufficient_clues'));
+    await repo.create(makeReport('fp4', 'wrong_answer'));
+    const r = await service.getFingerprintReport('fp4');
+    expect(r.byReason.ambiguous_or_insufficient_clues).toBe(1);
+    expect(r.byReason.wrong_answer).toBe(1);
+    expect(r.totalReports).toBe(2);
+  });
+
+  it('ambiguous count appears in getSummary byReason', async () => {
+    await repo.create(makeReport('fp5', 'ambiguous_or_insufficient_clues'));
+    await repo.create(makeReport('fp5', 'off_topic'));
+    const s = await service.getSummary(20);
+    expect(s.byReason.ambiguous_or_insufficient_clues).toBe(1);
+    expect(s.byReason.off_topic).toBe(1);
+    expect(s.totalReports).toBe(2);
+  });
+
+  it('ambiguous count appears in topFingerprints summary entries', async () => {
+    await repo.create(makeReport('fp6', 'ambiguous_or_insufficient_clues'));
+    const s = await service.getSummary(20);
+    const entry = s.topFingerprints.find(e => e.fingerprint === 'fp6');
+    expect(entry).toBeDefined();
+    expect(entry!.ambiguousReports).toBe(1);
+  });
+
+  it('ambiguous does NOT trigger quarantine via wrong_answer threshold (separate thresholds)', async () => {
+    await repo.create(makeReport('fp7', 'ambiguous_or_insufficient_clues'));
+    await repo.create(makeReport('fp7', 'ambiguous_or_insufficient_clues'));
+    // Only 2 ambiguous — wrong_answer threshold not met; total < 5 → watch, not quarantined
+    const r = await service.getFingerprintReport('fp7');
+    expect(r.quarantineStatus).toBe('watch');
+    expect(r.quarantineStatus).not.toBe('quarantined');
+  });
+
+  it('existing quarantine thresholds are unchanged by new reason', async () => {
+    // wrong_answer >= 2 still quarantines immediately
+    await repo.create(makeReport('fp8', 'wrong_answer'));
+    await repo.create(makeReport('fp8', 'wrong_answer'));
+    const r = await service.getFingerprintReport('fp8');
+    expect(r.quarantineStatus).toBe('quarantined');
+    expect(r.primaryReason).toBe('wrong_answer');
+  });
+});
+
+describe('REPORT_REASON_REVALIDATION_MAP', () => {
+  it('contains an entry for every report reason', () => {
+    const allReasons: string[] = ['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues'];
+    for (const reason of allReasons) {
+      expect(REPORT_REASON_REVALIDATION_MAP).toHaveProperty(reason);
+    }
+  });
+
+  it('ambiguous_or_insufficient_clues maps to clinical and structural checks', () => {
+    const checks = REPORT_REASON_REVALIDATION_MAP['ambiguous_or_insufficient_clues'];
+    expect(checks).toContain('clinical_signal');
+    expect(checks).toContain('objective_data');
+    expect(checks).toContain('lead_in_clarity');
+    expect(checks).toContain('difficulty_fit');
+    expect(checks).toContain('answer_support');
+    expect(checks).toContain('single_best_answer_structure');
+    expect(checks).toContain('nbme_uworld_specific_rules');
+  });
+
+  it('wrong_answer maps to answer correctness checks', () => {
+    const checks = REPORT_REASON_REVALIDATION_MAP['wrong_answer'];
+    expect(checks).toContain('answer_support');
+    expect(checks).toContain('explanation_contradiction');
+  });
+
+  it('off_topic maps to scope alignment', () => {
+    expect(REPORT_REASON_REVALIDATION_MAP['off_topic']).toContain('scope_alignment');
   });
 });

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import {
   normalizeOptions, getCorrectLetter, getUserLetter,
   isQuestionAnswered, isQuestionCorrect,
 } from '../../lib/examReviewHelpers'
+import { saveQuestionReport } from '../../lib/storage'
 
 /**
  * @param {{
@@ -9,9 +11,25 @@ import {
  *   userAnswer: string | null
  *   questionNumber: number
  *   isMarked: boolean
+ *   sessionConfig?: object
  * }} props
  */
-export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked }) {
+export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked, sessionConfig }) {
+  const [reportReason, setReportReason] = useState('wrong_answer')
+  const [reported, setReported] = useState(false)
+
+  const handleReport = () => {
+    try {
+      const saved = saveQuestionReport(question, reportReason, {
+        mode: 'exam',
+        source: sessionConfig?.source,
+        subject: sessionConfig?.subject,
+        system: sessionConfig?.system,
+        topic: sessionConfig?.topic || sessionConfig?.clinicalFocus,
+      })
+      if (saved) setReported(true)
+    } catch { /* local storage failure — swallow so review is never blocked */ }
+  }
   const correctLetter = getCorrectLetter(question)
   const userLetter    = getUserLetter(userAnswer)
   const answered      = isQuestionAnswered(userAnswer)
@@ -160,6 +178,25 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
           <p>{question.commonTrap}</p>
         </div>
       )}
+
+      {/* Report action */}
+      <div className="question-report-row erv-report-row">
+        <select
+          className="question-report-select"
+          value={reportReason}
+          onChange={e => { setReportReason(e.target.value); setReported(false) }}
+          aria-label="Report question reason"
+        >
+          <option value="wrong_answer">Wrong answer</option>
+          <option value="bad_explanation">Bad explanation</option>
+          <option value="off_topic">Off topic</option>
+          <option value="ambiguous_or_insufficient_clues">Ambiguous / insufficient clinical clues</option>
+        </select>
+        <button type="button" className="question-report-btn" onClick={handleReport}>
+          Report
+        </button>
+        {reported && <span className="question-report-status">Saved</span>}
+      </div>
     </div>
   )
 }

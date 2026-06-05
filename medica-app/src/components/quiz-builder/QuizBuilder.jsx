@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { getAuthToken } from '../../lib/apiClient'
 import { useMasteryAdaptivePreview } from '../../hooks/useMastery'
-import { DEFAULT_CONFIG } from '../../lib/quizTypes'
+import {
+  DEFAULT_CONFIG,
+  STANDARDIZED_40Q_BLOCK,
+  normalizeQuizConfigForGeneration,
+} from '../../lib/quizTypes'
 import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
 import { buildTopicMetadata } from '../../lib/topicIntelligence'
 import { normalizeGenerationConfig } from '../../lib/generationScope'
@@ -16,8 +20,6 @@ import ClinicalFocusInput from './ClinicalFocusInput'
 import CoachTopicInput from './CoachTopicInput'
 import LivePreview from '../layout/LivePreview'
 
-const STANDARDIZED_BLOCK = 'standardized-40-question-block'
-
 const LOCKED_CONFIG = {
   mode:          'exam',
   questionCount: 40,
@@ -25,8 +27,8 @@ const LOCKED_CONFIG = {
   system:        'All',
   topic:         '',
   clinicalFocus: '',
-  difficulty:    'standardized',
-  blockType:     STANDARDIZED_BLOCK,
+  difficulty:    'Balanced',
+  blockType:     STANDARDIZED_40Q_BLOCK,
 }
 
 /** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null }} props */
@@ -39,7 +41,7 @@ export default function QuizBuilder({ onStart, generationError = null }) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError]               = useState(generationError)
 
-  const isStandardized = config.blockType === STANDARDIZED_BLOCK
+  const isStandardized = config.blockType === STANDARDIZED_40Q_BLOCK
   const difficultyAvailability = isStandardized ? null : getDifficultyAvailability(config)
   const showDifficultyWarning = Boolean(difficultyAvailability?.requiresBackend)
 
@@ -64,9 +66,9 @@ export default function QuizBuilder({ onStart, generationError = null }) {
     setIsGenerating(true)
     setError(null)
     try {
-      const effectiveConfig = isStandardized
+      const effectiveConfig = normalizeQuizConfigForGeneration(isStandardized
         ? { ...config, ...LOCKED_CONFIG }
-        : config
+        : config)
       console.log("[QUIZBUILDER CONFIG BEFORE GENERATE]", effectiveConfig)
       const base = normalizeGenerationConfig({
         ...effectiveConfig,

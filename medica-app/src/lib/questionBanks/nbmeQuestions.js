@@ -143,7 +143,7 @@ export const NBME_QUESTIONS = [
     "questionAngle": "mechanism",
     "memoryAnchor": "Pyelonephritis + elevated Cr = prerenal most common (dehydration + fever-induced vasodilation). IV fluids restore renal function.",
     "commonTrap": "Students pick intrinsic renal injury from bacterial toxins because the kidney is clearly infected, but direct tubular toxin injury is uncommon in uncomplicated pyelonephritis — prerenal from reduced intake and vasodilation is the dominant mechanism.",
-    "stem": "A 24-year-old woman with recurrent UTIs presents with 3 days of dysuria, urinary frequency, and right flank pain with fever 38.9°C. UA shows leukocyte esterase and nitrites positive. Creatinine is 1.8 mg/dL (baseline 0.8). BP is 118/76. Which mechanism best explains the creatinine elevation?",
+    "stem": "A 24-year-old woman with recurrent UTIs presents with 3 days of dysuria, urinary frequency, fever, nausea, decreased oral intake, and right flank pain. Temperature is 38.9°C, pulse is 112/min, and blood pressure is 104/68 mmHg. Mucous membranes are dry. Urinalysis shows leukocyte esterase and nitrites positive. Serum BUN is 42 mg/dL and creatinine is 1.8 mg/dL, increased from a baseline of 0.8 mg/dL. Which mechanism best explains the creatinine elevation?",
     "options": [
       {
         "letter": "A",

@@ -202,6 +202,7 @@ export interface IQuestionReportsRepository {
     globalWrongAnswer: number;
     globalBadExpl:     number;
     globalOffTopic:    number;
+    globalAmbiguous:   number;
     fingerprints:      FingerprintCountRow[];
   }>;
 

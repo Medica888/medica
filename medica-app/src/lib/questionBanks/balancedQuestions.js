@@ -1037,20 +1037,20 @@ export const BALANCED_QUESTIONS = [
     "subject": "Pathology",
     "system": "Respiratory",
     "difficulty": "Balanced",
-    "testedConcept": "Primary spontaneous pneumothorax — tall thin male, bleb rupture, chest tube indication",
+    "testedConcept": "Primary spontaneous pneumothorax — large stable PSP treated with active pleural decompression",
     "weakSpotCategory": "Pleural Disease",
     "usmleContentArea": "Respiratory System",
     "usmleSubdomain": "Pleural Disorders",
     "physicianTask": "Patient Care: Clinical Interventions",
     "topic": "Pleural Disease",
     "questionAngle": "treatment",
-    "memoryAnchor": "Spontaneous pneumothorax: tall thin young male, bleb rupture. Large (>20%) or symptomatic → needle aspiration or small-bore chest tube. Small + stable → supplemental O2 + observation. Trachea deviates AWAY from pneumothorax.",
+    "memoryAnchor": "Spontaneous pneumothorax: tall thin young male, bleb rupture. Large or symptomatic stable PSP needs active decompression. Tension = hypotension + tracheal deviation away.",
     "commonTrap": "Students diagnose tension pneumothorax for any patient with hypoxia and unilateral absent breath sounds — tension pneumothorax requires hemodynamic instability and mediastinal shift. A simple large pneumothorax with stable BP and midline trachea is managed with chest tube, not emergent needle decompression.",
     "stem": "A 22-year-old man who is 6'4\" and thin presents with sudden right-sided pleuritic chest pain and dyspnea. Breath sounds are absent over the right hemithorax. Trachea is midline. BP is 122/78 mmHg. CXR shows right-sided pneumothorax with 40% lung collapse. Which is the most appropriate management?",
     "options": [
       {
         "letter": "A",
-        "text": "Small-bore chest tube with water-seal drainage or needle aspiration"
+        "text": "Needle aspiration or small-bore catheter drainage for a large stable primary spontaneous pneumothorax"
       },
       {
         "letter": "B",
@@ -1066,10 +1066,10 @@ export const BALANCED_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "Primary spontaneous pneumothorax (PSP) occurs in tall, thin young males from apical subpleural bleb rupture. A large PSP (>20% collapse) or any symptomatic PSP requires decompression. Small-bore chest tube with water-seal drainage or needle aspiration are equivalent first-line interventions for large uncomplicated PSP. Observation alone is only appropriate for small (<20%) asymptomatic PSP. Thoracotomy is reserved for recurrent PSP or persistent air leak. Bilateral needle decompression is used only for tension pneumothorax (hemodynamic instability, mediastinal shift) — not present here.",
-    "pearl": "PSP: tall thin male, bleb rupture. Large (>20%) or symptomatic → chest tube or aspiration. Small + asymptomatic → supplemental O2 + observation. Recurrence → pleurodesis or VATS bullectomy. Distinguish from tension PTX (midline trachea here).",
+    "explanation": "Primary spontaneous pneumothorax (PSP) occurs in tall, thin young males from apical subpleural bleb rupture. This patient has a large symptomatic PSP but is hemodynamically stable and has a midline trachea, so this is not tension pneumothorax. Large stable PSP requires active pleural decompression, typically needle aspiration or small-bore catheter/chest tube drainage depending on local pathway. Observation alone is appropriate only for small, minimally symptomatic PSP. Thoracotomy is reserved for recurrent PSP, persistent air leak, or failure of less invasive drainage.",
+    "pearl": "PSP: tall thin male, apical bleb rupture. Large or symptomatic stable PSP needs aspiration or small-bore catheter drainage. Tension PTX requires immediate needle decompression because hypotension/mediastinal shift are present.",
     "optionExplanations": {
-      "A": "Primary spontaneous pneumothorax with 40% lung collapse is a large pneumothorax requiring active decompression. Small-bore chest tube (8–14 Fr) with water-seal drainage and needle aspiration (14-16 gauge needle/catheter placed in the 2nd intercostal space, midclavicular line) are both acceptable and equivalent first-line interventions per BTS and ACCP guidelines. Small-bore tubes are preferred over large-bore tubes for uncomplicated PSP because they cause less pain and are equally effective for air evacuation. Simple aspiration may be attempted first — if the lung re-expands and the patient is clinically stable, the tube can be removed. If aspiration fails or re-expansion is incomplete, tube thoracostomy with water-seal drainage follows. The key elements: (1) 40% collapse = large PSP requiring intervention, (2) hemodynamic stability = no urgency requiring needle decompression, (3) midline trachea = no tension.",
+      "A": "Primary spontaneous pneumothorax with 40% lung collapse is large and symptomatic, so active decompression is required. Because the patient is stable and the trachea is midline, this is not tension pneumothorax. Needle aspiration or small-bore catheter/chest tube drainage is appropriate for a large stable PSP. The key elements are: (1) large PSP requires intervention, (2) stable blood pressure means this is not a crash decompression scenario, and (3) midline trachea argues against tension physiology.",
       "B": "Observation alone is appropriate for small primary spontaneous pneumothorax (<20% collapse) in asymptomatic patients who can be monitored closely. The rationale: air in the pleural space is absorbed at approximately 1.25% per day under normal conditions; supplemental oxygen accelerates reabsorption to approximately 4x the normal rate. Repeat chest X-ray in 6–12 hours confirms stability. However, this patient has 40% lung collapse — a large PSP with symptomatic dyspnea and pleuritic pain. Large PSP is not safely managed by observation because the pneumothorax may expand, respiratory compromise may worsen, and the patient is symptomatic. \"Young patients tolerate large pneumothoraces\" is a dangerous clinical misconception that can lead to delayed decompression.",
       "C": "Emergency thoracotomy (open surgical chest exploration) is reserved for specific scenarios: (1) recurrent PSP (same side, second or subsequent episode) — surgical pleurodesis and bullectomy at thoracotomy or VATS prevents future episodes; (2) persistent bronchopleural fistula (air leak continuing >5 days despite tube drainage); (3) failure of chest tube drainage; (4) bilateral simultaneous pneumothorax; (5) tension pneumothorax not responding to needle decompression. This patient has a first-episode primary spontaneous pneumothorax with no indications for immediate surgery. Video-assisted thoracoscopic surgery (VATS) is preferred over open thoracotomy when surgical intervention is ultimately needed (smaller incisions, faster recovery).",
       "D": "Bilateral needle decompression is the emergency treatment for tension pneumothorax — a life-threatening emergency caused by progressive air accumulation under pressure in the pleural space, causing mediastinal shift, compression of the contralateral lung, and obstruction of venous return to the heart. Tension pneumothorax presents with: severe respiratory distress, absent breath sounds on the affected side, tracheal deviation AWAY from the affected side, hypotension, tachycardia, and jugular venous distension. This patient has a midline trachea and hemodynamically stable BP — specifically excluding tension pneumothorax. Bilateral decompression in a unilateral pneumothorax would create an iatrogenic contralateral pneumothorax, potentially precipitating the tension physiology the procedure was meant to treat."
@@ -3558,37 +3558,43 @@ export const BALANCED_QUESTIONS = [
     "subject": "Anatomy",
     "system": "Respiratory",
     "difficulty": "Balanced",
-    "testedConcept": "needle decompression placed above the rib to avoid the neurovascular bundle",
+    "testedConcept": "needle decompression site — insert above the rib to avoid the intercostal neurovascular bundle",
     "weakSpotCategory": "Thoracic Anatomy",
     "usmleContentArea": "Respiratory System",
     "usmleSubdomain": "Thoracic Anatomy",
     "physicianTask": "Patient Care: Clinical Interventions",
     "topic": "Needle decompression site",
-    "questionAngle": "coverage-qb035",
-    "memoryAnchor": "Needle decompression site: needle decompression placed above the rib to avoid the neurovascular bundle.",
-    "commonTrap": "Do not choose a broad alternative when the vignette gives a specific diagnostic or mechanistic clue.",
-    "stem": "A 46-year-old patient is evaluated during a USMLE-style teaching session. The vignette emphasizes tension pneumothorax requiring urgent pleural access. Which of the following is the best explanation?",
+    "questionAngle": "procedure anatomy",
+    "memoryAnchor": "Intercostal VAN runs along the inferior rib border. Enter the pleural space just above the rib below the intercostal space.",
+    "commonTrap": "Students choose the lower edge of the rib above because it feels closer to the intercostal space, but the neurovascular bundle runs along that inferior rib margin.",
+    "stem": "A 29-year-old man is brought to the emergency department after a motorcycle collision. He has severe dyspnea, hypotension, distended neck veins, tracheal deviation to the left, and absent breath sounds over the right hemithorax. Needle decompression is performed in the right second intercostal space at the midclavicular line. To minimize the risk of intercostal vessel injury, where should the needle be inserted?",
     "options": [
       {
         "letter": "A",
-        "text": "needle decompression placed above the rib to avoid the neurovascular bundle"
+        "text": "Immediately superior to the upper border of the third rib"
       },
       {
         "letter": "B",
-        "text": "A nonspecific stress response that does not explain the defining clinical clue"
+        "text": "Immediately inferior to the lower border of the second rib"
       },
       {
         "letter": "C",
-        "text": "An unrelated congenital process without the expected timing or associated findings"
+        "text": "Directly through the center of the second intercostal space"
       },
       {
         "letter": "D",
-        "text": "A medication adverse effect that is not supported by the history or laboratory data"
+        "text": "At the costochondral junction to avoid the intercostal bundle"
       }
     ],
     "correct": "A",
-    "explanation": "needle decompression placed above the rib to avoid the neurovascular bundle is the best answer because the vignette highlights tension pneumothorax requiring urgent pleural access. The clinical pattern points to Needle decompression site, and the alternative choices fail because they do not account for the specific finding, timing, or mechanism described.",
-    "pearl": "Needle decompression site: recognize the defining clue and connect it to the mechanism rather than matching one isolated word."
+    "explanation": "This patient has tension pneumothorax: hypotension, distended neck veins, tracheal deviation away from the affected side, and absent unilateral breath sounds. Needle decompression can be performed at the second intercostal space in the midclavicular line. The intercostal vein, artery, and nerve run in the costal groove along the inferior border of each rib, so pleural access should be made just superior to the upper border of the rib below the intercostal space. In the second intercostal space, that means entering immediately above the third rib.",
+    "pearl": "Intercostal VAN runs under each rib. Procedures through an intercostal space go over the rib below, not under the rib above.",
+    "optionExplanations": {
+      "A": "Correct. The intercostal neurovascular bundle runs along the inferior border of each rib, so inserting just above the rib below the intercostal space avoids the bundle.",
+      "B": "Wrong. The lower border of the second rib is where the intercostal vein, artery, and nerve travel, so this approach increases the risk of vascular or nerve injury.",
+      "C": "Wrong. The center of the intercostal space is less precise and can still place the needle near the neurovascular bundle; the safe landmark is just superior to the rib below.",
+      "D": "Wrong. The costochondral junction is not the safety principle being tested. The key anatomic relationship is the neurovascular bundle along the inferior rib border."
+    }
   },
   {
     "id": "qB036",

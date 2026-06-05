@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { saveQuestionReport, saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
+import QuestionNavigator from './QuestionNavigator'
 
 // Normalize legacy or unexpected mode strings to the canonical three
 function normalizeMode(mode) {
@@ -282,6 +283,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
               <option value="wrong_answer">Wrong answer</option>
               <option value="bad_explanation">Bad explanation</option>
               <option value="off_topic">Off topic</option>
+              <option value="ambiguous_or_insufficient_clues">Ambiguous / insufficient clinical clues</option>
             </select>
             <button type="button" className="question-report-btn" onClick={handleReport}>
               Report
@@ -346,6 +348,28 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
         </div>
       </div>
 
+      {/* Question Navigator */}
+      <QuestionNavigator
+        questions={questions}
+        currentIndex={currentIndex}
+        onSelect={(i) => { setShowExpl(false); updateSession({ currentIndex: i }) }}
+        getStatus={(q, i) => {
+          if (i === currentIndex) return 'current'
+          if (examSubmitted) {
+            const ua = answers[q.id]
+            if (!ua) return 'unanswered'
+            return normalizeAnswerLetter(ua) === getQuestionCorrectLetter(q) ? 'correct' : 'incorrect'
+          }
+          const isAns = !!answers[q.id]
+          const isMrk = !!marked[q.id]
+          if (isMrk && isAns) return 'marked-answered'
+          if (isMrk) return 'marked'
+          if (isAns) return 'answered'
+          return 'unanswered'
+        }}
+        mode={examSubmitted ? 'exam-submitted' : 'exam'}
+      />
+
       {/* Navigation footer */}
       <div className="qs-nav">
         <button
@@ -358,17 +382,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
           </svg>
           Previous
         </button>
-
-        <div className="qs-nav-dots" aria-hidden="true">
-          {questions.map((q, i) => (
-            <button
-              key={i}
-              className={`qs-dot${i === currentIndex ? ' active' : ''}${answers[q.id] ? ' answered' : ''}`}
-              onClick={() => { setShowExpl(false); updateSession({ currentIndex: i }) }}
-              aria-label={`Question ${i + 1}`}
-            />
-          ))}
-        </div>
 
         <button
           className="qs-nav-btn primary"

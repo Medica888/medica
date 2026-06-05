@@ -419,12 +419,14 @@ export function generateFlashcardsFromWrongQuestions(session, sourceMode) {
     const questionCards = []
 
     // method and category are internal metadata — never placed inside front/back text
-    function tryAdd(id, tag, questionAngle, front, back, method, category) {
+    // backMaxWords: pearl/trap text is curated content — use 50 to preserve full clinical meaning.
+    //              recall backs (extracted mechanism sentences) stay at 15 for conciseness.
+    function tryAdd(id, tag, questionAngle, front, back, method, category, backMaxWords = 15) {
       if (!front || !back) return
       const safeFront = sanitizeFront(front)
       if (!safeFront) return
       const cleanFront = sanitizeFlashcardText(capWords(safeFront, 16))
-      const cleanBack  = sanitizeFlashcardText(oneSentence(back, 15))
+      const cleanBack  = sanitizeFlashcardText(oneSentence(back, backMaxWords))
       if (!cleanFront || !cleanBack) return
       if (META_FRONT_RE.test(cleanFront)) return
       const key = normKey(cleanFront)

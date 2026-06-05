@@ -390,18 +390,19 @@ export interface ConceptReviewHistory {
 
 // ── Question reports ──────────────────────────────────────────────────────────
 
-export type QuestionReportReason    = 'wrong_answer' | 'bad_explanation' | 'off_topic';
+export type QuestionReportReason    = 'wrong_answer' | 'bad_explanation' | 'off_topic' | 'ambiguous_or_insufficient_clues';
 export type QuestionQuarantineStatus = 'clear' | 'watch' | 'quarantined';
-export type QuestionRecommendedAction = 'none' | 'review' | 'repair_explanation' | 'quarantine';
+export type QuestionRecommendedAction = 'none' | 'review' | 'repair_explanation' | 'quarantine' | 'revalidate_clues';
 
 /** Raw per-fingerprint count row returned by the repository (no quarantine logic). */
 export interface FingerprintCountRow {
-  fingerprint:    string;
-  total:          number;
-  wrong_answer:   number;
-  bad_explanation: number;
-  off_topic:      number;
-  unique_users:   number;
+  fingerprint:                    string;
+  total:                          number;
+  wrong_answer:                   number;
+  bad_explanation:                number;
+  off_topic:                      number;
+  ambiguous_or_insufficient_clues: number;
+  unique_users:                   number;
 }
 
 /** Full per-fingerprint report with quarantine status — produced by QuestionReportService. */
@@ -409,9 +410,10 @@ export interface QuestionFingerprintReport {
   fingerprint:       string;
   totalReports:      number;
   byReason: {
-    wrong_answer:    number;
-    bad_explanation: number;
-    off_topic:       number;
+    wrong_answer:                   number;
+    bad_explanation:                number;
+    off_topic:                      number;
+    ambiguous_or_insufficient_clues: number;
   };
   uniqueUsers:       number;
   quarantineStatus:  QuestionQuarantineStatus;
@@ -421,24 +423,26 @@ export interface QuestionFingerprintReport {
 
 /** Entry in the summary's topFingerprints list (flat shape for easy table rendering). */
 export interface QuestionReportSummaryEntry {
-  fingerprint:           string;
-  totalReports:          number;
-  wrongAnswerReports:    number;
-  badExplanationReports: number;
-  offTopicReports:       number;
-  uniqueUsers:           number;
-  quarantineStatus:      QuestionQuarantineStatus;
-  primaryReason:         QuestionReportReason | null;
-  recommendedAction:     QuestionRecommendedAction;
+  fingerprint:                    string;
+  totalReports:                   number;
+  wrongAnswerReports:             number;
+  badExplanationReports:          number;
+  offTopicReports:                number;
+  ambiguousReports:               number;
+  uniqueUsers:                    number;
+  quarantineStatus:               QuestionQuarantineStatus;
+  primaryReason:                  QuestionReportReason | null;
+  recommendedAction:              QuestionRecommendedAction;
 }
 
 /** Top-level analytics summary returned by GET /api/question-reports/summary. */
 export interface QuestionReportSummary {
   totalReports: number;
   byReason: {
-    wrong_answer:    number;
-    bad_explanation: number;
-    off_topic:       number;
+    wrong_answer:                   number;
+    bad_explanation:                number;
+    off_topic:                      number;
+    ambiguous_or_insufficient_clues: number;
   };
   topFingerprints: QuestionReportSummaryEntry[];
 }
@@ -448,7 +452,7 @@ export interface QuestionReport {
   user_id:            string | null;  // null for anonymous reporters
   question_id:        string | null;  // TEXT — bank question IDs are non-UUID strings
   fingerprint:        string;
-  reason:             'wrong_answer' | 'bad_explanation' | 'off_topic';
+  reason:             'wrong_answer' | 'bad_explanation' | 'off_topic' | 'ambiguous_or_insufficient_clues';
   source:             string | null;
   mode:               string | null;
   difficulty:         string | null;

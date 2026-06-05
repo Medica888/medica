@@ -1,5 +1,6 @@
 import { shuffleQuestionOptions } from './questionNormalizer.js'
 import { getQuestionCorrectLetter } from './answerNormalize.js'
+import { normalizeQuizConfigForGeneration } from './quizTypes.js'
 import { enrichQuestionWithUsmleTaxonomy, PHYSICIAN_TASKS, USMLE_CONTENT_AREAS } from './usmleTaxonomy.js'
 import {
   resolveGenerationScope,
@@ -223,15 +224,17 @@ export function validateHardDifficultyQuestion(question) {
 }
 
 export function getAvailableQuestionCountForConfig(config) {
-  const difficulty = config?.difficulty || 'Balanced'
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
+  const difficulty = normalizedConfig?.difficulty || 'Balanced'
   if (!difficulty || difficulty === 'Balanced') return QUESTION_BANK.length
   return QUESTION_BANK.filter(q => q.difficulty === difficulty).length
 }
 
 export function getDifficultyAvailability(config) {
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const requested = Number(config?.questionCount || 0)
-  const difficulty = config?.difficulty || 'Balanced'
-  const available = getAvailableQuestionCountForConfig(config)
+  const difficulty = normalizedConfig?.difficulty || 'Balanced'
+  const available = getAvailableQuestionCountForConfig(normalizedConfig)
   const target = HARD_DIFFICULTY_TARGETS[difficulty] || requested
   return {
     difficulty,
@@ -254,8 +257,9 @@ export function getDifficultyAvailability(config) {
  * @returns {import('./quizTypes').QuizQuestion[]}
  */
 export function getBankQuestionsForConfig(config, seenState = null) {
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const enrichedOnly = config.mode === 'coach'
-  const { questions } = _buildMockPool(config, enrichedOnly, seenState ?? EMPTY_SEEN_STATE)
+  const { questions } = _buildMockPool(normalizedConfig, enrichedOnly, seenState ?? EMPTY_SEEN_STATE)
   return questions
 }
 
@@ -298,7 +302,7 @@ export function ensureQuestionCount(questions, config) {
  * @returns {{ questions: object[], expandedScope: boolean, originalScopeType: string, expandedScopeTo: string|null, excludedCount: number }}
  */
 function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
-  const normalizedConfig = normalizeGenerationConfig(config)
+  const normalizedConfig = normalizeGenerationConfig(normalizeQuizConfigForGeneration(config))
   const scope = resolveGenerationScope(normalizedConfig)
 
   let bank = (enrichedOnly
@@ -339,8 +343,8 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
     if (filtered.length >= 2) pool = filtered
   }
 
-  if (config.difficulty && config.difficulty !== 'Balanced') {
-    const diffPool = pool.filter(q => q.difficulty === config.difficulty)
+  if (normalizedConfig.difficulty && normalizedConfig.difficulty !== 'Balanced') {
+    const diffPool = pool.filter(q => q.difficulty === normalizedConfig.difficulty)
     if (diffPool.length >= 2) pool = diffPool
   }
 
@@ -372,9 +376,10 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
  * @returns {import('./quizTypes').QuizQuestion[]}
  */
 export function generateMockQuestions(config) {
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const seenState = _seenStateFromHistory()
-  const { questions } = _buildMockPool(config, false, seenState)
-  return ensureQuestionCount(questions, config)
+  const { questions } = _buildMockPool(normalizedConfig, false, seenState)
+  return ensureQuestionCount(questions, normalizedConfig)
 }
 
 function _buildSessionMetadata(config, finalQuestions, excludedCount) {
@@ -398,18 +403,19 @@ function _buildSessionMetadata(config, finalQuestions, excludedCount) {
  * @returns {import('./quizTypes').QuizSession}
  */
 export function createQuizSession(config) {
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const seenState = _seenStateFromHistory()
 
-  if (config.mode === 'coach') {
-    const { questions, expandedScope, originalScopeType, expandedScopeTo, excludedCount } = _buildMockPool(config, true, seenState)
-    const finalQuestions = ensureQuestionCount(questions, config)
-      .map(q => enrichQuestionWithUsmleTaxonomy(q, config))
+  if (normalizedConfig.mode === 'coach') {
+    const { questions, expandedScope, originalScopeType, expandedScopeTo, excludedCount } = _buildMockPool(normalizedConfig, true, seenState)
+    const finalQuestions = ensureQuestionCount(questions, normalizedConfig)
+      .map(q => enrichQuestionWithUsmleTaxonomy(q, normalizedConfig))
       .map(shuffleQuestionOptions)
 
     return {
       id: `session_${Date.now()}`,
       mode: 'coach',
-      config,
+      config: normalizedConfig,
       questions: finalQuestions,
       answers: {},
       currentIndex: 0,
@@ -419,15 +425,15 @@ export function createQuizSession(config) {
     }
   }
 
-  const { questions, expandedScope, originalScopeType, expandedScopeTo, excludedCount } = _buildMockPool(config, false, seenState)
-  const finalQuestions = ensureQuestionCount(questions, config)
-    .map(q => enrichQuestionWithUsmleTaxonomy(q, config))
+  const { questions, expandedScope, originalScopeType, expandedScopeTo, excludedCount } = _buildMockPool(normalizedConfig, false, seenState)
+  const finalQuestions = ensureQuestionCount(questions, normalizedConfig)
+    .map(q => enrichQuestionWithUsmleTaxonomy(q, normalizedConfig))
     .map(shuffleQuestionOptions)
 
   return {
     id: `session_${Date.now()}`,
-    mode: config.mode,
-    config,
+    mode: normalizedConfig.mode,
+    config: normalizedConfig,
     questions: finalQuestions,
     answers: {},
     currentIndex: 0,

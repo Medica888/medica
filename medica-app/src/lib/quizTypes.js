@@ -74,6 +74,20 @@ export const DIFFICULTIES = [
 
 export const QUESTION_COUNTS = [3, 5, 10, 20, 40]
 
+export const STANDARDIZED_40Q_BLOCK = 'standardized-40-question-block'
+
+export function isStandardized40QuestionBlock(config) {
+  return config?.blockType === STANDARDIZED_40Q_BLOCK
+}
+
+export function normalizeQuizConfigForGeneration(config) {
+  if (!isStandardized40QuestionBlock(config)) return config
+  return {
+    ...config,
+    difficulty: 'Balanced',
+  }
+}
+
 export const MODES = [
   {
     id: 'exam',

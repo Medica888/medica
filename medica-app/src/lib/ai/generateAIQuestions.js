@@ -2,6 +2,7 @@ import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } 
 import { getAuthToken } from '../apiClient.js'
 import { getQuestionCorrectLetter } from '../answerNormalize.js'
 import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
+import { normalizeQuizConfigForGeneration } from '../quizTypes.js'
 import {
   appendTrustedGeneratedQuestions,
   filterReportedQuestions,
@@ -20,6 +21,8 @@ import { getBankQuestionsForConfig } from '../mockQuestions.js'
  * @returns {Promise<import('../quizTypes').QuizQuestion[]>}
  */
 export async function generateAIQuestions(config, seenState = null) {
+  const normalizedConfig = normalizeQuizConfigForGeneration(config)
+
   if (import.meta.env.VITE_USE_BACKEND_API !== 'true') {
     const err = new Error('Backend API disabled - using mock questions')
     err.code  = 'BACKEND_DISABLED'
@@ -32,7 +35,7 @@ export async function generateAIQuestions(config, seenState = null) {
   } : null
 
   const controller = new AbortController()
-  const timeoutId  = setTimeout(() => controller.abort(), getGenerationTimeoutMs(config))
+  const timeoutId  = setTimeout(() => controller.abort(), getGenerationTimeoutMs(normalizedConfig))
 
   // Declared outside try so the catch block can fall back to whatever bank candidates
   // were collected before an AI failure.
@@ -40,10 +43,10 @@ export async function generateAIQuestions(config, seenState = null) {
 
   try {
     // ── Step 1: bank-first — static bank + trusted AI questions ─────────────
-    bankCandidates = _getBankCandidates(config, seenState)
+    bankCandidates = _getBankCandidates(normalizedConfig, seenState)
 
-    if (bankCandidates.length >= config.questionCount) {
-      const questions = bankCandidates.slice(0, config.questionCount)
+    if (bankCandidates.length >= normalizedConfig.questionCount) {
+      const questions = bankCandidates.slice(0, normalizedConfig.questionCount)
       attachGenerationTelemetry(questions, {
         source:       'validated-local-bank',
         bankUsed:     questions.length,
@@ -54,8 +57,8 @@ export async function generateAIQuestions(config, seenState = null) {
     }
 
     // ── Step 2: AI fill for remaining count ──────────────────────────────────
-    const remainingCount  = Math.max(1, config.questionCount - bankCandidates.length)
-    const remainingConfig = { ...config, questionCount: remainingCount }
+    const remainingCount  = Math.max(1, normalizedConfig.questionCount - bankCandidates.length)
+    const remainingConfig = { ...normalizedConfig, questionCount: remainingCount }
 
     const raw = await _attempt(remainingConfig, exclude, controller.signal)
     const telemetry = raw.generationTelemetry ?? null
@@ -75,17 +78,17 @@ export async function generateAIQuestions(config, seenState = null) {
       console.warn(`[generateAIQuestions] filtered ${reported} reported question(s)`)
     }
 
-    const { valid, rejected, reasons } = _validateGeneratedQuestions(unreported, config)
+    const { valid, rejected, reasons } = _validateGeneratedQuestions(unreported, normalizedConfig)
     if (rejected > 0) {
       console.warn(`[generateAIQuestions] rejected ${rejected} invalid question(s): ${_formatRejectionReasons(reasons)}`)
     }
 
-    const enrichedValid = valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
-    appendTrustedGeneratedQuestions(enrichedValid, config)
+    const enrichedValid = valid.map(q => enrichQuestionWithUsmleTaxonomy(q, normalizedConfig))
+    appendTrustedGeneratedQuestions(enrichedValid, normalizedConfig)
 
     // ── Step 3: combine bank + AI, dedup, enforce count ──────────────────────
     const combined = _dedupQuestions([...bankCandidates, ...enrichedValid]).unique
-    const checked  = _checkCount(combined, config)
+    const checked  = _checkCount(combined, normalizedConfig)
 
     const source = bankCandidates.length > 0 ? 'bank-plus-ai' : 'live-ai'
     attachGenerationTelemetry(checked, {
@@ -100,15 +103,15 @@ export async function generateAIQuestions(config, seenState = null) {
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw Object.assign(
-        new Error(getGenerationTimeoutMessage(config)),
+        new Error(getGenerationTimeoutMessage(normalizedConfig)),
         { code: 'GENERATION_TIMEOUT' },
       )
     }
     // AI failed but bank has partial coverage: use what we have for non-40Q configs
-    const is40QBlock = config.questionCount === 40 && config.mode === 'exam'
+    const is40QBlock = normalizedConfig.questionCount === 40 && normalizedConfig.mode === 'exam'
     if (bankCandidates.length > 0 && !is40QBlock) {
       console.warn(`[generateAIQuestions] AI failed (${err?.code ?? err?.message}), falling back to ${bankCandidates.length} bank question(s)`)
-      const checked = _checkCount(bankCandidates, config)
+      const checked = _checkCount(bankCandidates, normalizedConfig)
       attachGenerationTelemetry(checked, {
         source:       'fallback-bank',
         bankUsed:     bankCandidates.length,
