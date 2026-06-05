@@ -551,7 +551,6 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
 async function attemptRepair(
   q: ReturnType<typeof normalizeQuestion>,
   quality: QuestionQuality,
-  config: Record<string, any>,
 ): Promise<Record<string, any> | null> {
   const prompt = buildRepairPrompt(q as Record<string, unknown>, quality);
   if (!prompt) return null;
@@ -686,8 +685,6 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   let scopeRejected = 0;
 
   for (let i = 0; i < normalized.length; i++) {
-    const quality = scoreQuestion(normalized[i], config.mode, difficulty);
-
     if (requestedScopeForCheck) {
       const scopeReasons = scoreScopeAlignment(normalized[i], requestedScopeForCheck);
       if (scopeReasons.length > 0) {
@@ -698,6 +695,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       }
     }
 
+    const quality = scoreQuestion(normalized[i], config.mode, difficulty);
     (quality.validationStatus === 'pass' ? passers : failers).push({ q: normalized[i], rawQ: rawQuestions[i], quality, idx: i });
   }
 
@@ -739,9 +737,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   // ── Phase 3: repair-and-review failers sequentially (uncommon path) ───────────
   for (const { q, rawQ, quality, idx } of failers) {
     let disposition: string;
-    const repairedRaw = await attemptRepair(q, quality, config);
+    let repairedStem: string | null = null;
+    const repairedRaw = await attemptRepair(q, quality);
     if (repairedRaw) {
       const repairedNorm    = normalizeQuestion(repairedRaw, offset + idx, scope);
+      repairedStem = repairedNorm.stem;
       const repairedQuality = scoreQuestion(repairedNorm, config.mode, difficulty);
       if (repairedQuality.validationStatus === 'pass') {
         if (needsReview) {
@@ -776,8 +776,9 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       console.warn('[quality] rejected (no actionable repair):', quality.rejectionReasons, '| score:', quality.qualityScore);
       disposition = 'rejected';
     }
-    if (isSuspectStem(q.stem)) {
-      console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition }));
+    const logStem = disposition === 'repair-passed' && repairedStem !== null ? repairedStem : q.stem;
+    if (isSuspectStem(logStem)) {
+      console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: logStem, disposition }));
     }
   }
 
@@ -792,7 +793,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       medicalReviewPassed:            mrPassed,
       medicalReviewRejected:          mrRejected,
       medicalReviewSkipped:           mrSkipped,
-      ruleRejected:                   rejectCount - mrRejected,
+      ruleRejected:                   rejectCount - mrRejected - scopeRejected,
       scopeRejected,
       medicalReviewFailureCategories: mrFailureCategories,
     },

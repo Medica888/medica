@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldUseValidatedLocalFallback } from './App.jsx'
+import { shouldEnterLocalFallback, shouldUseValidatedLocalFallback } from './App.jsx'
 
 describe('shouldUseValidatedLocalFallback', () => {
   it('allows hard-mode timeout fallback when the validated local bank has enough questions', () => {
@@ -36,5 +36,19 @@ describe('shouldUseValidatedLocalFallback', () => {
     )
 
     expect(result).toBe(false)
+  })
+})
+
+describe('shouldEnterLocalFallback', () => {
+  it('enters fallback when dev/mock fallback is allowed', () => {
+    expect(shouldEnterLocalFallback(true, false)).toBe(true)
+  })
+
+  it('enters fallback when validated hard-bank fallback is allowed', () => {
+    expect(shouldEnterLocalFallback(false, true)).toBe(true)
+  })
+
+  it('does not enter fallback when both fallback gates are false', () => {
+    expect(shouldEnterLocalFallback(false, false)).toBe(false)
   })
 })

@@ -483,7 +483,7 @@ export function scoreNbmeQuestion(
   const leakage = scoreNbmeClueLeakage(stem, q.options, q.correct);
   rejectionReasons.push(...leakage.reasons);
 
-  // ── Layer 1 continued: base semantic consistency ──────────────────────────────
+  // ── Layer 2: semantic consistency (skipped when Layer 1 or 5 structural issues present) ──
   // Explanation quality — scored but shallow_explanation is NOT a hard NBME rejection.
   const expl = scoreExplanationQuality(q.explanation, mode);
   rejectionReasons.push(...expl.reasons);
@@ -831,10 +831,11 @@ export function scoreQuestion(
   const rejectionReasons: string[] = [];
   const stem = (q.stem || '').trim();
 
-  // ── Layer 1: base structural and vignette format ──────────────────────────────
+  // ── Layer 1: base structural ──────────────────────────────────────────────────
   if (stem.length < 80) rejectionReasons.push('stem_too_short');
   if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
 
+  // ── Layer 2: content quality (vignette style, distractor, leakage, explanation) ──
   const nbme        = scoreClinicalVignetteStyle(stem);
   const depthScore  = scoreReasoningDepth(stem);
   const distractor  = scoreDistractorQuality(q.options);
@@ -844,7 +845,7 @@ export function scoreQuestion(
 
   rejectionReasons.push(...nbme.reasons, ...distractor.reasons, ...leakage.reasons, ...expl.reasons);
 
-  // Semantic consistency — skipped when structural issues already make the question fail.
+  // ── Layer 2 continued: semantic consistency (skipped on Layer 1/2 structural failure) ──
   const hasStructuralFailure = rejectionReasons.some(r =>
     r === 'stem_too_short' || r === 'invalid_correct_letter' ||
     r === 'insufficient_options' || r === 'duplicate_options' ||
@@ -860,7 +861,7 @@ export function scoreQuestion(
   // ── Layer 3: universal difficulty fit ────────────────────────────────────────
   rejectionReasons.push(...checkDifficultyFit(depthScore, stem.length, difficulty));
 
-  // ── Layer 6: UWorld-only structural and quality rules ────────────────────────
+  // ── Layer 5: UWorld-only structural and quality rules ────────────────────────
   if (difficulty === 'UWorld Challenge') {
     rejectionReasons.push(...checkUworldSpecific(q, mode));
   }

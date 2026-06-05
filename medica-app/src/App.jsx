@@ -50,6 +50,10 @@ export function shouldUseValidatedLocalFallback(aiErr, config) {
   return available >= (config?.questionCount || 0)
 }
 
+export function shouldEnterLocalFallback(mockFallbackAllowed, useValidatedLocalFallback) {
+  return Boolean(mockFallbackAllowed || useValidatedLocalFallback)
+}
+
 function getValidatedLocalFallbackReason(aiErr) {
   if (aiErr?.code === 'GENERATION_TIMEOUT') return 'live_ai_timeout'
   if (aiErr?.code === 'AI_INSUFFICIENT_COUNT') return 'live_ai_low_yield'
@@ -206,10 +210,10 @@ export default function App() {
     }
 
     // Mock fallback - used when backend API is disabled or local fallback is allowed.
-    if (MOCK_FALLBACK_ALLOWED || shouldUseValidatedLocalFallback) {
+    if (shouldEnterLocalFallback(MOCK_FALLBACK_ALLOWED, useValidatedLocalFallback)) {
       try {
         const { createQuizSession } = await import('./lib/mockQuestions')
-        const fallbackConfig = shouldUseValidatedLocalFallback
+        const fallbackConfig = useValidatedLocalFallback
           ? { ...config, fallbackReason: getValidatedLocalFallbackReason(aiGenerationError) }
           : config
         const session = createQuizSession(fallbackConfig)
