@@ -1128,7 +1128,36 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       return;
     }
 
+    // bankPool: bank questions to serve directly (skipped if adaptive); shortfall: how many AI must fill
+    const bankPool = adaptiveBlueprint ? [] : generatedBankQuestions;
+    const shortfall = targetCount - bankPool.length;
+
     if (!process.env.ANTHROPIC_API_KEY) {
+      if (bankPool.length > 0) {
+        // Partial bank coverage — serve what we have; can't fill shortfall without an AI key
+        const questions = bankPool.slice(0, targetCount);
+        res.json({
+          questions,
+          source:             'generated-bank',
+          count:              questions.length,
+          telemetry: {
+            requested: targetCount, generated: 0, available: bankPool.length,
+            returning: questions.length, duplicateRejects: 0,
+            mode: config.mode, difficulty: config.difficulty || 'Balanced',
+            medicalReviewRequested: 0, medicalReviewPassed: 0,
+            medicalReviewRejected: 0, medicalReviewSkipped: 0,
+            refillRounds: undefined, totalGeneratedCandidates: 0,
+            acceptedCandidates: questions.length, ruleRejectedCandidates: 0,
+            dedupRejectedCandidates: 0, scopeRejectedCandidates: 0,
+            quarantineRejectedCandidates: 0, generatedBankSaved: 0,
+            bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
+            medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+          },
+          generationStrategy: 'generated-bank',
+          adaptiveConcepts:   [],
+        });
+        return;
+      }
       res.status(503).json({ error: 'AI generation unavailable — API key not configured', code: 'NO_API_KEY' });
       return;
     }
@@ -1144,7 +1173,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     if (hardModeCaps) {
       // Hard-mode adaptive refill: keeps generating rounds until target reached or cap hit.
       const loopResult = await runAdaptiveRefill(
-        targetCount,
+        shortfall,
         hardModeCaps,
         (count, offset) => generateBatch(config, count, offset, scope),
         (qs, existingConcepts) =>
@@ -1167,7 +1196,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       accumulateMedicalReviewFailureCategories(totalMrFailureCategories, loopResult.medicalReviewFailureCategories);
     } else {
       // Balanced and other modes: existing fast path — no adaptive refill, no medical review.
-      const bufferedCount = Math.min(Math.ceil(targetCount * 1.5), 40);
+      const bufferedCount = Math.min(shortfall + 2, 40);
       let offset = 0;
       while (offset < bufferedCount) {
         const batchSize   = Math.min(GENERATE_BATCH_SIZE, bufferedCount - offset);
@@ -1189,12 +1218,12 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       totalDedupRejected  = beforeDedup - allQuestions.length;
       if (specific) allQuestions = allQuestions.filter(q => inScope(q, scope));
 
-      if (allQuestions.length < targetCount) {
-        const shortfall        = targetCount - allQuestions.length;
+      if (allQuestions.length < shortfall) {
+        const fillGap          = shortfall - allQuestions.length;
         const existingConcepts = new Set(allQuestions.map(q => norm(q.testedConcept)));
         try {
-          const retryResult   = await generateBatch(config, shortfall + 3, allQuestions.length, scope);
-          totalGenerated      += shortfall + 3;
+          const retryResult   = await generateBatch(config, fillGap + 3, allQuestions.length, scope);
+          totalGenerated      += fillGap + 3;
           totalMrRequested    += retryResult.telemetry.medicalReviewRequested;
           totalMrPassed       += retryResult.telemetry.medicalReviewPassed;
           totalMrRejected     += retryResult.telemetry.medicalReviewRejected;
@@ -1232,8 +1261,11 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       console.warn('[generate-questions] quarantine check skipped:', (qErr as Error).message);
     }
 
-    const questions = allQuestions.slice(0, targetCount);
-    const generatedBankSaved = await _saveGeneratedQuestionsToBank(questions, config);
+    // Use the full AI buffer so +2 buffer questions can fill bank-collision gaps.
+    // Save the full AI output (idempotent upsert) — unused buffer questions enter the bank for future requests.
+    const combined           = dedup([...bankPool, ...allQuestions]).slice(0, targetCount);
+    const questions          = combined;
+    const generatedBankSaved = await _saveGeneratedQuestionsToBank(allQuestions, config).catch(() => 0);
 
     const telemetry = {
       // Backward-compatible existing fields
@@ -1257,6 +1289,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       scopeRejectedCandidates:       totalScopeRejected,
       quarantineRejectedCandidates:  quarantineRejected,
       generatedBankSaved,
+      bankPoolUsed: bankPool.length,
       stoppedReason,
       medicalReviewFailureCategories: totalMrFailureCategories,
     };
@@ -1269,7 +1302,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
 
     res.json({
       questions,
-      source: 'ai',
+      source: bankPool.length > 0 ? 'hybrid' : 'ai',
       count:              questions.length,
       telemetry,
       generationStrategy: adaptiveBlueprint ? 'adaptive' : 'random',

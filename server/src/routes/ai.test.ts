@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const mockMessagesCreate = vi.hoisted(() => vi.fn());
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class {
+    messages = { create: mockMessagesCreate, stream: vi.fn() };
+  },
+}));
 import request from 'supertest';
 import { createApp } from '../app.js';
 import {
@@ -982,5 +989,191 @@ describe('generated question bank', () => {
       .post('/api/generated-question-bank')
       .send({ config: { mode: 'practice' }, questions: [makePromotableQuestion()] })
       .expect(404);
+  });
+});
+
+// ── Hybrid question bank fill ─────────────────────────────────────────────────
+// When bank has k < N questions: serve k from bank, fill N-k via live AI,
+// combine, save only the AI fill. These tests mock @anthropic-ai/sdk so no
+// real API key or network call is needed.
+
+describe('hybrid question bank fill', () => {
+  let app: ReturnType<typeof createApp>;
+
+  function fingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
+
+  async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
+    const q = makePromotableQuestion(overrides);
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: {
+        ...q,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus: 'validated_generated',
+        mode: config.mode || '',
+        difficulty: q.difficulty || config.difficulty || 'Balanced',
+      },
+    });
+  }
+
+  function aiResponseWith(questions: Record<string, any>[]) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ questions }) }],
+      stop_reason: 'end_turn',
+    };
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    process.env.ANTHROPIC_API_KEY = 'test-key-hybrid';
+    mockMessagesCreate.mockReset();
+    app = createApp();
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  // Each question needs a unique topic+questionAngle pair to avoid dedup() angle-key collisions.
+  // dedup() drops a question when norm(topic+'|'+questionAngle) matches a previously seen entry.
+
+  it('serves bank questions and fills shortfall with AI when bank is partial', async () => {
+    await seedBankQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+    await seedBankQuestion({
+      testedConcept: 'beta blocker negative chronotropy mechanism',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate 50 mg daily. After two weeks his resting heart rate falls from 88 to 62 beats per minute. Which receptor mechanism explains this effect?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+
+    const aiQuestion = makePromotableQuestion({
+      testedConcept: 'calcium channel blocker vascular relaxation mechanism',
+      stem: 'A 52-year-old woman with essential hypertension is started on amlodipine 5 mg daily. After four weeks her systolic blood pressure decreases by 18 mmHg. Which mechanism accounts for the blood pressure reduction with this drug?',
+      topic: 'Calcium channel blockers',
+      questionAngle: 'hemodynamics',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([aiQuestion]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 3, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.questions).toHaveLength(3);
+    expect(res.body.source).toBe('hybrid');
+    const concepts = res.body.questions.map((q: any) => q.testedConcept);
+    expect(concepts).toContain('ACE inhibitor bradykinin cough mechanism');
+    expect(concepts).toContain('beta blocker negative chronotropy mechanism');
+    expect(concepts).toContain('calcium channel blocker vascular relaxation mechanism');
+  });
+
+  it('deduplicates AI fill against bank pool — same concept is not returned twice', async () => {
+    // Bank has 1 ACE inhibitor question; AI returns only a duplicate concept (same as bank).
+    // After combining: the bank question is kept, the AI duplicate is filtered out.
+    await seedBankQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+
+    const duplicateConcept = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism', // same concept as bank
+      stem: 'A 61-year-old man with chronic kidney disease on enalapril for six weeks develops a persistent dry cough without dyspnea or fever. Which mechanism best explains this medication side effect?',
+      topic: 'ACE inhibitors',
+      questionAngle: 'bradykinin', // different angle from bank to survive intra-batch dedup
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([duplicateConcept]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(200);
+    // Concept appears exactly once — the AI duplicate was removed by the final dedup
+    const concepts = res.body.questions.map((q: any) => q.testedConcept);
+    expect(concepts.filter((c: string) => c === 'ACE inhibitor bradykinin cough mechanism')).toHaveLength(1);
+  });
+
+  it('saves only the AI fill to the bank — bank questions are not re-saved', async () => {
+    await seedBankQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+
+    const aiQuestion = makePromotableQuestion({
+      testedConcept: 'calcium channel blocker vascular relaxation mechanism',
+      stem: 'A 52-year-old woman with essential hypertension is started on amlodipine 5 mg daily. After four weeks her systolic blood pressure decreases by 18 mmHg. Which mechanism accounts for the reduction?',
+      topic: 'Calcium channel blockers',
+      questionAngle: 'hemodynamics',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([aiQuestion]));
+
+    await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    // Exactly 2 bank rows: original + AI fill. Not 3 — bank question was not re-saved.
+    const bankRows = await getRepositories().questions.findGeneratedBankQuestions({
+      subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced', mode: 'practice', limit: 10,
+    });
+    expect(bankRows).toHaveLength(2);
+  });
+
+  it('returns source=ai when bank is empty and AI generates all questions', async () => {
+    const q1 = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+    const q2 = makePromotableQuestion({
+      testedConcept: 'beta blocker negative chronotropy mechanism',
+      stem: 'A 60-year-old man with hypertension and angina starts metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which mechanism explains this cardiac effect?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q1, q2]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe('ai');
+    expect(res.body.questions).toHaveLength(2);
+  });
+
+  it('telemetry includes bankPoolUsed count', async () => {
+    await seedBankQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+
+    const aiQuestion = makePromotableQuestion({
+      testedConcept: 'calcium channel blocker vascular relaxation mechanism',
+      stem: 'A 52-year-old woman with essential hypertension is started on amlodipine 5 mg daily. After four weeks her systolic blood pressure decreases by 18 mmHg. Which mechanism accounts for the blood pressure reduction?',
+      topic: 'Calcium channel blockers',
+      questionAngle: 'hemodynamics',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([aiQuestion]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.telemetry.bankPoolUsed).toBe(1);
   });
 });
