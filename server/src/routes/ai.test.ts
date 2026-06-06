@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import request from 'supertest';
+import { createApp } from '../app.js';
 import {
   runAdaptiveRefill,
   HARD_MODE_CAPS,
@@ -60,6 +62,35 @@ function makeBatchResult(
 
 /** Pass-through filter: no dedup, no scope filtering. */
 const noFilter = (qs: Record<string, any>[], _: Set<string>) => qs;
+
+function makePromotableQuestion(overrides: Record<string, any> = {}) {
+  return {
+    id: 'ai-q-1',
+    subject: 'Pharmacology',
+    system: 'Cardiovascular',
+    topic: 'ACE inhibitors',
+    testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+    questionAngle: 'adverse-effect',
+    usmleContentArea: 'Cardiovascular System',
+    physicianTask: 'Mechanism',
+    stem: 'A 58-year-old man with hypertension and proteinuria starts lisinopril. Two weeks later he develops a persistent dry nonproductive cough without fever, wheezing, or abnormal chest radiograph findings. Which mechanism best explains this adverse effect?',
+    options: [
+      { letter: 'A', text: 'Accumulation of bradykinin due to angiotensin-converting enzyme inhibition' },
+      { letter: 'B', text: 'Direct activation of beta-2 adrenergic receptors in bronchial smooth muscle' },
+      { letter: 'C', text: 'Inhibition of cyclooxygenase causing excess leukotriene production' },
+      { letter: 'D', text: 'Increased aldosterone secretion causing airway mucosal edema' },
+    ],
+    correct: 'A',
+    explanation: 'ACE inhibitors block angiotensin-converting enzyme, which normally degrades bradykinin. Accumulation of bradykinin can cause a persistent dry cough, making bradykinin accumulation the correct mechanism.',
+    optionExplanations: {
+      A: 'Correct: ACE inhibition increases bradykinin, producing cough.',
+      B: 'Beta-2 activation causes bronchodilation, not ACE inhibitor cough.',
+      C: 'Leukotriene excess is associated with aspirin-exacerbated respiratory disease.',
+      D: 'ACE inhibitors reduce aldosterone rather than increase it.',
+    },
+    ...overrides,
+  };
+}
 
 // ── HARD_MODE_CAPS shape ──────────────────────────────────────────────────────
 
@@ -885,5 +916,94 @@ describe('quarantine filter — end-to-end data flow proof', () => {
     const quarantined = await repo.getQuarantinedFingerprints();
     expect(quarantined.has(bad)).toBe(true);
     expect(quarantined.has(good)).toBe(false);
+  });
+});
+
+describe('generated question bank promotion', () => {
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('saves validated generated questions for future reuse', async () => {
+    const app = createApp();
+    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
+
+    const res = await request(app)
+      .post('/api/generated-question-bank')
+      .send({ config, questions: [makePromotableQuestion()] })
+      .expect(201);
+
+    expect(res.body.saved).toBe(1);
+    expect(res.body.rejected).toBe(0);
+
+    const list = await request(app)
+      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
+      .expect(200);
+
+    expect(list.body.count).toBe(1);
+    expect(list.body.questions[0].source).toBe('ai');
+    expect(list.body.questions[0].bankStatus).toBe('validated_generated');
+  });
+
+  it('rejects invalid generated questions instead of saving them', async () => {
+    const app = createApp();
+    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
+
+    const res = await request(app)
+      .post('/api/generated-question-bank')
+      .send({
+        config,
+        questions: [makePromotableQuestion({
+          stem: 'What is the answer?',
+          explanation: 'Too short.',
+        })],
+      })
+      .expect(201);
+
+    expect(res.body.saved).toBe(0);
+    expect(res.body.rejected).toBe(1);
+
+    const list = await request(app)
+      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
+      .expect(200);
+
+    expect(list.body.count).toBe(0);
+  });
+
+  it('deduplicates generated questions by fingerprint', async () => {
+    const app = createApp();
+    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
+    const question = makePromotableQuestion();
+
+    await request(app)
+      .post('/api/generated-question-bank')
+      .send({ config, questions: [question, { ...question, id: 'second-id' }] })
+      .expect(201);
+
+    const list = await request(app)
+      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
+      .expect(200);
+
+    expect(list.body.count).toBe(1);
+  });
+
+  it('serves generated bank questions before requiring live AI', async () => {
+    const app = createApp();
+    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
+
+    await request(app)
+      .post('/api/generated-question-bank')
+      .send({ config, questions: [makePromotableQuestion()] })
+      .expect(201);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.count).toBe(1);
+    expect(res.body.telemetry.generated).toBe(0);
   });
 });

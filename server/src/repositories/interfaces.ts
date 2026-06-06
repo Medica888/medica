@@ -68,6 +68,13 @@ export interface IQuestionsRepository {
     tx?: unknown,
   ): Promise<{ id: string }>;
   findByExternalId(externalId: string): Promise<{ id: string } | null>;
+  findGeneratedBankQuestions(params: {
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    mode?: string;
+    limit?: number;
+  }): Promise<Record<string, unknown>[]>;
 }
 
 // ── Concept graph ─────────────────────────────────────────────────────────────

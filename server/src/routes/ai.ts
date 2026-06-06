@@ -9,7 +9,14 @@ import { validate } from '../middleware/validate.js';
 import { aiLimiter } from '../middleware/rateLimiter.js';
 import { getRepositories } from '../repositories/index.js';
 import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
-import { generateQuestionsSchema, generateFlashcardsSchema, explainSchema, skillsGenerateSchema } from '../schemas/ai.js';
+import {
+  generateQuestionsSchema,
+  generatedQuestionBankQuerySchema,
+  promoteGeneratedQuestionsSchema,
+  generateFlashcardsSchema,
+  explainSchema,
+  skillsGenerateSchema,
+} from '../schemas/ai.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -935,16 +942,138 @@ export async function runAdaptiveRefill(
   };
 }
 
+function _questionBodyForGeneratedBank(
+  question: ReturnType<typeof normalizeQuestion>,
+  config: Record<string, any>,
+  fingerprint: string,
+  quality: QuestionQuality,
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    ...question,
+    id: fingerprint,
+    source: 'ai',
+    bankStatus: 'validated_generated',
+    promotionStatus: 'candidate',
+    fingerprint,
+    mode: config.mode || '',
+    difficulty: question.difficulty || config.difficulty || 'Balanced',
+    validationStatus: quality.validationStatus,
+    validationScore: quality.qualityScore,
+    validationVersion: 'server-question-validator-v1',
+    generatedAt: now,
+    validatedAt: now,
+    usageCount: 0,
+    reportCount: 0,
+  };
+}
+
+function _validatePromotableQuestion(rawQuestion: Record<string, any>, config: Record<string, any>) {
+  const scope = resolveScope(config);
+  const question = normalizeQuestion(rawQuestion, 0, scope);
+  const quality = scoreQuestion(question, config.mode || 'practice', config.difficulty || 'Balanced');
+  const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
+  question.id = String(rawQuestion.id || fingerprint);
+  const validFingerprint = Boolean(fingerprint && fingerprint !== '||');
+  const valid = quality.validationStatus === 'pass' && validFingerprint;
+  return { valid, question, quality, fingerprint };
+}
+
+async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], config: Record<string, any>): Promise<number> {
+  const repo = getRepositories().questions;
+  let saved = 0;
+  for (const rawQuestion of questions) {
+    const { valid, question, quality, fingerprint } = _validatePromotableQuestion(rawQuestion, config);
+    if (!valid) continue;
+    const body = _questionBodyForGeneratedBank(question, config, fingerprint, quality);
+    await repo.upsertByExternalId(fingerprint, {
+      subject: String(body.subject || ''),
+      system:  String(body.system || ''),
+      body,
+    });
+    saved++;
+  }
+  return saved;
+}
+
+async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
+  const repo = getRepositories().questions;
+  const rawBank = await repo.findGeneratedBankQuestions({
+    subject:    config.subject,
+    system:     config.system,
+    difficulty: config.difficulty || 'Balanced',
+    mode:       config.mode,
+    limit:      targetCount,
+  });
+  const valid = rawBank
+    .map(q => _validatePromotableQuestion(q as Record<string, any>, config))
+    .filter(result => result.valid)
+    .map(result => result.question as Record<string, any>);
+
+  try {
+    const quarantinedFps = await getRepositories().questionReports.getQuarantinedFingerprints();
+    if (quarantinedFps.size === 0) return valid;
+    return valid.filter(q => !quarantinedFps.has(computeQuestionFingerprint(q.stem || '', q.testedConcept || '')));
+  } catch {
+    return valid;
+  }
+}
+
+router.get('/generated-question-bank', optionalAuth, async (req: Request, res: Response) => {
+  const parsed = generatedQuestionBankQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const questions = await getRepositories().questions.findGeneratedBankQuestions(parsed.data);
+    res.json({ questions, count: questions.length, source: 'generated-bank' });
+  } catch (err) {
+    console.error('[generated-question-bank] list failed:', err instanceof Error ? err.message : err);
+    res.status(500).json({ error: 'Generated question bank lookup failed' });
+  }
+});
+
+router.post('/generated-question-bank', optionalAuth, validate(promoteGeneratedQuestionsSchema), async (req: Request, res: Response) => {
+  const { config, questions } = req.body as { config: Record<string, any>; questions: Record<string, any>[] };
+  const repo = getRepositories().questions;
+
+  let saved = 0;
+  let rejected = 0;
+  const rejectedReasons: Record<string, number> = {};
+
+  for (const rawQuestion of questions) {
+    const { valid, question, quality, fingerprint } = _validatePromotableQuestion(rawQuestion, config);
+    if (!valid) {
+      rejected++;
+      const reasons = quality.rejectionReasons.length > 0 ? quality.rejectionReasons : ['invalid_fingerprint'];
+      for (const reason of reasons) rejectedReasons[reason] = (rejectedReasons[reason] || 0) + 1;
+      continue;
+    }
+
+    const body = _questionBodyForGeneratedBank(question, config, fingerprint, quality);
+    await repo.upsertByExternalId(fingerprint, {
+      subject: String(body.subject || ''),
+      system:  String(body.system || ''),
+      body,
+    });
+    saved++;
+  }
+
+  res.status(201).json({
+    saved,
+    rejected,
+    rejectedReasons,
+    source: 'generated-bank',
+  });
+});
+
 router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
 
   if (!rawConfig?.mode || !rawConfig?.questionCount) {
     res.status(400).json({ error: 'Missing required config fields: mode, questionCount', code: 'INVALID_CONFIG' });
-    return;
-  }
-
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(503).json({ error: 'AI generation unavailable — API key not configured', code: 'NO_API_KEY' });
     return;
   }
 
@@ -992,6 +1121,45 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
+    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount);
+    if (generatedBankQuestions.length >= targetCount) {
+      const questions = generatedBankQuestions.slice(0, targetCount);
+      const telemetry = {
+        requested:              targetCount,
+        generated:              0,
+        available:              generatedBankQuestions.length,
+        returning:              questions.length,
+        duplicateRejects:       0,
+        mode:                   config.mode,
+        difficulty:             config.difficulty || 'Balanced',
+        medicalReviewRequested: 0,
+        medicalReviewPassed:    0,
+        medicalReviewRejected:  0,
+        medicalReviewSkipped:   0,
+        totalGeneratedCandidates:      0,
+        acceptedCandidates:            questions.length,
+        ruleRejectedCandidates:        0,
+        dedupRejectedCandidates:       0,
+        scopeRejectedCandidates:       0,
+        quarantineRejectedCandidates:  0,
+        stoppedReason:          'generated_bank_covered_request',
+        medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+      };
+      res.json({
+        questions,
+        source: 'generated-bank',
+        count: questions.length,
+        telemetry,
+        generationStrategy: 'generated-bank',
+        adaptiveConcepts: [],
+      });
+      return;
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(503).json({ error: 'AI generation unavailable — API key not configured', code: 'NO_API_KEY' });
+      return;
+    }
 
     let allQuestions: Record<string, any>[] = [];
     let totalGenerated = 0;
@@ -1093,6 +1261,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     }
 
     const questions = allQuestions.slice(0, targetCount);
+    const generatedBankSaved = await _saveGeneratedQuestionsToBank(questions, config);
 
     const telemetry = {
       // Backward-compatible existing fields
@@ -1115,6 +1284,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       dedupRejectedCandidates:       totalDedupRejected,
       scopeRejectedCandidates:       totalScopeRejected,
       quarantineRejectedCandidates:  quarantineRejected,
+      generatedBankSaved,
       stoppedReason,
       medicalReviewFailureCategories: totalMrFailureCategories,
     };

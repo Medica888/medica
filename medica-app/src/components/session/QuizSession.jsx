@@ -8,6 +8,8 @@ import LabDrawer from './LabDrawer'
 import NotesDrawer from './NotesDrawer'
 import CalculatorDrawer from './CalculatorDrawer'
 import SubmitConfirmModal from './SubmitConfirmModal'
+import QuizUtilityBar from './QuizUtilityBar'
+import QuizHighlightToolbar from './QuizHighlightToolbar'
 
 function normalizeMode(mode) {
   if (mode === 'timed')       return 'exam'
@@ -79,8 +81,10 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const timerRef      = useRef(null)
   const onCompleteRef = useRef(onComplete)
   const markedRef     = useRef({})
+  const highlightsRef = useRef({})
   useEffect(() => { onCompleteRef.current = onComplete })
   useEffect(() => { markedRef.current = marked }, [marked])
+  useEffect(() => { highlightsRef.current = highlights }, [highlights])
 
   const { mode, questions, answers, currentIndex } = session
   const isExam   = mode === 'exam'
@@ -104,7 +108,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     clearTimeout(timerRef.current)
     setSubmitted(true)   // eslint-disable-line react-hooks/set-state-in-effect
     setShowExpl(true)
-    const finalSession = { ...session, marked: markedRef.current }
+    const finalSession = { ...session, marked: markedRef.current, highlights: highlightsRef.current }
     const results = calculatePracticeResults(finalSession)
     onCompleteRef.current?.({ ...results, mode: 'exam' }, finalSession)
   }, [isExam, examSubmitted, secondsLeft, totalQ, session])
@@ -141,7 +145,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     setSubmitted(true)
     setShowExpl(true)
     if (onCompleteRef.current) {
-      const finalSession = { ...session, marked: markedRef.current }
+      const finalSession = { ...session, marked: markedRef.current, highlights }
       const results = calculatePracticeResults(finalSession)
       onCompleteRef.current({ ...results, mode: 'exam' }, finalSession)
     }
@@ -286,79 +290,21 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
                 {question.subject && <span className="exam-q-tag">{question.subject}</span>}
                 {question.system  && <span className="exam-q-tag">{question.system}</span>}
               </div>
-              <div className="exam-utility-row" role="toolbar" aria-label="Exam utilities">
-                <button
-                  type="button"
-                  className={`exam-util-btn${openDrawer === 'labs' ? ' active' : ''}`}
-                  onClick={() => setOpenDrawer(d => d === 'labs' ? null : 'labs')}
-                  aria-expanded={openDrawer === 'labs'}
-                >
-                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M5 1.5v5L2 12h10L9 6.5V1.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M5 1.5h4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
-                    <path d="M3.5 8.5h7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                  </svg>
-                  Lab Values
-                </button>
-                <button
-                  type="button"
-                  className={`exam-util-btn${openDrawer === 'calc' ? ' active' : ''}`}
-                  onClick={() => setOpenDrawer(d => d === 'calc' ? null : 'calc')}
-                  aria-expanded={openDrawer === 'calc'}
-                >
-                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <rect x="1.5" y="1" width="11" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
-                    <rect x="3" y="2.5" width="8" height="2.5" rx=".75" fill="currentColor" opacity=".3"/>
-                    <circle cx="4" cy="8"  r=".9" fill="currentColor"/>
-                    <circle cx="7" cy="8"  r=".9" fill="currentColor"/>
-                    <circle cx="10" cy="8" r=".9" fill="currentColor"/>
-                    <circle cx="4" cy="11"  r=".9" fill="currentColor"/>
-                    <circle cx="7" cy="11"  r=".9" fill="currentColor"/>
-                    <circle cx="10" cy="11" r=".9" fill="currentColor"/>
-                  </svg>
-                  Calculator
-                </button>
-                <button
-                  type="button"
-                  className={`exam-util-btn${notes[question.id] ? ' has-notes' : ''}${openDrawer === 'notes' ? ' active' : ''}`}
-                  onClick={() => setOpenDrawer(d => d === 'notes' ? null : 'notes')}
-                  aria-expanded={openDrawer === 'notes'}
-                >
-                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
-                    <path d="M4.5 5h5M4.5 7.5h5M4.5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                  </svg>
-                  Notes
-                  {notes[question.id] && <span className="exam-util-dot" aria-hidden="true" />}
-                </button>
-              </div>
+              <QuizUtilityBar
+                openDrawer={openDrawer}
+                onToggle={(d) => setOpenDrawer(prev => prev === d ? null : d)}
+                hasNotes={!!notes[question.id]}
+              />
             </div>
 
             {/* Highlight toolbar */}
             {!examSubmitted && (
-              <div className="hl-toolbar" role="toolbar" aria-label="Highlight tool">
-                <span className="hl-label">Highlight</span>
-                {['yellow', 'blue', 'green', 'pink'].map(color => (
-                  <button
-                    key={color}
-                    type="button"
-                    className={`hl-btn hl-${color}${activeHighlightColor === color ? ' active' : ''}`}
-                    onClick={() => setActiveHighlightColor(color)}
-                    aria-label={`${color} highlight`}
-                    aria-pressed={activeHighlightColor === color}
-                  />
-                ))}
-                {highlights[question.id]?.length > 0 && (
-                  <button
-                    type="button"
-                    className="hl-btn hl-clear"
-                    onClick={handleClearHighlights}
-                    aria-label="Clear all highlights"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+              <QuizHighlightToolbar
+                highlights={highlights[question.id] || []}
+                activeColor={activeHighlightColor}
+                onChangeColor={setActiveHighlightColor}
+                onClear={handleClearHighlights}
+              />
             )}
 
             {/* Clinical vignette */}

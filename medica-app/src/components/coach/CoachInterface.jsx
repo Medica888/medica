@@ -57,7 +57,7 @@ export default function CoachInterface({ session: initialSession, onComplete, on
   }
 
   const handleFinish = () => {
-    const sessionWithAnswers = { ...session, answers }
+    const sessionWithAnswers = { ...session, answers, highlights }
     const results = calculateCoachResults(sessionWithAnswers)
     onComplete(results, sessionWithAnswers)
   }
@@ -120,52 +120,6 @@ export default function CoachInterface({ session: initialSession, onComplete, on
           {revealedCount > 0 && (
             <span className="ci-explained-lbl">{revealedCount}/{totalQ} explained</span>
           )}
-          <div className="exam-utility-row" role="toolbar" aria-label="Study tools">
-            <button
-              type="button"
-              className={`exam-util-btn${openDrawer === 'labs' ? ' active' : ''}`}
-              onClick={() => setOpenDrawer(d => d === 'labs' ? null : 'labs')}
-              aria-expanded={openDrawer === 'labs'}
-            >
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M5 1.5v5L2 12h10L9 6.5V1.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M5 1.5h4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round"/>
-                <path d="M3.5 8.5h7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-              </svg>
-              Lab Values
-            </button>
-            <button
-              type="button"
-              className={`exam-util-btn${openDrawer === 'calc' ? ' active' : ''}`}
-              onClick={() => setOpenDrawer(d => d === 'calc' ? null : 'calc')}
-              aria-expanded={openDrawer === 'calc'}
-            >
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <rect x="1.5" y="1" width="11" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
-                <rect x="3" y="2.5" width="8" height="2.5" rx=".75" fill="currentColor" opacity=".3"/>
-                <circle cx="4" cy="8" r=".9" fill="currentColor"/>
-                <circle cx="7" cy="8" r=".9" fill="currentColor"/>
-                <circle cx="10" cy="8" r=".9" fill="currentColor"/>
-                <circle cx="4" cy="11" r=".9" fill="currentColor"/>
-                <circle cx="7" cy="11" r=".9" fill="currentColor"/>
-                <circle cx="10" cy="11" r=".9" fill="currentColor"/>
-              </svg>
-              Calculator
-            </button>
-            <button
-              type="button"
-              className={`exam-util-btn${notes[question.id] ? ' has-notes' : ''}${openDrawer === 'notes' ? ' active' : ''}`}
-              onClick={() => setOpenDrawer(d => d === 'notes' ? null : 'notes')}
-              aria-expanded={openDrawer === 'notes'}
-            >
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.35"/>
-                <path d="M4.5 5h5M4.5 7.5h5M4.5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              Notes
-              {notes[question.id] && <span className="exam-util-dot" aria-hidden="true" />}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -184,6 +138,9 @@ export default function CoachInterface({ session: initialSession, onComplete, on
             onHighlight={handleHighlight}
             onChangeHighlightColor={setActiveHighlightColor}
             onClearHighlights={() => setHighlights(h => ({ ...h, [question.id]: [] }))}
+            openDrawer={openDrawer}
+            onToggle={(d) => setOpenDrawer(prev => prev === d ? null : d)}
+            hasNotes={!!notes[question.id]}
           />
         </div>
       </div>
@@ -204,44 +161,52 @@ export default function CoachInterface({ session: initialSession, onComplete, on
 
       {/* Navigation footer */}
       <div className="ci-nav">
-        <button
-          type="button"
-          className="ci-nav-btn secondary"
-          onClick={handlePrev}
-          disabled={currentIndex === 0}
-          aria-label="Previous question"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M8.5 2.5L4 7L8.5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Previous
-        </button>
+        <div className="ci-nav-left">
+          <button
+            type="button"
+            className="ci-nav-btn secondary"
+            onClick={handlePrev}
+            disabled={currentIndex === 0}
+            aria-label="Previous question"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M8.5 2.5L4 7L8.5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Previous
+          </button>
+        </div>
 
-        {isLastQ && isRevealed ? (
-          <button
-            type="button"
-            className="ci-nav-btn finish"
-            onClick={handleFinish}
-          >
-            Finish Session
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M2.5 7L5.5 10L11.5 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="ci-nav-btn primary"
-            onClick={handleNext}
-            disabled={currentIndex === totalQ - 1 || !isRevealed}
-            aria-label="Next question"
-          >
-            Next Question
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M5.5 2.5L10 7L5.5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        )}
+        <div className="ci-nav-center">
+          <span className="ci-nav-counter">{currentIndex + 1} of {totalQ}</span>
+        </div>
+
+        <div className="ci-nav-right">
+          {isLastQ && isRevealed ? (
+            <button
+              type="button"
+              className="ci-nav-btn finish"
+              onClick={handleFinish}
+            >
+              Finish Session
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M2.5 7L5.5 10L11.5 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ci-nav-btn primary"
+              onClick={handleNext}
+              disabled={currentIndex === totalQ - 1 || !isRevealed}
+              aria-label="Next question"
+            >
+              Next Question
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M5.5 2.5L10 7L5.5 11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Non-blocking drawers */}

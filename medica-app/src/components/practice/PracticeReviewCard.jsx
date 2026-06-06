@@ -1,11 +1,14 @@
+import HighlightedText from '../session/HighlightedText'
+
 /**
  * @param {{
  *   question: import('../../lib/quizTypes').QuizQuestion
  *   userAnswer: import('../../lib/quizTypes').OptionLetter | null
  *   questionNumber: number
+ *   highlights?: Array<{start: number, end: number, color: string}>
  * }} props
  */
-export default function PracticeReviewCard({ question, userAnswer, questionNumber }) {
+export default function PracticeReviewCard({ question, userAnswer, questionNumber, highlights = [] }) {
   const isCorrect = userAnswer === question.correct
   const options = question.options.slice(0, 4)
 
@@ -31,7 +34,7 @@ export default function PracticeReviewCard({ question, userAnswer, questionNumbe
       </div>
 
       {/* Stem */}
-      <p className="prv-stem">{question.stem}</p>
+      <HighlightedText text={question.stem} highlights={highlights} enabled={false} className="prv-stem" />
 
       {/* Options */}
       <div className="prv-options">

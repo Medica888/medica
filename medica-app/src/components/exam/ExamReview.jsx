@@ -28,7 +28,8 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
     const el = document.getElementById(`qnav-${pendingScrollId}`)
     if (!el) return
     el.scrollIntoView({ block: 'start', behavior: 'smooth' })
-    setPendingScrollId(null)
+    const frameId = window.requestAnimationFrame(() => setPendingScrollId(null))
+    return () => window.cancelAnimationFrame(frameId)
   }, [pendingScrollId, filter])
 
   const incorrectQs  = questions.filter(q => isQuestionAnswered(answers[q.id]) && !isQuestionCorrect(q, answers[q.id]))
@@ -156,6 +157,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
                 questionNumber={questionIndexMap[q.id]}
                 isMarked={!!marked[q.id]}
                 sessionConfig={session.config}
+                highlights={session.highlights?.[q.id] ?? []}
               />
             </div>
           ))

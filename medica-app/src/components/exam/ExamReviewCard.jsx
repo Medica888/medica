@@ -4,6 +4,7 @@ import {
   isQuestionAnswered, isQuestionCorrect,
 } from '../../lib/examReviewHelpers'
 import { saveQuestionReport } from '../../lib/storage'
+import HighlightedText from '../session/HighlightedText'
 
 /**
  * @param {{
@@ -14,7 +15,7 @@ import { saveQuestionReport } from '../../lib/storage'
  *   sessionConfig?: object
  * }} props
  */
-export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked, sessionConfig }) {
+export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked, sessionConfig, highlights = [] }) {
   const [reportReason, setReportReason] = useState('wrong_answer')
   const [reported, setReported] = useState(false)
 
@@ -95,7 +96,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       )}
 
       {/* Stem */}
-      <p className="erv-stem">{question.stem}</p>
+      <HighlightedText text={question.stem} highlights={highlights} enabled={false} className="erv-stem" />
 
       {/* Options */}
       <div className="erv-options">

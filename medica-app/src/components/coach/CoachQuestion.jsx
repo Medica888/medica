@@ -4,6 +4,8 @@ import CoachAnswerOption from './CoachAnswerOption'
 import CoachExplanationPanel from './CoachExplanationPanel'
 import { saveQuestionReport } from '../../lib/storage'
 import HighlightedText from '../session/HighlightedText'
+import QuizUtilityBar from '../session/QuizUtilityBar'
+import QuizHighlightToolbar from '../session/QuizHighlightToolbar'
 
 /**
  * @param {{
@@ -18,9 +20,12 @@ import HighlightedText from '../session/HighlightedText'
  *   onHighlight?: (start:number,end:number,color:string) => void
  *   onChangeHighlightColor?: (color:string) => void
  *   onClearHighlights?: () => void
+ *   openDrawer?: string | null
+ *   onToggle?: (drawer: string) => void
+ *   hasNotes?: boolean
  * }} props
  */
-export default function CoachQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer, highlights = [], activeHighlightColor = 'yellow', onHighlight, onChangeHighlightColor, onClearHighlights }) {
+export default function CoachQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer, highlights = [], activeHighlightColor = 'yellow', onHighlight, onChangeHighlightColor, onClearHighlights, openDrawer = null, onToggle, hasNotes = false }) {
   const options = normalizeOptions(question.options)
   const normalizedCorrect  = getQuestionCorrectLetter(question)
   const normalizedAnswered = normalizeAnswerLetter(answered)
@@ -43,33 +48,24 @@ export default function CoachQuestion({ question, questionNumber, answered, reve
   return (
     <div className="ci-question">
       <div className="ci-q-meta">
-        <span className="ci-q-num">Q{questionNumber}</span>
-        {question.subject && <span className="ci-q-tag">{question.subject}</span>}
-        {question.system && <span className="ci-q-tag">{question.system}</span>}
-        {question.topicGroup && <span className="ci-q-tag">{question.topicGroup}</span>}
-        {question.difficulty && <span className="ci-q-tag ci-q-tag--diff">{question.difficulty}</span>}
+        <div className="ci-q-meta-left">
+          <span className="ci-q-num">Q{questionNumber}</span>
+          {question.subject && <span className="ci-q-tag">{question.subject}</span>}
+          {question.system && <span className="ci-q-tag">{question.system}</span>}
+          {question.topicGroup && <span className="ci-q-tag">{question.topicGroup}</span>}
+          {question.difficulty && <span className="ci-q-tag ci-q-tag--diff">{question.difficulty}</span>}
+        </div>
+        {onToggle && <QuizUtilityBar openDrawer={openDrawer} onToggle={onToggle} hasNotes={hasNotes} />}
       </div>
 
       {/* Highlight toolbar */}
       {onHighlight && (
-        <div className="hl-toolbar" role="toolbar" aria-label="Highlight tool">
-          <span className="hl-label">Highlight</span>
-          {['yellow', 'blue', 'green', 'pink'].map(color => (
-            <button
-              key={color}
-              type="button"
-              className={`hl-btn hl-${color}${activeHighlightColor === color ? ' active' : ''}`}
-              onClick={() => onChangeHighlightColor?.(color)}
-              aria-label={`${color} highlight`}
-              aria-pressed={activeHighlightColor === color}
-            />
-          ))}
-          {highlights.length > 0 && (
-            <button type="button" className="hl-btn hl-clear" onClick={onClearHighlights} aria-label="Clear all highlights">
-              Clear
-            </button>
-          )}
-        </div>
+        <QuizHighlightToolbar
+          highlights={highlights}
+          activeColor={activeHighlightColor}
+          onChangeColor={onChangeHighlightColor}
+          onClear={onClearHighlights}
+        />
       )}
 
       <div className="ci-question-card">

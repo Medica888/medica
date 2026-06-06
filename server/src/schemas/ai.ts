@@ -17,6 +17,28 @@ export const generateQuestionsSchema = z.object({
   }).optional(),
 });
 
+export const generatedQuestionBankQuerySchema = z.object({
+  subject:    z.string().max(100).optional(),
+  system:     z.string().max(100).optional(),
+  difficulty: z.string().max(50).optional(),
+  mode:       z.string().max(20).optional(),
+  limit:      z.coerce.number().int().min(1).max(200).optional(),
+});
+
+export const promoteGeneratedQuestionsSchema = z.object({
+  config: z.object({
+    mode:          z.enum(['exam', 'practice', 'coach']),
+    questionCount: z.number().int().min(1).max(40).optional(),
+    subject:       z.string().max(100).optional(),
+    system:        z.string().max(100).optional(),
+    topic:         z.string().max(200).optional(),
+    difficulty:    z.string().max(50).optional(),
+    clinicalFocus: z.string().max(200).optional(),
+    blockType:     z.string().max(50).optional(),
+  }).passthrough(),
+  questions: z.array(z.record(z.string(), z.unknown())).min(1).max(40),
+});
+
 export const generateFlashcardsSchema = z.object({
   config: z.object({
     count:   z.number().int().min(1).max(30).optional(),

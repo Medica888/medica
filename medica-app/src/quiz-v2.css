@@ -240,6 +240,40 @@ mark.hl-pink   { background: rgba(244,114,182,.28); color: inherit; border-radiu
 .pi-body { padding: 20px 24px; }
 .ci-body { padding: 20px 24px; }
 
+/* ── Unified quiz layout — meta row with utility bar ────────────── */
+/* Practice meta row: space-between so utility bar sits on the right */
+.pi-q-meta { justify-content: space-between; flex-wrap: nowrap; gap: 12px; }
+.pi-q-meta-left { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* Coach meta row: same treatment */
+.ci-q-meta { justify-content: space-between; flex-wrap: nowrap; gap: 12px; }
+.ci-q-meta-left { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+
+/* ── Unified footer — 3-section layout (Practice) ────────────────── */
+.pi-nav-left  { display: flex; align-items: center; }
+.pi-nav-center { flex: 1; display: flex; align-items: center; justify-content: center; }
+.pi-nav-right  { display: flex; align-items: center; justify-content: flex-end; }
+.pi-nav-counter {
+  font-size: 12px; font-weight: 600; color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Unified footer — 3-section layout (Coach) ───────────────────── */
+.ci-nav-left  { display: flex; align-items: center; }
+.ci-nav-center { flex: 1; display: flex; align-items: center; justify-content: center; }
+.ci-nav-right  { display: flex; align-items: center; justify-content: flex-end; }
+.ci-nav-counter {
+  font-size: 12px; font-weight: 600; color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Report row form controls — token fix ───────────────────────── */
+/* Base CSS uses undefined --surface/--surface2/--good tokens;
+   patch here so all three modes render correctly in light and dark. */
+.question-report-select { background: var(--card); }
+.question-report-btn    { background: transparent; }
+.question-report-status { color: var(--green); }
+
 /* ── Dark mode ──────────────────────────────────────────────────── */
 .dark .quiz-drawer          { background: var(--card); border-left-color: var(--border); }
 .dark .quiz-drawer-hdr      { border-bottom-color: var(--border); }
@@ -252,3 +286,4 @@ mark.hl-pink   { background: rgba(244,114,182,.28); color: inherit; border-radiu
 .dark .submit-confirm-modal { background: var(--card); border-color: var(--border); }
 .dark .submit-confirm-stats { background: var(--bg); }
 .dark .sca-cancel           { background: var(--card); border-color: var(--border); }
+.dark .question-report-select { background: var(--card); color: var(--t1); border-color: var(--border); }

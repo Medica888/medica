@@ -85,6 +85,7 @@ export default function PracticeReview({ session, onBack, onNewQuiz }) {
               question={q}
               userAnswer={answers[q.id] ?? null}
               questionNumber={questions.indexOf(q) + 1}
+              highlights={session.highlights?.[q.id] ?? []}
             />
           ))
         )}

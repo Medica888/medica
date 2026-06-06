@@ -30,4 +30,43 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     );
     return res.rows[0] ?? null;
   }
+
+  async findGeneratedBankQuestions(params: {
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    mode?: string;
+    limit?: number;
+  }): Promise<Record<string, unknown>[]> {
+    const values: unknown[] = [];
+    const clauses = [
+      "body->>'source' = 'ai'",
+      "body->>'bankStatus' = 'validated_generated'",
+    ];
+
+    const addExact = (field: string, value?: string) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed || trimmed === 'All Subjects' || trimmed === 'Mixed / All Systems' || trimmed === 'All Systems' || trimmed === 'Balanced') return;
+      values.push(trimmed);
+      clauses.push(`COALESCE(body->>'${field}', '') = $${values.length}`);
+    };
+
+    addExact('subject', params.subject);
+    addExact('system', params.system);
+    addExact('difficulty', params.difficulty);
+    addExact('mode', params.mode);
+
+    const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
+    values.push(limit);
+
+    const res = await this.pool.query<{ body: Record<string, unknown> }>(
+      `SELECT body
+       FROM questions
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY created_at DESC
+       LIMIT $${values.length}`,
+      values,
+    );
+    return res.rows.map(r => r.body);
+  }
 }
