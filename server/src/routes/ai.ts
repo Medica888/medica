@@ -12,7 +12,6 @@ import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js
 import {
   generateQuestionsSchema,
   generatedQuestionBankQuerySchema,
-  promoteGeneratedQuestionsSchema,
   generateFlashcardsSchema,
   explainSchema,
   skillsGenerateSchema,
@@ -998,14 +997,21 @@ async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], c
 
 async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
   const repo = getRepositories().questions;
+  const scope = resolveScope(config);
   const rawBank = await repo.findGeneratedBankQuestions({
     subject:    config.subject,
     system:     config.system,
     difficulty: config.difficulty || 'Balanced',
     mode:       config.mode,
-    limit:      targetCount,
+    limit:      Math.min(targetCount * 3, 200),
   });
-  const valid = rawBank
+
+  // Scope filter runs on the raw stored body BEFORE normalizeQuestion is called,
+  // because normalizeQuestion fills empty canonicalTopic/rawTopic from the request
+  // scope — which would cause off-topic questions to falsely pass inScope.
+  const scopeFiltered = isSpecific(scope) ? rawBank.filter(q => inScope(q as Record<string, any>, scope)) : rawBank;
+
+  const valid = scopeFiltered
     .map(q => _validatePromotableQuestion(q as Record<string, any>, config))
     .filter(result => result.valid)
     .map(result => result.question as Record<string, any>);
@@ -1033,40 +1039,6 @@ router.get('/generated-question-bank', optionalAuth, async (req: Request, res: R
     console.error('[generated-question-bank] list failed:', err instanceof Error ? err.message : err);
     res.status(500).json({ error: 'Generated question bank lookup failed' });
   }
-});
-
-router.post('/generated-question-bank', optionalAuth, validate(promoteGeneratedQuestionsSchema), async (req: Request, res: Response) => {
-  const { config, questions } = req.body as { config: Record<string, any>; questions: Record<string, any>[] };
-  const repo = getRepositories().questions;
-
-  let saved = 0;
-  let rejected = 0;
-  const rejectedReasons: Record<string, number> = {};
-
-  for (const rawQuestion of questions) {
-    const { valid, question, quality, fingerprint } = _validatePromotableQuestion(rawQuestion, config);
-    if (!valid) {
-      rejected++;
-      const reasons = quality.rejectionReasons.length > 0 ? quality.rejectionReasons : ['invalid_fingerprint'];
-      for (const reason of reasons) rejectedReasons[reason] = (rejectedReasons[reason] || 0) + 1;
-      continue;
-    }
-
-    const body = _questionBodyForGeneratedBank(question, config, fingerprint, quality);
-    await repo.upsertByExternalId(fingerprint, {
-      subject: String(body.subject || ''),
-      system:  String(body.system || ''),
-      body,
-    });
-    saved++;
-  }
-
-  res.status(201).json({
-    saved,
-    rejected,
-    rejectedReasons,
-    source: 'generated-bank',
-  });
 });
 
 router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
@@ -1122,7 +1094,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
     const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount);
-    if (generatedBankQuestions.length >= targetCount) {
+    if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       const questions = generatedBankQuestions.slice(0, targetCount);
       const telemetry = {
         requested:              targetCount,

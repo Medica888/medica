@@ -17,7 +17,7 @@ import {
 } from '../lib/questionValidator.js';
 import type { MedicalReviewResult } from '../lib/questionValidator.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
-import { setRepositories, createInMemoryRepositories } from '../repositories/index.js';
+import { setRepositories, createInMemoryRepositories, getRepositories } from '../repositories/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -919,91 +919,68 @@ describe('quarantine filter — end-to-end data flow proof', () => {
   });
 });
 
-describe('generated question bank promotion', () => {
+describe('generated question bank', () => {
+  let app: ReturnType<typeof createApp>;
+
+  // Mirrors _questionBodyForGeneratedBank in ai.ts — seeds the repo directly
+  // so tests don't depend on a POST endpoint.
+  function fingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
+
+  async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
+    const q = makePromotableQuestion(overrides);
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: {
+        ...q,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus: 'validated_generated',
+        mode: config.mode || '',
+        difficulty: q.difficulty || config.difficulty || 'Balanced',
+      },
+    });
+  }
+
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
     delete process.env.ANTHROPIC_API_KEY;
+    app = createApp();
   });
 
-  it('saves validated generated questions for future reuse', async () => {
-    const app = createApp();
-    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
-
-    const res = await request(app)
-      .post('/api/generated-question-bank')
-      .send({ config, questions: [makePromotableQuestion()] })
-      .expect(201);
-
-    expect(res.body.saved).toBe(1);
-    expect(res.body.rejected).toBe(0);
-
-    const list = await request(app)
-      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
-      .expect(200);
-
-    expect(list.body.count).toBe(1);
-    expect(list.body.questions[0].source).toBe('ai');
-    expect(list.body.questions[0].bankStatus).toBe('validated_generated');
-  });
-
-  it('rejects invalid generated questions instead of saving them', async () => {
-    const app = createApp();
-    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
-
-    const res = await request(app)
-      .post('/api/generated-question-bank')
-      .send({
-        config,
-        questions: [makePromotableQuestion({
-          stem: 'What is the answer?',
-          explanation: 'Too short.',
-        })],
-      })
-      .expect(201);
-
-    expect(res.body.saved).toBe(0);
-    expect(res.body.rejected).toBe(1);
-
-    const list = await request(app)
-      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
-      .expect(200);
-
-    expect(list.body.count).toBe(0);
-  });
-
-  it('deduplicates generated questions by fingerprint', async () => {
-    const app = createApp();
-    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
-    const question = makePromotableQuestion();
-
-    await request(app)
-      .post('/api/generated-question-bank')
-      .send({ config, questions: [question, { ...question, id: 'second-id' }] })
-      .expect(201);
-
-    const list = await request(app)
-      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced&limit=10')
-      .expect(200);
-
-    expect(list.body.count).toBe(1);
-  });
-
-  it('serves generated bank questions before requiring live AI', async () => {
-    const app = createApp();
-    const config = { mode: 'practice', questionCount: 1, difficulty: 'Balanced' };
-
-    await request(app)
-      .post('/api/generated-question-bank')
-      .send({ config, questions: [makePromotableQuestion()] })
-      .expect(201);
+  it('serves bank questions before requiring live AI', async () => {
+    await seedBankQuestion();
 
     const res = await request(app)
       .post('/api/generate-questions')
-      .send({ config })
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
     expect(res.body.source).toBe('generated-bank');
     expect(res.body.count).toBe(1);
     expect(res.body.telemetry.generated).toBe(0);
+  });
+
+  it('does not serve bank questions scoped to a different topic', async () => {
+    // ACE inhibitor question in bank; request asks for Cardiac arrhythmias
+    await seedBankQuestion();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'Cardiac arrhythmias' } });
+
+    expect(res.body.source).not.toBe('generated-bank');
+  });
+
+  it('POST /generated-question-bank does not exist', async () => {
+    await request(app)
+      .post('/api/generated-question-bank')
+      .send({ config: { mode: 'practice' }, questions: [makePromotableQuestion()] })
+      .expect(404);
   });
 });
