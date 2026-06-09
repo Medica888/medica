@@ -103,19 +103,76 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
     return;
   }
 
+  const { status, limit: rawLimit, page, offset: rawOffset } = parsed.data;
+  const limit = rawLimit ?? 50;
+  const effectiveOffset = page != null ? (page - 1) * limit : (rawOffset ?? 0);
+
   try {
-    const questions = await getRepositories().questions.findGeneratedBankReview(parsed.data);
-    res.json({ questions, count: questions.length });
+    const repos = getRepositories();
+    const [questions, total] = await Promise.all([
+      repos.questions.findGeneratedBankReview({ status, limit, offset: effectiveOffset }),
+      repos.questions.countGeneratedBankReview({ status }),
+    ]);
+    res.json({
+      questions,
+      count: questions.length,
+      total,
+      limit,
+      offset: effectiveOffset,
+      page: page ?? (Math.floor(effectiveOffset / limit) + 1),
+      hasMore: effectiveOffset + questions.length < total,
+    });
   } catch (err) {
     console.error('[generated-question-bank/review]', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Generated question bank review failed', code: 'GENERATED_BANK_REVIEW_FAILED' });
   }
 });
 
+router.get('/generated-question-bank/review/:id/history', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const externalId = String(req.params.id || '').trim();
+  if (!externalId || externalId.length > 300) {
+    res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+    return;
+  }
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  try {
+    const history = await getRepositories().auditLog.getByQuestionId(externalId, limit, offset);
+    res.json({ history, count: history.length });
+  } catch (err) {
+    console.error('[generated-question-bank/review/history]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Audit history retrieval failed', code: 'AUDIT_HISTORY_FAILED' });
+  }
+});
+
+router.get('/generated-question-bank/review/:id', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const externalId = String(req.params.id || '').trim();
+  if (!externalId || externalId.length > 300) {
+    res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+    return;
+  }
+  try {
+    const rows = await getRepositories().questions.findGeneratedBankReview({ externalId, limit: 1 });
+    if (!rows[0]) {
+      res.status(404).json({ error: 'Generated question not found', code: 'GENERATED_QUESTION_NOT_FOUND' });
+      return;
+    }
+    res.json({ question: rows[0] });
+  } catch (err) {
+    console.error('[generated-question-bank/review/:id]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Generated question detail retrieval failed', code: 'GENERATED_BANK_DETAIL_FAILED' });
+  }
+});
+
 router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
   try {
-    const metrics = await getRepositories().questions.getGeneratedBankMetrics();
-    res.json(metrics);
+    const repos = getRepositories();
+    const [metrics, recentApprovals, recentQuarantines] = await Promise.all([
+      repos.questions.getGeneratedBankMetrics(),
+      repos.auditLog.getRecentActions(['approved'], 10),
+      repos.auditLog.getRecentActions(['quarantined'], 10),
+    ]);
+    res.json({ ...metrics, recentApprovals, recentQuarantines });
   } catch (err) {
     console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });
@@ -150,6 +207,19 @@ router.patch(
 
       if (req.body.status === 'approved') {
         const body = (reviewRow as Record<string, any>).body as Record<string, any>;
+
+        // P5: quarantine fingerprint check — block approval if content matches a quarantined fingerprint
+        const contentFingerprint = computeQuestionFingerprint(String(body.stem || ''), String(body.testedConcept || ''));
+        const quarantinedFps = await repos.questionReports.getQuarantinedFingerprints();
+        if (quarantinedFps.has(contentFingerprint)) {
+          res.status(422).json({
+            error: 'Question content fingerprint is quarantined',
+            code: 'QUARANTINED_FINGERPRINT',
+            rejectionReasons: ['Content fingerprint matches a quarantined question'],
+          });
+          return;
+        }
+
         const validationConfig = {
           mode: (reviewRow as Record<string, any>).mode || body.mode || 'practice',
           difficulty: (reviewRow as Record<string, any>).difficulty || body.difficulty || 'Balanced',
@@ -1202,12 +1272,16 @@ async function _validatePromotableQuestion(rawQuestion: Record<string, any>, con
   return { valid, question, quality: validation.quality, validation, fingerprint };
 }
 
-async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], config: Record<string, any>): Promise<number> {
+export async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], config: Record<string, any>): Promise<number> {
   const repo = getRepositories().questions;
   let saved = 0;
   for (const rawQuestion of questions) {
     const { valid, question, quality, fingerprint } = await _validatePromotableQuestion(rawQuestion, config);
     if (!valid) continue;
+    // P0: preserve stronger lifecycle status — do not downgrade approved/quarantined rows
+    const existingRows = await repo.findGeneratedBankReview({ externalId: fingerprint, limit: 1 });
+    const existingStatus = existingRows[0] ? String((existingRows[0] as Record<string, any>).bankStatus ?? '') : '';
+    if (existingStatus === 'approved' || existingStatus === 'quarantined') continue;
     const body = _questionBodyForGeneratedBank(question, config, fingerprint, quality);
     await repo.upsertByExternalId(fingerprint, {
       subject: String(body.subject || ''),
@@ -1225,7 +1299,7 @@ async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], c
   return saved;
 }
 
-async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
+async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number, approvedOnly = false): Promise<Record<string, any>[]> {
   const repo = getRepositories().questions;
   const scope = resolveScope(config);
   const rawBank = await repo.findGeneratedBankQuestions({
@@ -1234,6 +1308,7 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
     difficulty: config.difficulty || 'Balanced',
     mode:       config.mode,
     limit:      Math.min(targetCount * 3, 200),
+    approvedOnly,
   });
 
   // Scope filter runs on the raw stored body BEFORE normalizeQuestion is called,
@@ -1310,7 +1385,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
-    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount);
+    const requireApprovalForProduction = process.env.REQUIRE_APPROVAL_FOR_PRODUCTION === 'true';
+    const allowValidatedReuse = process.env.ALLOW_VALIDATED_REUSE !== 'false';
+    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount, requireApprovalForProduction);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       const questions = generatedBankQuestions.slice(0, targetCount);
       await getRepositories().questions.markUsedByExternalIds(
@@ -1336,6 +1413,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         quarantineRejectedCandidates:  0,
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+        reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
+        approvedOnly: requireApprovalForProduction,
+        validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
       };
       res.json({
         questions,
@@ -1385,6 +1465,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             quarantineRejectedCandidates: 0, generatedBankSaved: 0,
             bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+            reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
+            approvedOnly: requireApprovalForProduction,
+            validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
           },
           generationStrategy: 'generated-bank',
           adaptiveConcepts:   [],
@@ -1531,6 +1614,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       bankPoolUsed: bankPool.length,
       stoppedReason,
       medicalReviewFailureCategories: totalMrFailureCategories,
+      reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
+      approvedOnly: requireApprovalForProduction,
+      validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
     };
     console.log('[generate-questions]', JSON.stringify(telemetry));
 

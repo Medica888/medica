@@ -11,6 +11,7 @@ import jwt from 'jsonwebtoken';
 import { createApp } from '../app.js';
 import {
   runAdaptiveRefill,
+  _saveGeneratedQuestionsToBank,
   HARD_MODE_CAPS,
   emptyMedicalReviewFailureCategories,
   collectFailedMedicalReviewCategories,
@@ -1707,5 +1708,395 @@ describe('hybrid question bank fill', () => {
     // At minimum: 1 gen call + 1 MR call = 2. Rule-failer (q2) adds 0 MR calls (subject mismatch
     // has no entry in REPAIR_GUIDANCE so repair is skipped; MR never runs for failers in Phase 2).
     expect(mockMessagesCreate.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── Phase 2 governance ────────────────────────────────────────────────────────
+
+describe('Phase 2 governance', () => {
+  let app: ReturnType<typeof createApp>;
+
+  function fingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
+
+  async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
+    const q = makePromotableQuestion(overrides);
+    const fingerprint = fingerprintOf(q);
+    const bankStatus = String(config.bankStatus || 'validated_generated');
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: {
+        ...q,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus,
+        mode: config.mode || '',
+        difficulty: q.difficulty || config.difficulty || 'Balanced',
+      },
+      source: 'ai',
+      bankStatus,
+      mode: String(config.mode || ''),
+      difficulty: String(q.difficulty || config.difficulty || 'Balanced'),
+      validationScore: 85,
+    });
+    return { question: q, fingerprint };
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.REQUIRE_APPROVAL_FOR_PRODUCTION;
+    delete process.env.ALLOW_VALIDATED_REUSE;
+    process.env.ADMIN_USER_IDS = 'user-1';
+    app = createApp();
+  });
+
+  afterEach(() => {
+    delete process.env.ADMIN_USER_IDS;
+    delete process.env.REQUIRE_APPROVAL_FOR_PRODUCTION;
+    delete process.env.ALLOW_VALIDATED_REUSE;
+  });
+
+  // ── P0: downgrade prevention ──────────────────────────────────────────────────
+  // These tests call _saveGeneratedQuestionsToBank directly so the guard is on
+  // the critical path.  Remove the `continue` guard and all three fail.
+
+  const saveConfig = { mode: 'practice', difficulty: 'Balanced', subject: 'Pharmacology', system: 'Cardiovascular' };
+
+  it('_saveGeneratedQuestionsToBank skips approved row — status and body not overwritten', async () => {
+    const { fingerprint } = await seedBankQuestion({ explanation: 'Original approved explanation.' });
+    await getRepositories().questions.updateGeneratedBankStatus(fingerprint, 'approved');
+
+    // Attempt to re-save the same fingerprint with a different explanation
+    const modified = makePromotableQuestion({ explanation: 'New explanation that must not overwrite.' });
+    const saved = await _saveGeneratedQuestionsToBank([modified], saveConfig);
+
+    expect(saved).toBe(0);
+    const rows = await getRepositories().questions.findGeneratedBankReview({ externalId: fingerprint, limit: 1 });
+    expect((rows[0] as any).bankStatus).toBe('approved');
+    expect((rows[0] as any).body.explanation).toBe('Original approved explanation.');
+  });
+
+  it('_saveGeneratedQuestionsToBank skips quarantined row — status and body not overwritten', async () => {
+    const { fingerprint } = await seedBankQuestion({ explanation: 'Original quarantined explanation.' });
+    await getRepositories().questions.updateGeneratedBankStatus(fingerprint, 'quarantined');
+
+    const modified = makePromotableQuestion({ explanation: 'New explanation that must not overwrite.' });
+    const saved = await _saveGeneratedQuestionsToBank([modified], saveConfig);
+
+    expect(saved).toBe(0);
+    const rows = await getRepositories().questions.findGeneratedBankReview({ externalId: fingerprint, limit: 1 });
+    expect((rows[0] as any).bankStatus).toBe('quarantined');
+    expect((rows[0] as any).body.explanation).toBe('Original quarantined explanation.');
+  });
+
+  it('_saveGeneratedQuestionsToBank writes validated_generated row (not guarded)', async () => {
+    // validated_generated does NOT trigger the guard — upsert is allowed
+    const saved = await _saveGeneratedQuestionsToBank([makePromotableQuestion()], saveConfig);
+
+    expect(saved).toBe(1);
+    const fingerprintOf = (q: Record<string, any>) => {
+      const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      return `${s}||${c}`;
+    };
+    const fp = fingerprintOf(makePromotableQuestion());
+    const rows = await getRepositories().questions.findGeneratedBankReview({ externalId: fp, limit: 1 });
+    expect((rows[0] as any).bankStatus).toBe('validated_generated');
+  });
+
+  // ── P1: approved-only reuse ───────────────────────────────────────────────────
+
+  it('REQUIRE_APPROVAL_FOR_PRODUCTION blocks validated_generated from bank reuse', async () => {
+    process.env.REQUIRE_APPROVAL_FOR_PRODUCTION = 'true';
+    app = createApp();
+
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    // With no approved questions and no API key, expect 503 (no API key) — not served from bank
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('REQUIRE_APPROVAL_FOR_PRODUCTION allows approved questions to serve from bank', async () => {
+    process.env.REQUIRE_APPROVAL_FOR_PRODUCTION = 'true';
+    app = createApp();
+
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.telemetry.approvedOnly).toBe(true);
+    expect(res.body.telemetry.reusePolicy).toBe('approved-only');
+  });
+
+  it('default mode (no env flag) serves validated_generated from bank', async () => {
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.telemetry.approvedOnly).toBe(false);
+    expect(res.body.telemetry.reusePolicy).toBe('approved-first');
+    expect(res.body.telemetry.validatedFallbackAllowed).toBe(true);
+  });
+
+  it('ALLOW_VALIDATED_REUSE=false sets validatedFallbackAllowed to false in telemetry', async () => {
+    process.env.ALLOW_VALIDATED_REUSE = 'false';
+    app = createApp();
+
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.telemetry.validatedFallbackAllowed).toBe(false);
+  });
+
+  it('quarantined questions are never reused regardless of reuse policy', async () => {
+    const { fingerprint } = await seedBankQuestion();
+    await getRepositories().questions.updateGeneratedBankStatus(fingerprint, 'quarantined');
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  // ── P2: review queue pagination ───────────────────────────────────────────────
+
+  it('review list returns pagination metadata', async () => {
+    await seedBankQuestion();
+    await seedBankQuestion({
+      testedConcept: 'beta blocker negative chronotropy pagination test',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol. After two weeks his heart rate decreases. Which mechanism explains this?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review?limit=1&page=1')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.limit).toBe(1);
+    expect(res.body.page).toBe(1);
+    expect(res.body.hasMore).toBe(true);
+    expect(res.body.questions).toHaveLength(1);
+  });
+
+  it('review list second page returns remaining questions with hasMore=false', async () => {
+    await seedBankQuestion();
+    await seedBankQuestion({
+      testedConcept: 'beta blocker negative chronotropy pagination test two',
+      stem: 'A 62-year-old man with hypertension starts metoprolol. Heart rate decreases. Mechanism?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review?limit=1&page=2')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.page).toBe(2);
+    expect(res.body.hasMore).toBe(false);
+    expect(res.body.questions).toHaveLength(1);
+  });
+
+  it('review detail endpoint returns full question by externalId', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    const res = await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}`)
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.question).toBeDefined();
+    expect(res.body.question.externalId).toBe(fingerprint);
+    expect(res.body.question.bankStatus).toBe('validated_generated');
+  });
+
+  it('review detail endpoint returns 404 for unknown externalId', async () => {
+    const res = await request(app)
+      .get('/api/generated-question-bank/review/nonexistent-fingerprint')
+      .set('Authorization', authHeader())
+      .expect(404);
+
+    expect(res.body.code).toBe('GENERATED_QUESTION_NOT_FOUND');
+  });
+
+  // ── P3: audit history ─────────────────────────────────────────────────────────
+
+  it('audit history endpoint returns history for a question', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'validated_generated' })
+      .expect(200);
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const res = await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.count).toBe(2);
+    expect(res.body.history[0].action).toBe('validated_generated');
+    expect(res.body.history[0].previousStatus).toBe('quarantined');
+    expect(res.body.history[1].action).toBe('quarantined');
+  });
+
+  it('audit history endpoint returns 400 for id exceeding max length', async () => {
+    const longId = 'x'.repeat(301);
+    await request(app)
+      .get(`/api/generated-question-bank/review/${longId}/history`)
+      .set('Authorization', authHeader())
+      .expect(400);
+  });
+
+  // ── P4: metrics upgrade ───────────────────────────────────────────────────────
+
+  it('metrics include approvalRate, quarantineRate, averageValidationScore, and recent actions', async () => {
+    await seedBankQuestion();
+    await seedBankQuestion(
+      {
+        testedConcept: 'beta blocker negative chronotropy metrics test',
+        stem: 'A 60-year-old man with hypertension starts metoprolol. Heart rate decreases. Mechanism?',
+        topic: 'Beta blockers',
+        questionAngle: 'mechanism',
+      },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.approved).toBe(1);
+    expect(res.body.validatedGenerated).toBe(1);
+    expect(typeof res.body.approvalRate).toBe('number');
+    expect(typeof res.body.quarantineRate).toBe('number');
+    expect(res.body.approvalRate).toBeCloseTo(0.5);
+    expect(res.body.quarantineRate).toBe(0);
+    expect(Array.isArray(res.body.recentApprovals)).toBe(true);
+    expect(Array.isArray(res.body.recentQuarantines)).toBe(true);
+    expect(res.body.averageValidationScore === null || typeof res.body.averageValidationScore === 'number').toBe(true);
+  });
+
+  it('metrics recentApprovals list contains approval actions', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'approved' })
+      .expect(200);
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.recentApprovals.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.recentApprovals[0].action).toBe('approved');
+  });
+
+  // ── P5: approval safety ───────────────────────────────────────────────────────
+
+  it('blocks approval when question content fingerprint is quarantined', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    // Monkey-patch getQuarantinedFingerprints to return the question's fingerprint
+    (getRepositories().questionReports as any).getQuarantinedFingerprints = async () => new Set([fingerprint]);
+
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'approved' })
+      .expect(422);
+
+    expect(res.body.code).toBe('QUARANTINED_FINGERPRINT');
+    expect(res.body.rejectionReasons[0]).toMatch(/quarantined/i);
+  });
+
+  it('approval revalidates and rejects if validation fails (existing behavior preserved)', async () => {
+    const { fingerprint } = await seedBankQuestion({
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      topic: 'Beta blockers',
+      testedConcept: 'beta blocker negative chronotropy mechanism validation test',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which receptor mechanism explains this cardiovascular drug effect?',
+    });
+
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'approved' })
+      .expect(422);
+
+    expect(res.body.code).toBe('GENERATED_QUESTION_VALIDATION_FAILED');
+  });
+
+  // ── Admin gate: new endpoints ─────────────────────────────────────────────────
+
+  it('review detail endpoint requires admin', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}`)
+      .expect(401);
+
+    await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}`)
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+  });
+
+  it('audit history endpoint requires admin', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
+      .expect(401);
+
+    await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
   });
 });
