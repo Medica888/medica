@@ -7,6 +7,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }));
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { createApp } from '../app.js';
 import {
   runAdaptiveRefill,
@@ -25,10 +26,15 @@ import {
 import type { MedicalReviewResult } from '../lib/questionValidator.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
 import { setRepositories, createInMemoryRepositories, getRepositories } from '../repositories/index.js';
+import { config } from '../config.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let _idCounter = 0;
+
+function authHeader(userId = 'user-1') {
+  return `Bearer ${jwt.sign({ sub: userId }, config.jwtSecret)}`;
+}
 
 /**
  * Build a minimal BatchResult for use as a mock batchFn return.
@@ -940,6 +946,7 @@ describe('generated question bank', () => {
   async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
     const q = makePromotableQuestion(overrides);
     const fingerprint = fingerprintOf(q);
+    const bankStatus = String(config.bankStatus || 'validated_generated');
     await getRepositories().questions.upsertByExternalId(fingerprint, {
       subject: String(q.subject || ''),
       system:  String(q.system  || ''),
@@ -947,21 +954,34 @@ describe('generated question bank', () => {
         ...q,
         id: fingerprint,
         source: 'ai',
-        bankStatus: 'validated_generated',
+        bankStatus,
         mode: config.mode || '',
         difficulty: q.difficulty || config.difficulty || 'Balanced',
       },
+      source: 'ai',
+      bankStatus,
+      mode: String(config.mode || ''),
+      difficulty: String(q.difficulty || config.difficulty || 'Balanced'),
     });
+    return { question: q, fingerprint };
   }
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
     delete process.env.ANTHROPIC_API_KEY;
+    // user-1 is the admin for governance tests; non-admin tests use user-999.
+    process.env.ADMIN_USER_IDS = 'user-1';
     app = createApp();
   });
 
+  afterEach(() => {
+    delete process.env.ADMIN_USER_IDS;
+  });
+
   it('serves bank questions before requiring live AI', async () => {
-    await seedBankQuestion();
+    const seeded = makePromotableQuestion();
+    const seededFingerprint = fingerprintOf(seeded);
+    await seedBankQuestion(seeded);
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -971,6 +991,7 @@ describe('generated question bank', () => {
     expect(res.body.source).toBe('generated-bank');
     expect(res.body.count).toBe(1);
     expect(res.body.telemetry.generated).toBe(0);
+    expect((getRepositories().questions as any)._getEntry(seededFingerprint)?.usageCount).toBe(1);
   });
 
   it('does not serve bank questions scoped to a different topic', async () => {
@@ -984,11 +1005,364 @@ describe('generated question bank', () => {
     expect(res.body.source).not.toBe('generated-bank');
   });
 
+  it('serves legacy Skin bank rows for Dermatology requests', async () => {
+    await seedBankQuestion({
+      subject: 'Pathology',
+      system: 'Skin',
+      topic: 'Melanoma',
+      testedConcept: 'melanoma asymmetric border recognition',
+      questionAngle: 'diagnosis',
+      stem: 'A 64-year-old man with fair skin presents with an enlarging asymmetric pigmented lesion with irregular borders and color variation on his upper back. Which diagnosis best explains this lesion?',
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, system: 'Dermatology', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.questions[0].system).toBe('Dermatology');
+  });
+
+  it('serves old generated-bank rows whose lifecycle metadata originally lived in body JSON', async () => {
+    const legacyQuestion = makePromotableQuestion({
+      subject: 'Cardiology',
+      system: 'Skin',
+      topic: 'Melanoma',
+      testedConcept: 'melanoma asymmetric border recognition',
+      questionAngle: 'diagnosis',
+      stem: 'A 64-year-old man with fair skin presents with an enlarging asymmetric pigmented lesion with irregular borders and color variation on his upper back. Which diagnosis best explains this lesion?',
+    });
+    const fingerprint = fingerprintOf(legacyQuestion);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: legacyQuestion.subject,
+      system: legacyQuestion.system,
+      body: {
+        ...legacyQuestion,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus: 'validated_generated',
+        validationStatus: 'pass',
+        validationScore: 90,
+        mode: 'practice',
+        difficulty: 'Balanced',
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, system: 'Dermatology', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.questions[0].subject).not.toBe('Cardiology');
+    expect(res.body.questions[0].system).toBe('Dermatology');
+  });
+
+  it('normalizes request system aliases before generated-bank retrieval', async () => {
+    await seedBankQuestion({
+      subject: 'Physiology',
+      system: 'Renal / Urinary',
+      topic: 'GFR regulation',
+      testedConcept: 'afferent arteriole constriction lowers glomerular filtration rate',
+      questionAngle: 'mechanism',
+      stem: 'A 52-year-old man receives a medication that constricts the afferent arteriole. Which change in glomerular filtration rate is expected from this renal hemodynamic effect?',
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, system: 'Nephrology', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.questions[0].system).toBe('Renal / Urinary');
+  });
+
   it('POST /generated-question-bank does not exist', async () => {
     await request(app)
       .post('/api/generated-question-bank')
       .send({ config: { mode: 'practice' }, questions: [makePromotableQuestion()] })
       .expect(404);
+  });
+
+  it('GET /generated-question-bank does not expose generated-bank contents', async () => {
+    await seedBankQuestion();
+
+    await request(app)
+      .get('/api/generated-question-bank?mode=practice&difficulty=Balanced')
+      .expect(404);
+  });
+
+  it('requires auth for generated-bank review endpoints', async () => {
+    await request(app)
+      .get('/api/generated-question-bank/review')
+      .expect(401);
+
+    await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .expect(401);
+  });
+
+  it('lists generated-bank questions for authenticated review', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review?status=validated_generated')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.count).toBe(1);
+    expect(res.body.questions[0].externalId).toBe(fingerprint);
+    expect(res.body.questions[0].bankStatus).toBe('validated_generated');
+  });
+
+  it('returns generated-bank lifecycle metrics', async () => {
+    await seedBankQuestion();
+    await seedBankQuestion(
+      {
+        testedConcept: 'beta blocker negative chronotropy mechanism',
+        stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol. Which receptor effect explains the lower heart rate?',
+        topic: 'Beta blockers',
+        questionAngle: 'mechanism',
+      },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.validatedGenerated).toBe(1);
+    expect(res.body.approved).toBe(1);
+    expect(res.body.quarantined).toBe(0);
+  });
+
+  it('prefers approved generated-bank questions over unapproved validated candidates', async () => {
+    await seedBankQuestion(
+      {
+        testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+        topic: 'ACE inhibitors',
+        questionAngle: 'adverse-effect',
+      },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' },
+    );
+    await seedBankQuestion(
+      {
+        testedConcept: 'beta blocker negative chronotropy mechanism',
+        stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol. Which receptor effect explains the lower heart rate?',
+        topic: 'Beta blockers',
+        questionAngle: 'mechanism',
+      },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.questions[0].testedConcept).toBe('beta blocker negative chronotropy mechanism');
+  });
+
+  it('quarantines a generated-bank question so it cannot be reused', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('does not reuse generated-bank questions that fail the validation engine', async () => {
+    await seedBankQuestion({
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      topic: 'Beta blockers',
+      testedConcept: 'beta blocker negative chronotropy mechanism',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which receptor mechanism explains this cardiovascular drug effect?',
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('fails closed for generated-bank reuse when quarantine lookup fails', async () => {
+    await seedBankQuestion();
+    (getRepositories().questionReports as any).getQuarantinedFingerprints = async () => {
+      throw new Error('quarantine unavailable');
+    };
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('blocks approval when a generated-bank question fails validation', async () => {
+    const { fingerprint } = await seedBankQuestion({
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      topic: 'Beta blockers',
+      testedConcept: 'beta blocker negative chronotropy mechanism',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which receptor mechanism explains this cardiovascular drug effect?',
+    });
+
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'approved' })
+      .expect(422);
+
+    expect(res.body.code).toBe('GENERATED_QUESTION_VALIDATION_FAILED');
+    expect(res.body.rejectionReasons).toContain('subject_system:cardio_pharmacology_not_pathology');
+  });
+
+  it('does not treat Balanced as any generated-bank difficulty', async () => {
+    await seedBankQuestion(
+      { difficulty: 'UWorld Challenge' },
+      { mode: 'practice', difficulty: 'UWorld Challenge' },
+    );
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('rejects truly unknown subject labels at the AI request boundary', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Space Medicine', difficulty: 'Balanced' } })
+      .expect(400);
+
+    expect(res.body.code).toBe('INVALID_TAXONOMY');
+    expect(res.body.field).toBe('subject');
+  });
+
+  it('keeps 40-question exam blocks strict when generated bank is partial and AI is unavailable', async () => {
+    await seedBankQuestion({}, { mode: 'exam', difficulty: 'Balanced' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'exam', questionCount: 40, difficulty: 'Balanced' } })
+      .expect(503);
+
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+    expect(res.body.returned).toBe(1);
+    expect(res.body.requested).toBe(40);
+  });
+
+  // ── Admin authorization enforcement ──────────────────────────────────────────
+
+  it('returns 403 for non-admin user on GET /review', async () => {
+    const res = await request(app)
+      .get('/api/generated-question-bank/review')
+      .set('Authorization', authHeader('user-999'))  // not in ADMIN_USER_IDS
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 403 for non-admin user on GET /metrics', async () => {
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 403 for non-admin user on PATCH /status', async () => {
+    const { fingerprint } = await seedBankQuestion();
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-999'))
+      .send({ status: 'quarantined' })
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 403 when ADMIN_USER_IDS is not configured (fail closed)', async () => {
+    delete process.env.ADMIN_USER_IDS;  // remove admin config entirely
+    app = createApp();
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader('user-1'))  // even user-1 is denied
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('allows admin user through on GET /review', async () => {
+    const { fingerprint } = await seedBankQuestion();
+    const res = await request(app)
+      .get('/api/generated-question-bank/review')
+      .set('Authorization', authHeader('user-1'))  // user-1 is in ADMIN_USER_IDS
+      .expect(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.questions[0].externalId).toBe(fingerprint);
+  });
+
+  // ── Audit log ─────────────────────────────────────────────────────────────────
+
+  it('writes an audit log entry on quarantine', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    // Allow the fire-and-forget log to settle
+    await new Promise(r => setTimeout(r, 10));
+    const logs = getRepositories().auditLog.getAll();
+    expect(logs).toHaveLength(1);
+    expect(logs[0].action).toBe('quarantined');
+    expect(logs[0].userId).toBe('user-1');
+    expect(logs[0].questionId).toBe(fingerprint);
+    expect(logs[0].newStatus).toBe('quarantined');
+    expect(logs[0].previousStatus).toBe('validated_generated');
+  });
+
+  it('writes an audit log entry on re-approval', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    // Quarantine first, then approve
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'validated_generated' })
+      .expect(200);
+
+    await new Promise(r => setTimeout(r, 10));
+    const logs = getRepositories().auditLog.getAll();
+    expect(logs).toHaveLength(2);
+    expect(logs[0].action).toBe('quarantined');
+    expect(logs[1].action).toBe('validated_generated');
+    expect(logs[1].previousStatus).toBe('quarantined');
   });
 });
 
@@ -1043,6 +1417,25 @@ describe('hybrid question bank fill', () => {
 
   // Each question needs a unique topic+questionAngle pair to avoid dedup() angle-key collisions.
   // dedup() drops a question when norm(topic+'|'+questionAngle) matches a previously seen entry.
+
+  it('does not show or save live AI questions that fail validation', async () => {
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([
+      makePromotableQuestion({
+        subject: 'Pathology',
+        system: 'Cardiovascular',
+        topic: 'Beta blockers',
+        testedConcept: 'beta blocker negative chronotropy mechanism',
+        stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which receptor mechanism explains this cardiovascular drug effect?',
+      }),
+    ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).not.toBe(200);
+    expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
+  });
 
   it('serves bank questions and fills shortfall with AI when bank is partial', async () => {
     await seedBankQuestion({
@@ -1154,12 +1547,41 @@ describe('hybrid question bank fill', () => {
     expect(res.body.questions).toHaveLength(2);
   });
 
+  it('corrects AI-generated Cardiology subject into Cardiovascular system before saving to bank', async () => {
+    const aiQuestion = makePromotableQuestion({
+      subject: 'Cardiology',
+      system: '',
+      testedConcept: 'beta blocker negative chronotropy mechanism',
+      stem: 'A 60-year-old man with hypertension and stable angina starts metoprolol succinate. After two weeks his resting heart rate decreases from 88 to 62 beats per minute. Which receptor mechanism explains this cardiac effect?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([aiQuestion]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.questions[0].subject).not.toBe('Cardiology');
+    expect(res.body.questions[0].system).toBe('Cardiovascular');
+
+    const bankRows = await getRepositories().questions.findGeneratedBankQuestions({
+      system: 'Cardiovascular', difficulty: 'Balanced', mode: 'practice', limit: 10,
+    });
+    expect(bankRows).toHaveLength(1);
+    expect(bankRows[0].subject).not.toBe('Cardiology');
+    expect(bankRows[0].system).toBe('Cardiovascular');
+  });
+
   it('telemetry includes bankPoolUsed count', async () => {
-    await seedBankQuestion({
+    const bankQuestion = makePromotableQuestion({
       testedConcept: 'ACE inhibitor bradykinin cough mechanism',
       topic: 'ACE inhibitors',
       questionAngle: 'adverse-effect',
     });
+    const bankFingerprint = fingerprintOf(bankQuestion);
+    await seedBankQuestion(bankQuestion);
 
     const aiQuestion = makePromotableQuestion({
       testedConcept: 'calcium channel blocker vascular relaxation mechanism',
@@ -1175,5 +1597,115 @@ describe('hybrid question bank fill', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.telemetry.bankPoolUsed).toBe(1);
+    expect((getRepositories().questions as any)._getEntry(bankFingerprint)?.usageCount).toBe(1);
+  });
+
+  // ── Parallel medical review (Phase 2) ────────────────────────────────────────
+  // NBME Difficult and UWorld Challenge questions that pass Phase 1 rule validators
+  // are submitted to medical review in parallel via Promise.all (not sequentially).
+  // This test verifies: (1) MR telemetry counts exactly the rule-passing questions;
+  // (2) rule-failing questions never reach MR; (3) total mock calls = 1 gen + N MR.
+
+  it('NBME Difficult: Phase 2 runs MR only for rule-passing questions', async () => {
+    // Two well-formed Pharmacology + Cardiovascular questions that will pass
+    // Phase 1 rule validation. Both use the same stem structure as makePromotableQuestion
+    // (depth ~95, which is within ENGINE_DEPTH_BANDS['NBME Difficult'] min=35 max=95).
+    const q1 = makePromotableQuestion({
+      testedConcept: 'ace inhibitor bradykinin nbme parallel test one',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+    const q2 = makePromotableQuestion({
+      testedConcept: 'beta blocker negative chronotropy nbme parallel test two',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol succinate. After two weeks his resting heart rate falls from 88 to 62 beats per minute without fever, wheezing, or abnormal chest radiograph findings. Which mechanism best explains this cardiovascular drug effect?',
+      explanation: 'Metoprolol is a selective beta-1 adrenergic receptor antagonist. By blocking beta-1 receptors in the sinoatrial node it reduces heart rate (negative chronotropy). This mechanism accounts for the observed fall in resting heart rate without systemic bronchospasm.',
+    });
+
+    const mrPassText = JSON.stringify({
+      status: 'pass',
+      medicalAccuracy: 'pass',
+      singleBestAnswer: 'pass',
+      distractorPlausibility: 'pass',
+      difficultyAlignment: 'pass',
+      explanationQuality: 'pass',
+      reasons: [],
+      summary: 'Meets all criteria',
+    });
+    const mrPassResponse = {
+      content: [{ type: 'text', text: mrPassText }],
+      stop_reason: 'end_turn',
+    };
+
+    // Call 1: batch generation; calls 2+ (parallel): MR for each rule passer
+    mockMessagesCreate
+      .mockResolvedValueOnce(aiResponseWith([q1, q2]))
+      .mockResolvedValue(mrPassResponse);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'NBME Difficult' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.questions).toHaveLength(2);
+
+    // Both rule-passers went through MR and passed
+    expect(res.body.telemetry.medicalReviewRequested).toBe(2);
+    expect(res.body.telemetry.medicalReviewPassed).toBe(2);
+    expect(res.body.telemetry.medicalReviewRejected).toBe(0);
+
+    // runAdaptiveRefill makes candidatesPerRound/GENERATE_BATCH_SIZE sub-batch calls per round;
+    // total calls = N sub-batch gen calls + 2 MR calls. At minimum: 1 gen + 2 MR = 3.
+    expect(mockMessagesCreate.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('NBME Difficult: rule-failing question is not sent to medical review', async () => {
+    // q1 passes rules; q2 has subject mismatch so it fails Phase 1 and never reaches MR
+    const q1 = makePromotableQuestion({
+      testedConcept: 'ace inhibitor bradykinin rule pass test',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    });
+    const q2 = makePromotableQuestion({
+      subject: 'Pathology',   // mismatch: config requests Pharmacology
+      testedConcept: 'beta blocker heart rate reduction rule fail test',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+
+    const mrPassText = JSON.stringify({
+      status: 'pass',
+      medicalAccuracy: 'pass',
+      singleBestAnswer: 'pass',
+      distractorPlausibility: 'pass',
+      difficultyAlignment: 'pass',
+      explanationQuality: 'pass',
+      reasons: [],
+      summary: 'Meets all criteria',
+    });
+    const mrPassResponse = {
+      content: [{ type: 'text', text: mrPassText }],
+      stop_reason: 'end_turn',
+    };
+
+    mockMessagesCreate
+      .mockResolvedValueOnce(aiResponseWith([q1, q2]))
+      .mockResolvedValue(mrPassResponse);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'NBME Difficult' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.questions).toHaveLength(1);
+
+    // Only the 1 rule-passing question was reviewed — the rule-failer never reached MR
+    expect(res.body.telemetry.medicalReviewRequested).toBe(1);
+    expect(res.body.telemetry.medicalReviewRejected).toBe(0);
+
+    // At minimum: 1 gen call + 1 MR call = 2. Rule-failer (q2) adds 0 MR calls (subject mismatch
+    // has no entry in REPAIR_GUIDANCE so repair is skipped; MR never runs for failers in Phase 2).
+    expect(mockMessagesCreate.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

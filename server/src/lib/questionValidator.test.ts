@@ -1937,6 +1937,13 @@ describe('scoreScopeAlignment — system aliases', () => {
     )).toHaveLength(0);
   });
 
+  it('Nephrology and Renal / Urinary are equivalent on system axis', () => {
+    expect(scoreScopeAlignment(
+      { subject: 'Physiology', system: 'Nephrology' },
+      { subject: 'Physiology', system: 'Renal / Urinary' },
+    )).toHaveLength(0);
+  });
+
   it('Pulmonary and Respiratory are equivalent on system axis', () => {
     expect(scoreScopeAlignment(
       { subject: 'Physiology', system: 'Pulmonary' },
@@ -1968,11 +1975,12 @@ describe('scoreScopeAlignment — subject aliases', () => {
     )).toHaveLength(0);
   });
 
-  it('Cardiology and Cardiac are equivalent on subject axis', () => {
-    expect(scoreScopeAlignment(
-      { subject: 'Cardiac', system: 'Cardiovascular' },
+  it('Cardiology is not treated as a subject alias', () => {
+    const reasons = scoreScopeAlignment(
       { subject: 'Cardiology', system: 'Cardiovascular' },
-    )).toHaveLength(0);
+      { subject: 'Pathology', system: 'Cardiovascular' },
+    );
+    expect(reasons).toContain('off_scope_subject');
   });
 
   it('still rejects when canonical subjects are truly different', () => {

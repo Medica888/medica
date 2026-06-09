@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const generatedBankStatusSchema = z.enum(['validated_generated', 'approved', 'quarantined']);
+
 export const generateQuestionsSchema = z.object({
   config: z.object({
     mode:          z.enum(['exam', 'practice', 'coach']),
@@ -16,15 +18,6 @@ export const generateQuestionsSchema = z.object({
     baseQuestionIds: z.array(z.string().max(200)).max(1000).optional(),
   }).optional(),
 });
-
-export const generatedQuestionBankQuerySchema = z.object({
-  subject:    z.string().max(100).optional(),
-  system:     z.string().max(100).optional(),
-  difficulty: z.string().max(50).optional(),
-  mode:       z.string().max(20).optional(),
-  limit:      z.coerce.number().int().min(1).max(200).optional(),
-});
-
 
 export const generateFlashcardsSchema = z.object({
   config: z.object({
@@ -49,4 +42,14 @@ export const skillsGenerateSchema = z.object({
     systemPrompt: z.string().max(20000),
     name:         z.string().max(100),
   }).optional(),
+});
+
+export const generatedQuestionBankReviewQuerySchema = z.object({
+  status: generatedBankStatusSchema.optional(),
+  limit:  z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).max(10000).optional(),
+});
+
+export const generatedQuestionBankStatusUpdateSchema = z.object({
+  status: generatedBankStatusSchema,
 });

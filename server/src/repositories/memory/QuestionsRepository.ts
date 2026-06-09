@@ -1,20 +1,65 @@
 import { randomUUID } from 'crypto';
 import type { IQuestionsRepository } from '../interfaces.js';
+import {
+  difficultySearchLabels,
+  isBroadTaxonomyValue,
+  subjectSearchLabels,
+  systemSearchLabels,
+} from '../../lib/medicaTaxonomy.js';
 
 export class InMemoryQuestionsRepository implements IQuestionsRepository {
-  private store = new Map<string, { id: string; subject: string; system: string; body: Record<string, unknown> }>();
+  private store = new Map<string, {
+    id: string;
+    subject: string;
+    system: string;
+    body: Record<string, unknown>;
+    source: string;
+    bankStatus: string;
+    mode: string;
+    difficulty: string;
+    validationScore: number | null;
+    validatedAt: Date | string | null;
+    usageCount: number;
+    lastUsedAt: Date | null;
+  }>();
 
   async upsertByExternalId(
     externalId: string,
-    data: { subject: string; system: string; body: Record<string, unknown> },
+    data: {
+      subject: string;
+      system: string;
+      body: Record<string, unknown>;
+      source?: string;
+      bankStatus?: string;
+      mode?: string;
+      difficulty?: string;
+      validationScore?: number | null;
+      validatedAt?: Date | string | null;
+    },
   ): Promise<{ id: string }> {
+    const metadata = {
+      source: data.source ?? String(data.body.source || 'unknown'),
+      bankStatus: data.bankStatus ?? String(data.body.bankStatus || 'legacy'),
+      mode: data.mode ?? String(data.body.mode || ''),
+      difficulty: data.difficulty ?? String(data.body.difficulty || ''),
+      validationScore: data.validationScore ?? (
+        data.body.validationScore == null ? null : Number(data.body.validationScore)
+      ),
+      validatedAt: data.validatedAt ?? data.body.validatedAt as string | null ?? null,
+    };
     const existing = this.store.get(externalId);
     if (existing) {
-      this.store.set(externalId, { ...existing, ...data });
+      this.store.set(externalId, { ...existing, ...data, ...metadata });
       return { id: existing.id };
     }
     const id = randomUUID();
-    this.store.set(externalId, { id, ...data });
+    this.store.set(externalId, {
+      id,
+      ...data,
+      ...metadata,
+      usageCount: 0,
+      lastUsedAt: null,
+    });
     return { id };
   }
 
@@ -35,21 +80,139 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       if (!value || allLabels.includes(value)) return true;
       return String(actual || '') === value;
     };
+    const matchesTaxonomy = (
+      requested: string | undefined,
+      actual: unknown,
+      labelsForValue: (v: unknown) => string[],
+      allLabels: string[],
+    ) => {
+      const value = String(requested || '').trim();
+      if (!value || allLabels.includes(value) || isBroadTaxonomyValue(value)) return true;
+      const labels = labelsForValue(value);
+      const searchLabels = labels.length > 0 ? labels : [value];
+      return searchLabels.includes(String(actual || ''));
+    };
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
     return [...this.store.values()]
-      .map(entry => entry.body)
-      .filter(body =>
-        body.source === 'ai'
-        && body.bankStatus === 'validated_generated'
-        && matchesRequested(params.subject, body.subject, ['All Subjects'])
-        && matchesRequested(params.system, body.system, ['Mixed / All Systems', 'All Systems'])
-        && matchesRequested(params.difficulty, body.difficulty, ['Balanced'])
-        && matchesRequested(params.mode, body.mode, []),
+      .filter(entry =>
+        entry.source === 'ai'
+        && ['validated_generated', 'approved'].includes(entry.bankStatus)
+        && matchesTaxonomy(params.subject, entry.subject, subjectSearchLabels, ['All Subjects'])
+        && matchesTaxonomy(params.system, entry.system, systemSearchLabels, ['Mixed / All Systems', 'All Systems'])
+        && matchesTaxonomy(params.difficulty, entry.difficulty, difficultySearchLabels, [])
+        && matchesRequested(params.mode, entry.mode, []),
       )
+      .sort((a, b) => {
+        if (a.bankStatus !== b.bankStatus) {
+          if (a.bankStatus === 'approved') return -1;
+          if (b.bankStatus === 'approved') return 1;
+        }
+        return 0;
+      })
+      .map(entry => entry.body)
       .slice(0, limit);
   }
 
-  _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown> } | undefined {
+  async findGeneratedBankReview(params: {
+    externalId?: string;
+    status?: 'validated_generated' | 'approved' | 'quarantined';
+    limit?: number;
+    offset?: number;
+  }): Promise<Record<string, unknown>[]> {
+    const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
+    const offset = Math.max(0, Number(params.offset) || 0);
+    return [...this.store.entries()]
+      .filter(([eid, entry]) =>
+        entry.source === 'ai'
+        && (!params.externalId || eid === params.externalId)
+        && (!params.status || entry.bankStatus === params.status)
+      )
+      .sort(([, a], [, b]) => {
+        const weight = (status: string) => status === 'quarantined' ? 0 : status === 'validated_generated' ? 1 : 2;
+        return weight(a.bankStatus) - weight(b.bankStatus);
+      })
+      .slice(offset, offset + limit)
+      .map(([externalId, entry]) => ({
+        externalId,
+        subject: entry.subject,
+        system: entry.system,
+        source: entry.source,
+        bankStatus: entry.bankStatus,
+        mode: entry.mode,
+        difficulty: entry.difficulty,
+        validationScore: entry.validationScore,
+        validatedAt: entry.validatedAt,
+        lastUsedAt: entry.lastUsedAt,
+        usageCount: entry.usageCount,
+        reportCount: 0,
+        body: entry.body,
+      }));
+  }
+
+  async updateGeneratedBankStatus(
+    externalId: string,
+    status: 'validated_generated' | 'approved' | 'quarantined',
+  ): Promise<Record<string, unknown> | null> {
+    const entry = this.store.get(externalId);
+    if (!entry || entry.source !== 'ai') return null;
+    const updated = {
+      ...entry,
+      bankStatus: status,
+      body: {
+        ...entry.body,
+        bankStatus: status,
+      },
+    };
+    this.store.set(externalId, updated);
+    return {
+      externalId,
+      subject: updated.subject,
+      system: updated.system,
+      source: updated.source,
+      bankStatus: updated.bankStatus,
+      mode: updated.mode,
+      difficulty: updated.difficulty,
+      validationScore: updated.validationScore,
+      validatedAt: updated.validatedAt,
+      lastUsedAt: updated.lastUsedAt,
+      usageCount: updated.usageCount,
+      reportCount: 0,
+      body: updated.body,
+    };
+  }
+
+  async getGeneratedBankMetrics(): Promise<{
+    total: number;
+    validatedGenerated: number;
+    approved: number;
+    quarantined: number;
+    used: number;
+    totalUsage: number;
+  }> {
+    const entries = [...this.store.values()].filter(entry => entry.source === 'ai');
+    return {
+      total: entries.length,
+      validatedGenerated: entries.filter(entry => entry.bankStatus === 'validated_generated').length,
+      approved: entries.filter(entry => entry.bankStatus === 'approved').length,
+      quarantined: entries.filter(entry => entry.bankStatus === 'quarantined').length,
+      used: entries.filter(entry => entry.usageCount > 0).length,
+      totalUsage: entries.reduce((sum, entry) => sum + entry.usageCount, 0),
+    };
+  }
+
+  async markUsedByExternalIds(externalIds: string[]): Promise<void> {
+    for (const externalId of new Set(externalIds.map(id => String(id || '').trim()).filter(Boolean))) {
+      const entry = this.store.get(externalId);
+      if (!entry) continue;
+      this.store.set(externalId, {
+        ...entry,
+        usageCount: entry.usageCount + 1,
+        lastUsedAt: new Date(),
+      });
+    }
+  }
+
+  _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown>; usageCount?: number; lastUsedAt?: Date | null } | undefined {
     return this.store.get(externalId);
   }
 }

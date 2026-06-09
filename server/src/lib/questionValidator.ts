@@ -4,6 +4,11 @@ import {
   validateCardiovascularPathology,
   type SpecialtyValidationResult,
 } from './cardioPathologyValidator.js';
+import {
+  normalizeSubject,
+  normalizeSystem,
+} from './medicaTaxonomy.js';
+import { STRUCTURAL_DEPTH_THRESHOLDS } from './validation/difficultyBands.js';
 
 // ── Suspect stem detection ────────────────────────────────────────────────────
 
@@ -109,6 +114,11 @@ const NBME_HARD_REJECTIONS = new Set([
   'specialty_validation_failed',
 ]);
 
+// depthMin/depthMax here are on the scoreReasoningDepth(stem) scale — stem-only, sentence/term counting.
+// ENGINE_DEPTH_BANDS in difficultyBands.ts uses the reasoningDepth(question) scale — full question,
+// presence-based.  Both return 0–100 but diverge numerically for the same question.  Do NOT merge
+// these tables with ENGINE_DEPTH_BANDS unless both scoring functions are aligned: Balanced max is 70
+// here vs 75 in ENGINE_DEPTH_BANDS; More Hard max is 85 here vs 90 there.
 export const DIFFICULTY_RANGES: Record<string, { stemMin: number; stemMax: number; depthMin: number; depthMax: number }> = {
   'More Easy':        { stemMin: 70,  stemMax: 200, depthMin: 0,  depthMax: 35 },
   'Balanced':         { stemMin: 100, stemMax: 320, depthMin: 20, depthMax: 70 },
@@ -675,30 +685,29 @@ function scoreExplanationQuality(explanation: string, mode: string): { score: nu
 export function checkDifficultyFit(depthScore: number, stemLength: number, difficulty: string): string[] {
   const reasons: string[] = [];
   switch (difficulty) {
-    case 'More Easy':
-      // depthMax for More Easy is 35.  Hard-reject at >60 (well outside the band).
-      if (depthScore > 60) {
+    case 'More Easy': {
+      const t = STRUCTURAL_DEPTH_THRESHOLDS['More Easy'];
+      if (depthScore > t.hardRejectAbove) {
         reasons.push('excessive_complexity_for_easy');
-      } else if (depthScore > 35) {
+      } else if (depthScore > t.softWarnAbove) {
         reasons.push('difficulty_too_hard');
       }
       break;
-
-    case 'More Hard':
-      // depthMin for More Hard is 40.  Soft-warn anything below that floor.
-      if (depthScore < 40) {
+    }
+    case 'More Hard': {
+      const t = STRUCTURAL_DEPTH_THRESHOLDS['More Hard'];
+      if (depthScore < t.warnBelow) {
         reasons.push('insufficient_reasoning_depth');
       }
       break;
-
-    case 'UWorld Challenge':
-      // depthMin for UWorld is 65.  Soft-warn anything below that floor.
-      // UWorld-specific structural rules are enforced by checkUworldSpecific (Phase 4).
-      if (depthScore < 65) {
+    }
+    case 'UWorld Challenge': {
+      const t = STRUCTURAL_DEPTH_THRESHOLDS['UWorld Challenge'];
+      if (depthScore < t.warnBelow) {
         reasons.push('insufficient_reasoning_depth');
       }
       break;
-
+    }
     // Balanced: calibration score + structural gates (stem_too_short,
     // no_clinical_vignette, shallow_explanation) already cover extreme cases.
     // NBME Difficult: scoreNbmeQuestion handles its own depth signals.
@@ -1056,63 +1065,14 @@ function normalizeForScope(s: string): string {
 // Each inner array is a synonym group; the first element is the canonical form.
 // All comparisons use normalizeForScope output (lowercase, alphanum+space).
 
-const SUBJECT_ALIAS_GROUPS: string[][] = [
-  ['pathology', 'pathophysiology', 'disease mechanism'],
-  ['physiology'],
-  ['pharmacology'],
-  ['anatomy'],
-  ['biochemistry'],
-  ['microbiology'],
-  ['immunology'],
-  ['genetics'],
-  ['behavioral science', 'behavioral health', 'psychiatry', 'psychology'],
-  ['biostatistics', 'epidemiology', 'biostatistics epidemiology population health'],
-  ['ethics', 'professionalism'],
-  ['cardiology', 'cardiac'],
-  ['neurology', 'neuroscience'],
-  ['infectious disease'],
-];
-
-const SYSTEM_ALIAS_GROUPS: string[][] = [
-  ['cardiovascular', 'cardiovascular system', 'cardiology', 'cardio', 'heart', 'cardiac', 'vascular'],
-  ['neurology', 'nervous system', 'nervous system and special senses', 'nervous system special senses', 'neuroscience', 'neurological'],
-  ['renal', 'renal urinary', 'renal urinary system', 'renal and urinary system', 'urinary', 'kidney'],
-  ['gastrointestinal', 'gastrointestinal system', 'gi', 'digestive'],
-  ['dermatology', 'skin', 'skin and subcutaneous tissue', 'skin subcutaneous tissue'],
-  ['reproductive', 'reproductive system', 'male reproductive', 'female reproductive', 'female and transgender reproductive', 'male and transgender reproductive', 'pregnancy', 'obstetrics'],
-  ['respiratory', 'respiratory system', 'pulmonary'],
-  ['musculoskeletal', 'musculoskeletal system'],
-  ['endocrine', 'endocrine system', 'endocrinology'],
-  ['hematology', 'blood', 'blood and lymphoreticular', 'blood lymphoreticular', 'blood lymphoreticular system', 'lymph'],
-  ['immune system', 'immunology', 'immune'],
-  ['infectious disease', 'microbiology'],
-  ['behavioral health', 'behavioral science', 'psychiatry', 'psychology'],
-  ['multisystem', 'multisystem processes', 'multisystem processes and disorders'],
-  ['human development', 'development'],
-];
-
-function buildAliasLookup(groups: string[][]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const group of groups) {
-    const canonical = normalizeForScope(group[0]);
-    for (const alias of group) {
-      map.set(normalizeForScope(alias), canonical);
-    }
-  }
-  return map;
-}
-
-const SUBJECT_ALIAS_MAP = buildAliasLookup(SUBJECT_ALIAS_GROUPS);
-const SYSTEM_ALIAS_MAP  = buildAliasLookup(SYSTEM_ALIAS_GROUPS);
-
 function canonicalizeSubject(s: string): string {
-  const norm = normalizeForScope(s);
-  return SUBJECT_ALIAS_MAP.get(norm) ?? norm;
+  const normalized = normalizeSubject(s);
+  return normalized ? normalizeForScope(normalized) : normalizeForScope(s);
 }
 
 function canonicalizeSystem(s: string): string {
-  const norm = normalizeForScope(s);
-  return SYSTEM_ALIAS_MAP.get(norm) ?? norm;
+  const normalized = normalizeSystem(s);
+  return normalized ? normalizeForScope(normalized) : normalizeForScope(s);
 }
 
 // ── System text detection (used when question metadata is absent) ─────────────
@@ -1120,16 +1080,16 @@ function canonicalizeSystem(s: string): string {
 // Conservative: requires at least one high-specificity keyword.
 
 const SYSTEM_TEXT_SIGNALS: Array<{ canonical: string; re: RegExp }> = [
-  { canonical: 'cardiovascular', re: /\b(coronary|myocardial|infarct|arrhythmia|endocarditis|atherosclerosis|aorta|angina|echocardiogram|pericardium|ventricular|atrial)\b/i },
-  { canonical: 'neurology',     re: /\b(neuron|cerebral|cortex|brainstem|spinal\s+cord|seizure|epilepsy|meningitis|encephalitis|cranial\s+nerve|myelination|demyelination|parkinson|alzheimer|multiple\s+sclerosis)\b/i },
-  { canonical: 'renal',         re: /\b(glomerulus|nephron|creatinine|glomerular|nephrotic|nephritic|hematuria|proteinuria|podocyte|collecting\s+duct|loop\s+of\s+henle|dialysis|polycystic\s+kidney)\b/i },
-  { canonical: 'gastrointestinal', re: /\b(hepatitis|cirrhosis|portal\s+hypertension|bilirubin|cholestasis|pancreatitis|amylase|lipase|celiac|crohn|ulcerative\s+colitis|esophageal|gastric|peptic\s+ulcer)\b/i },
-  { canonical: 'respiratory',   re: /\b(alveol|surfactant|fev1|fvc|bronchiectasis|emphysema|asthma|copd|pneumothorax|pleural\s+effusion|diffusion\s+capacity|pulmonary\s+embolism)\b/i },
-  { canonical: 'dermatology',   re: /\b(epidermis|dermis|melanocyte|keratinocyte|psoriasis|pemphigus|dermatitis|melanoma|sebaceous|alopecia)\b/i },
-  { canonical: 'endocrine',     re: /\b(thyroid|parathyroid|adrenal\s+cortex|pituitary|insulin\s+resistance|glucagon|cortisol|aldosterone|pheochromocytoma|acromegaly|cushing|addison)\b/i },
-  { canonical: 'hematology',    re: /\b(hemoglobin|hematocrit|platelet|coagulation|fibrin|thrombin|anemia|leukemia|lymphoma|hemophilia|sickle\s+cell|thalassemia|bone\s+marrow)\b/i },
-  { canonical: 'musculoskeletal', re: /\b(osteoporosis|rheumatoid\s+arthritis|gout|myopathy|muscular\s+dystrophy|osteomyelitis|osteosarcoma|tendon|ligament\s+tear)\b/i },
-  { canonical: 'reproductive',  re: /\b(uterus|ovary|testis|prostate|cervix|fallopian|placenta|ectopic\s+pregnancy|preeclampsia|endometriosis|fibroids|amenorrhea)\b/i },
+  { canonical: 'Cardiovascular', re: /\b(coronary|myocardial|infarct|arrhythmia|endocarditis|atherosclerosis|aorta|angina|echocardiogram|pericardium|ventricular|atrial)\b/i },
+  { canonical: 'Neurology',     re: /\b(neuron|cerebral|cortex|brainstem|spinal\s+cord|seizure|epilepsy|meningitis|encephalitis|cranial\s+nerve|myelination|demyelination|parkinson|alzheimer|multiple\s+sclerosis)\b/i },
+  { canonical: 'Renal / Urinary', re: /\b(glomerulus|nephron|creatinine|glomerular|nephrotic|nephritic|hematuria|proteinuria|podocyte|collecting\s+duct|loop\s+of\s+henle|dialysis|polycystic\s+kidney)\b/i },
+  { canonical: 'Gastrointestinal', re: /\b(hepatitis|cirrhosis|portal\s+hypertension|bilirubin|cholestasis|pancreatitis|amylase|lipase|celiac|crohn|ulcerative\s+colitis|esophageal|gastric|peptic\s+ulcer)\b/i },
+  { canonical: 'Respiratory',   re: /\b(alveol|surfactant|fev1|fvc|bronchiectasis|emphysema|asthma|copd|pneumothorax|pleural\s+effusion|diffusion\s+capacity|pulmonary\s+embolism)\b/i },
+  { canonical: 'Dermatology',   re: /\b(epidermis|dermis|melanocyte|keratinocyte|psoriasis|pemphigus|dermatitis|melanoma|sebaceous|alopecia)\b/i },
+  { canonical: 'Endocrine',     re: /\b(thyroid|parathyroid|adrenal\s+cortex|pituitary|insulin\s+resistance|glucagon|cortisol|aldosterone|pheochromocytoma|acromegaly|cushing|addison)\b/i },
+  { canonical: 'Hematology',    re: /\b(hemoglobin|hematocrit|platelet|coagulation|fibrin|thrombin|anemia|leukemia|lymphoma|hemophilia|sickle\s+cell|thalassemia|bone\s+marrow)\b/i },
+  { canonical: 'Musculoskeletal', re: /\b(osteoporosis|rheumatoid\s+arthritis|gout|myopathy|muscular\s+dystrophy|osteomyelitis|osteosarcoma|tendon|ligament\s+tear)\b/i },
+  { canonical: 'Reproductive',  re: /\b(uterus|ovary|testis|prostate|cervix|fallopian|placenta|ectopic\s+pregnancy|preeclampsia|endometriosis|fibroids|amenorrhea)\b/i },
 ];
 
 function detectSystemFromStem(stem: string): string {
@@ -1251,7 +1211,7 @@ export function scoreScopeAlignment(
       const stem = String(q.stem || '');
       if (stem) {
         const detected = detectSystemFromStem(stem);
-        if (detected && detected !== canonReq) {
+        if (detected && canonicalizeSystem(detected) !== canonReq) {
           reasons.push('off_scope_system');
         }
         // detected === '' or detected === canonReq → pass (no evidence of mismatch)

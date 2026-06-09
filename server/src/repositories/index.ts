@@ -12,6 +12,7 @@ import { InMemoryUserConceptMasteryRepository } from './memory/UserConceptMaster
 import { InMemoryMasterySnapshotsRepository } from './memory/MasterySnapshotsRepository.js';
 import { InMemoryConceptReviewLogRepository } from './memory/ConceptReviewLogRepository.js';
 import { InMemoryQuestionReportsRepository } from './memory/QuestionReportsRepository.js';
+import { InMemoryAuditLogRepository } from './memory/AuditLogRepository.js';
 
 import { PgUsersRepository } from './pg/UsersRepository.js';
 import { PgExamSessionsRepository } from './pg/ExamSessionsRepository.js';
@@ -25,6 +26,7 @@ import { PgUserConceptMasteryRepository } from './pg/UserConceptMasteryRepositor
 import { PgMasterySnapshotsRepository } from './pg/MasterySnapshotsRepository.js';
 import { PgConceptReviewLogRepository } from './pg/ConceptReviewLogRepository.js';
 import { PgQuestionReportsRepository } from './pg/QuestionReportsRepository.js';
+import { PgAuditLogRepository } from './pg/AuditLogRepository.js';
 
 import type { IUsersRepository } from './interfaces.js';
 import type { IExamSessionsRepository } from './interfaces.js';
@@ -38,6 +40,7 @@ import type { IUserConceptMasteryRepository } from './interfaces.js';
 import type { IMasterySnapshotsRepository } from './interfaces.js';
 import type { IConceptReviewLogRepository } from './interfaces.js';
 import type { IQuestionReportsRepository } from './interfaces.js';
+import type { IAuditLogRepository } from './interfaces.js';
 
 import { config } from '../config.js';
 
@@ -54,6 +57,7 @@ export interface Repositories {
   masterySnapshots:   IMasterySnapshotsRepository;
   reviewLog:          IConceptReviewLogRepository;
   questionReports:    IQuestionReportsRepository;
+  auditLog:           IAuditLogRepository;
 }
 
 let _repos: Repositories | null = null;
@@ -81,6 +85,7 @@ export function createInMemoryRepositories(): Repositories {
     masterySnapshots:   new InMemoryMasterySnapshotsRepository(),
     reviewLog:          new InMemoryConceptReviewLogRepository(),
     questionReports:    new InMemoryQuestionReportsRepository(),
+    auditLog:           new InMemoryAuditLogRepository(),
   };
 }
 
@@ -100,6 +105,7 @@ export function createPgRepositories(): Repositories {
     masterySnapshots:   new PgMasterySnapshotsRepository(pool),
     reviewLog:          new PgConceptReviewLogRepository(pool),
     questionReports:    new PgQuestionReportsRepository(pool),
+    auditLog:           new PgAuditLogRepository(pool),
   };
 }
 

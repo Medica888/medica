@@ -4,27 +4,39 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AdaptiveExamService } from '../services/AdaptiveExamService.js';
 import { AdaptiveFlashcardService } from '../services/AdaptiveFlashcardService.js';
 import { optionalAuth } from '../middleware/optionalAuth.js';
-import type { AuthRequest } from '../middleware/auth.js';
+import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import { validate } from '../middleware/validate.js';
 import { aiLimiter } from '../middleware/rateLimiter.js';
 import { getRepositories } from '../repositories/index.js';
 import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
 import {
   generateQuestionsSchema,
-  generatedQuestionBankQuerySchema,
   generateFlashcardsSchema,
   explainSchema,
   skillsGenerateSchema,
+  generatedQuestionBankReviewQuerySchema,
+  generatedQuestionBankStatusUpdateSchema,
 } from '../schemas/ai.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import {
-  scoreQuestion, buildRepairPrompt, isSuspectStem,
+  buildRepairPrompt, isSuspectStem,
   requiresMedicalReview, buildMedicalReviewPrompt, parseMedicalReviewResponse,
-  scoreScopeAlignment,
   type QuestionQuality, type ReviewableQuestion, type MedicalReviewResult,
 } from '../lib/questionValidator.js';
+import {
+  allowedDifficulties,
+  allowedSubjects,
+  allowedSystems,
+  isBroadTaxonomyValue,
+  normalizeDifficulty,
+  normalizeSubject,
+  normalizeSystem,
+} from '../lib/medicaTaxonomy.js';
+import { validateQuestion } from '../lib/validation/validationEngine.js';
+import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -83,6 +95,104 @@ router.get('/skills', (_req: Request, res: Response) => {
 });
 
 // ─── POST /api/generate (skills streaming) ───────────────────────────────────
+
+router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const parsed = generatedQuestionBankReviewQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid generated bank review query', code: 'INVALID_QUERY' });
+    return;
+  }
+
+  try {
+    const questions = await getRepositories().questions.findGeneratedBankReview(parsed.data);
+    res.json({ questions, count: questions.length });
+  } catch (err) {
+    console.error('[generated-question-bank/review]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Generated question bank review failed', code: 'GENERATED_BANK_REVIEW_FAILED' });
+  }
+});
+
+router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const metrics = await getRepositories().questions.getGeneratedBankMetrics();
+    res.json(metrics);
+  } catch (err) {
+    console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });
+  }
+});
+
+router.patch(
+  '/generated-question-bank/:externalId/status',
+  requireAuth,
+  requireAdmin,
+  validate(generatedQuestionBankStatusUpdateSchema),
+  async (req: AuthRequest, res: Response) => {
+    const externalId = String(req.params.externalId || '').trim();
+    if (!externalId || externalId.length > 300) {
+      res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+      return;
+    }
+
+    try {
+      const repos = getRepositories();
+
+      // Fetch the current row to get previousStatus for the audit log and to
+      // validate the question body on approval.
+      const reviewRows = await repos.questions.findGeneratedBankReview({ externalId, limit: 1 });
+      const reviewRow = reviewRows[0];
+      if (!reviewRow) {
+        res.status(404).json({ error: 'Generated question not found', code: 'GENERATED_QUESTION_NOT_FOUND' });
+        return;
+      }
+
+      const previousStatus = String((reviewRow as Record<string, any>).bankStatus ?? '');
+
+      if (req.body.status === 'approved') {
+        const body = (reviewRow as Record<string, any>).body as Record<string, any>;
+        const validationConfig = {
+          mode: (reviewRow as Record<string, any>).mode || body.mode || 'practice',
+          difficulty: (reviewRow as Record<string, any>).difficulty || body.difficulty || 'Balanced',
+          subject: (reviewRow as Record<string, any>).subject || body.subject || '',
+          system: (reviewRow as Record<string, any>).system || body.system || '',
+          topic: body.topic || body.canonicalTopic || '',
+        };
+        const validation = await _validatePromotableQuestion(body, validationConfig);
+        if (!validation.valid) {
+          res.status(422).json({
+            error: 'Generated question validation failed',
+            code: 'GENERATED_QUESTION_VALIDATION_FAILED',
+            rejectionReasons: validation.validation.rejectionReasons,
+          });
+          return;
+        }
+      }
+
+      const question = await repos.questions.updateGeneratedBankStatus(externalId, req.body.status);
+      if (!question) {
+        res.status(404).json({ error: 'Generated question not found', code: 'GENERATED_QUESTION_NOT_FOUND' });
+        return;
+      }
+
+      // Fire-and-forget: status changes return 200 even if the audit write fails,
+      // prioritising availability over audit durability.
+      // TODO: await this call before responding if durable audit records become a
+      // compliance requirement (change .catch() to await + surface error to client).
+      repos.auditLog.log({
+        userId: req.userId ?? null,
+        action: req.body.status,
+        questionId: externalId,
+        previousStatus: previousStatus || null,
+        newStatus: req.body.status,
+      }).catch(err => console.error('[audit-log] failed to write entry:', err instanceof Error ? err.message : String(err)));
+
+      res.json({ question });
+    } catch (err) {
+      console.error('[generated-question-bank/status]', err instanceof Error ? err.message : String(err));
+      res.status(500).json({ error: 'Generated question status update failed', code: 'GENERATED_BANK_STATUS_FAILED' });
+    }
+  },
+);
 
 router.post('/generate', aiLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
   const { skillId, guide, customSkill } = req.body ?? {};
@@ -283,7 +393,53 @@ const EMPTY = new Set([
 
 function isEmpty(v: unknown) {
   if (v === null || v === undefined) return true;
-  return EMPTY.has(String(v).toLowerCase().trim());
+  return EMPTY.has(String(v).toLowerCase().trim()) || isBroadTaxonomyValue(v);
+}
+
+class TaxonomyConfigError extends Error {
+  constructor(public field: 'subject' | 'system' | 'difficulty', value: string) {
+    super(`Unknown ${field}: ${value}`);
+  }
+}
+
+function normalizeConfigTaxonomy(config: Record<string, any>): Record<string, any> {
+  const next = { ...config };
+  const rawSubject = String(config.subject || '').trim();
+  const rawSystem = String(config.system || '').trim();
+  const rawDifficulty = String(config.difficulty || '').trim();
+
+  if (!isEmpty(rawSubject)) {
+    const subject = normalizeSubject(rawSubject);
+    const subjectAsSystem = normalizeSystem(rawSubject);
+    if (subject) {
+      next.subject = subject;
+    } else if (subjectAsSystem) {
+      next.subject = '';
+      if (isEmpty(rawSystem)) next.system = subjectAsSystem;
+    } else {
+      throw new TaxonomyConfigError('subject', rawSubject);
+    }
+  } else {
+    next.subject = '';
+  }
+
+  if (!isEmpty(rawSystem)) {
+    const system = normalizeSystem(rawSystem);
+    if (!system) throw new TaxonomyConfigError('system', rawSystem);
+    next.system = system;
+  } else if (isEmpty(next.system)) {
+    next.system = '';
+  }
+
+  if (!isEmpty(rawDifficulty)) {
+    const difficulty = normalizeDifficulty(rawDifficulty);
+    if (!difficulty) throw new TaxonomyConfigError('difficulty', rawDifficulty);
+    next.difficulty = difficulty;
+  } else {
+    next.difficulty = 'Balanced';
+  }
+
+  return next;
 }
 
 // Strip control characters and cap topic length to prevent prompt injection.
@@ -433,7 +589,7 @@ JSON SCHEMA:
 {
   "questions": [
     {
-      "subject": "Cardiology",
+      "subject": "Pharmacology",
       "system": "Cardiovascular",
       "testedConcept": "Short concept name",
       "weakSpotCategory": "Analytics label",
@@ -456,6 +612,9 @@ JSON SCHEMA:
 OPTIONS: exactly 4 per question (A-D only). correct is one letter "A","B","C","D".
 optionExplanations: Coach Mode ONLY. explanation/pearl/anchor/trap: Practice + Coach only.
 Generate exactly the number of questions requested. Each must have a unique testedConcept.
+subject must be exactly one of: ${allowedSubjects.join(' | ')}
+system must be exactly one of: ${allowedSystems.join(' | ')}
+difficulty, when provided, must be exactly one of: ${allowedDifficulties.join(' | ')}
 usmleContentArea must be exactly one of: Human Development | Immune System | Blood & Lymphoreticular System | Behavioral Health | Nervous System & Special Senses | Skin & Subcutaneous Tissue | Musculoskeletal System | Cardiovascular System | Respiratory System | Gastrointestinal System | Renal & Urinary System | Pregnancy, Childbirth, & the Puerperium | Female and Transgender Reproductive System & Breast | Male and Transgender Reproductive System | Endocrine System | Multisystem Processes & Disorders | Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature | Social Sciences
 physicianTask must be exactly one of: Medical Knowledge: Applying Foundational Science Concepts | Patient Care: History and Physical Examination | Patient Care: Laboratory and Diagnostic Studies | Patient Care: Diagnosis | Patient Care: Prognosis and Outcome | Patient Care: Health Maintenance and Disease Prevention | Patient Care: Pharmacotherapy | Patient Care: Clinical Interventions | Patient Care: Mixed Management | Communication | Professionalism, Legal, and Ethical Principles | Systems-Based Practice and Patient Safety | Practice-Based Learning and Improvement`;
 
@@ -505,6 +664,22 @@ function buildPrompt(config: Record<string, any>, count: number, offset: number,
 
 const VALID_LETTERS = ['A', 'B', 'C', 'D'];
 
+function normalizeQuestionTaxonomy(q: Record<string, any>, scope: ReturnType<typeof resolveScope>) {
+  const rawSubject = String(q.subject || '').trim();
+  const rawSystem = String(q.system || '').trim();
+  const rawDifficulty = String(q.difficulty || '').trim();
+
+  const subject = normalizeSubject(rawSubject) ?? (
+    rawSubject && normalizeSystem(rawSubject) ? '' : normalizeSubject(scope.subject)
+  ) ?? '';
+
+  const rawSubjectAsSystem = normalizeSystem(rawSubject);
+  const system = normalizeSystem(rawSystem) ?? rawSubjectAsSystem ?? normalizeSystem(scope.system) ?? '';
+  const difficulty = normalizeDifficulty(rawDifficulty) ?? '';
+
+  return { subject, system, difficulty };
+}
+
 function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnType<typeof resolveScope>) {
   const rawOpts = Array.isArray(q.options) ? q.options : [];
   const opts = rawOpts.slice(0, 4).map((o: any, i: number) => {
@@ -526,11 +701,12 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
   }
 
   const scopeRaw = scope.rawTopic || scope.canonicalTopic || scope.scopeText || '';
+  const taxonomy = normalizeQuestionTaxonomy(q, scope);
 
   return {
     id: `q${index + 1}`,
-    subject: q.subject || '',
-    system: q.system || '',
+    subject: taxonomy.subject,
+    system: taxonomy.system,
     topic: q.topic || scope.topic || '',
     rawTopic: q.rawTopic || scopeRaw,
     canonicalTopic: q.canonicalTopic || scope.canonicalTopic || scopeRaw,
@@ -540,7 +716,7 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
     usmleContentArea: String(q.usmleContentArea || '').trim(),
     usmleSubdomain:   String(q.usmleSubdomain   || '').trim(),
     physicianTask:    String(q.physicianTask     || '').trim(),
-    difficulty: q.difficulty || '',
+    difficulty: taxonomy.difficulty,
     testedConcept:    q.testedConcept    || q.tested_concept    || '',
     weakSpotCategory: q.weakSpotCategory || q.weak_spot_category || '',
     stem: (q.stem || '').trim(),
@@ -604,6 +780,35 @@ async function callMedicalReview(
   } catch {
     return { pass: false, result: null, failedCategories: [] };
   }
+}
+
+const validationMedicalReview: MedicalReviewAdapter = async (question, difficulty) =>
+  callMedicalReview(question as ReviewableQuestion, difficulty);
+
+function requestedScopeForValidation(scope: ReturnType<typeof resolveScope>) {
+  return scope.subject || scope.system || scope.topic
+    ? { subject: scope.subject, system: scope.system, topic: scope.topic }
+    : undefined;
+}
+
+async function runQuestionValidation(
+  question: Record<string, any>,
+  config: Record<string, any>,
+  scope: ReturnType<typeof resolveScope>,
+  options: { medicalReview?: boolean } = {},
+): Promise<ValidationEngineResult> {
+  const skipMedical = options.medicalReview === false;
+  return validateQuestion({
+    question,
+    mode: config.mode || 'practice',
+    difficulty: config.difficulty || 'Balanced',
+    requestedScope: requestedScopeForValidation(scope),
+    medicalReview: skipMedical ? undefined : validationMedicalReview,
+    // When skipping MR, override the policy gate so NBME/UWorld questions
+    // are not blocked by medicalReviewSkippedResult(true) in the engine.
+    // Phase 2 runs the actual reviews in parallel for rule-based passers only.
+    policy: skipMedical ? { requiresMedicalReview: false } : undefined,
+  });
 }
 
 export interface BatchTelemetry {
@@ -672,115 +877,129 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   const difficulty  = config.difficulty || 'Balanced';
   const needsReview = requiresMedicalReview(difficulty);
   let mrRequested = 0, mrPassed = 0, mrRejected = 0, mrSkipped = 0;
+  let scopeRejected = 0;
   const mrFailureCategories = emptyMedicalReviewFailureCategories();
 
-  // ── Phase 1: split rule-based passers from failers ────────────────────────────
-  type ScoredItem = { q: ReturnType<typeof normalizeQuestion>; rawQ: Record<string, any>; quality: QuestionQuality; idx: number };
-  const passers: ScoredItem[] = [];
-  const failers: ScoredItem[] = [];
-
-  // Universal scope rejection: applies to every difficulty whenever the user
-  // requested a specific subject, system, or topic.  Broad values ('', 'All Systems',
-  // 'Multisystem', etc.) are already normalised to '' by resolveScope, so the check
-  // is a no-op for global/mixed generation.  Scope-rejected questions exit via
-  // continue — they never reach callMedicalReview.
-  const requestedScopeForCheck =
-    scope.subject || scope.system || scope.topic
-      ? { subject: scope.subject, system: scope.system, topic: scope.topic }
-      : undefined;
-  let scopeRejected = 0;
+  // ── Phase 1: rule-based validation only (MR deferred to Phase 2) ─────────────
+  // Medical review is skipped here via the policy override — NBME/UWorld questions
+  // are not penalised for the missing MR adapter; they are collected as rulePassers
+  // and reviewed in parallel in Phase 2.  This avoids burning an Anthropic API call
+  // on questions that are already going to be rejected by rule validators.
+  type FailedItem = {
+    q: ReturnType<typeof normalizeQuestion>;
+    rawQ: Record<string, any>;
+    validation: ValidationEngineResult;
+    idx: number;
+  };
+  type RulePasserItem = {
+    q: ReturnType<typeof normalizeQuestion>;
+    rawQ: Record<string, any>;
+    validation: ValidationEngineResult;
+    idx: number;
+  };
+  const failers: FailedItem[] = [];
+  const rulePassers: RulePasserItem[] = [];
 
   for (let i = 0; i < normalized.length; i++) {
-    if (requestedScopeForCheck) {
-      const scopeReasons = scoreScopeAlignment(normalized[i], requestedScopeForCheck);
-      if (scopeReasons.length > 0) {
-        scopeRejected++;
-        rejectCount++;
-        console.warn(`[scope] rejected "${normalized[i].testedConcept}" | ${difficulty} | ${scopeReasons.join(', ')}`);
-        continue;
-      }
-    }
+    const validation = await runQuestionValidation(normalized[i], config, scope, { medicalReview: false });
 
-    const quality = scoreQuestion(normalized[i], config.mode, difficulty);
-    (quality.validationStatus === 'pass' ? passers : failers).push({ q: normalized[i], rawQ: rawQuestions[i], quality, idx: i });
-  }
-
-  // ── Phase 2: medical reviews run in parallel for all rule-based passers ───────
-  // Running them concurrently cuts per-batch review time from (N × 15s) to ~15s,
-  // which directly reduces the window for transient ECONNRESET failures.
-  if (needsReview) {
-    mrRequested += passers.length;
-    const reviewResults = await Promise.all(passers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty)));
-    for (let i = 0; i < passers.length; i++) {
-      const { q, rawQ, quality } = passers[i];
-      const { pass, failedCategories } = reviewResults[i];
-      if (pass) {
-        results.push({ ...q, ...quality, id: randomUUID() });
-        passCount++;
-        mrPassed++;
-      } else {
-        rejectCount++;
-        mrRejected++;
-        for (const cat of failedCategories) mrFailureCategories[cat]++;
-        const failLabel = failedCategories.length ? failedCategories.join(',') : 'unclassified';
-        console.warn(`[medical-review] rejected: ${q.testedConcept} | ${difficulty} | failed=${failLabel}`);
-      }
-      if (isSuspectStem(q.stem)) {
-        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition: pass ? 'pass' : 'medical-review-failed' }));
-      }
-    }
-  } else {
-    mrSkipped += passers.length;
-    for (const { q, rawQ, quality } of passers) {
-      results.push({ ...q, ...quality, id: randomUUID() });
-      passCount++;
-      if (isSuspectStem(q.stem)) {
-        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: q.stem, disposition: 'pass' }));
-      }
-    }
-  }
-
-  // ── Phase 3: repair-and-review failers sequentially (uncommon path) ───────────
-  for (const { q, rawQ, quality, idx } of failers) {
-    let disposition: string;
-    let repairedStem: string | null = null;
-    const repairedRaw = await attemptRepair(q, quality);
-    if (repairedRaw) {
-      const repairedNorm    = normalizeQuestion(repairedRaw, offset + idx, scope);
-      repairedStem = repairedNorm.stem;
-      const repairedQuality = scoreQuestion(repairedNorm, config.mode, difficulty);
-      if (repairedQuality.validationStatus === 'pass') {
-        if (needsReview) {
-          mrRequested++;
-          const { pass: reviewPass, failedCategories: repairFailedCats } = await callMedicalReview(repairedNorm as ReviewableQuestion, difficulty);
-          if (reviewPass) {
-            results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
-            repairCount++;
-            mrPassed++;
-            disposition = 'repair-passed';
-          } else {
-            rejectCount++;
-            mrRejected++;
-            for (const cat of repairFailedCats) mrFailureCategories[cat]++;
-            const failLabel = repairFailedCats.length ? repairFailedCats.join(',') : 'unclassified';
-            console.warn(`[medical-review] repaired question rejected: ${repairedNorm.testedConcept} | ${difficulty} | failed=${failLabel}`);
-            disposition = 'repair-medical-review-failed';
-          }
-        } else {
-          mrSkipped++;
-          results.push({ ...repairedNorm, ...repairedQuality, validationStatus: 'repaired', id: randomUUID() });
-          repairCount++;
-          disposition = 'repair-passed';
-        }
-      } else {
-        rejectCount++;
-        console.warn('[quality] repair failed — rejecting:', repairedQuality.rejectionReasons);
-        disposition = 'repair-failed';
+    if (validation.passed) {
+      rulePassers.push({ q: normalized[i], rawQ: rawQuestions[i], validation, idx: i });
+      if (isSuspectStem(normalized[i].stem)) {
+        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQuestions[i]), normalizedStem: normalized[i].stem, disposition: 'rule-pass' }));
       }
     } else {
       rejectCount++;
-      console.warn('[quality] rejected (no actionable repair):', quality.rejectionReasons, '| score:', quality.qualityScore);
-      disposition = 'rejected';
+      if (validation.validators.some(result => result.name === 'scope' && result.status === 'fail')) {
+        scopeRejected++;
+      }
+      failers.push({ q: normalized[i], rawQ: rawQuestions[i], validation, idx: i });
+    }
+  }
+
+  // ── Phase 2: parallel medical reviews for rule-based passers ─────────────────
+  // For non-MR difficulties (Balanced / More Easy / More Hard) every rule passer
+  // is accepted immediately and counts as mrSkipped.  For NBME/UWorld, all reviews
+  // run concurrently via Promise.all, cutting per-batch latency from (N × ~4s) to ~4s.
+  if (!needsReview) {
+    mrSkipped += normalized.length;  // rule passers + failers all skipped MR
+    for (const { q, validation } of rulePassers) {
+      results.push({ ...q, ...validation.quality, id: randomUUID() });
+      passCount++;
+    }
+  } else {
+    const reviewResults = await Promise.all(
+      rulePassers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty)),
+    );
+    for (let j = 0; j < rulePassers.length; j++) {
+      const { q, validation } = rulePassers[j];
+      const review = reviewResults[j];
+      mrRequested++;
+      if (review.pass) {
+        mrPassed++;
+        results.push({ ...q, ...validation.quality, id: randomUUID() });
+        passCount++;
+      } else {
+        mrRejected++;
+        rejectCount++;
+        for (const reason of review.failedCategories) {
+          if (reason in mrFailureCategories) {
+            mrFailureCategories[reason as keyof MedicalReviewFailureCategories]++;
+          }
+        }
+        console.warn('[validation-engine] medical-review rejected:', review.failedCategories);
+      }
+    }
+  }
+
+  const trackValidationTelemetry = (validation: ValidationEngineResult) => {
+    const medical = validation.validators.find(result => result.name === 'medical_review');
+    if (!medical) return;
+    if (!validation.policy.requiresMedicalReview) {
+      mrSkipped++;
+      return;
+    }
+    mrRequested++;
+    if (medical.status === 'pass') {
+      mrPassed++;
+      return;
+    }
+    mrRejected++;
+    for (const reason of medical.reasons) {
+      if (reason in mrFailureCategories) {
+        mrFailureCategories[reason as keyof MedicalReviewFailureCategories]++;
+      }
+    }
+  };
+
+  // ── Phase 3: repair-and-review failers sequentially (uncommon path) ──────────
+  for (const { q, rawQ, validation, idx } of failers) {
+    let disposition = 'rejected';
+    let repairedStem: string | null = null;
+    const repairedRaw = await attemptRepair(q, validation.quality);
+    if (repairedRaw) {
+      const repairedNorm    = normalizeQuestion(repairedRaw, offset + idx, scope);
+      repairedStem = repairedNorm.stem;
+      // Intentionally uses the full validation path (including MR for NBME/UWorld) — no
+      // medicalReview:false override.  A repaired question must pass medical review before
+      // it can enter the bank, same as a freshly generated one.
+      const repairedValidation = await runQuestionValidation(repairedNorm, config, scope);
+      trackValidationTelemetry(repairedValidation);
+      if (repairedValidation.passed) {
+        results.push({
+          ...repairedNorm,
+          ...repairedValidation.quality,
+          validationStatus: 'repaired',
+          id: randomUUID(),
+        });
+        repairCount++;
+        disposition = 'repair-passed';
+      } else {
+        console.warn('[validation-engine] repair failed:', repairedValidation.rejectionReasons, '| score:', repairedValidation.score);
+        disposition = 'repair-failed';
+      }
+    } else {
+      console.warn('[validation-engine] rejected:', validation.rejectionReasons, '| score:', validation.score);
     }
     const logStem = disposition === 'repair-passed' && repairedStem !== null ? repairedStem : q.stem;
     if (isSuspectStem(logStem)) {
@@ -948,15 +1167,20 @@ function _questionBodyForGeneratedBank(
   quality: QuestionQuality,
 ): Record<string, unknown> {
   const now = new Date().toISOString();
+  const subject = normalizeSubject(question.subject) ?? normalizeSubject(config.subject) ?? '';
+  const system = normalizeSystem(question.system) ?? normalizeSystem(config.system) ?? '';
+  const difficulty = normalizeDifficulty(question.difficulty) ?? normalizeDifficulty(config.difficulty) ?? 'Balanced';
   return {
     ...question,
     id: fingerprint,
+    subject,
+    system,
     source: 'ai',
     bankStatus: 'validated_generated',
     promotionStatus: 'candidate',
     fingerprint,
     mode: config.mode || '',
-    difficulty: question.difficulty || config.difficulty || 'Balanced',
+    difficulty,
     validationStatus: quality.validationStatus,
     validationScore: quality.qualityScore,
     validationVersion: 'server-question-validator-v1',
@@ -967,28 +1191,34 @@ function _questionBodyForGeneratedBank(
   };
 }
 
-function _validatePromotableQuestion(rawQuestion: Record<string, any>, config: Record<string, any>) {
+async function _validatePromotableQuestion(rawQuestion: Record<string, any>, config: Record<string, any>) {
   const scope = resolveScope(config);
   const question = normalizeQuestion(rawQuestion, 0, scope);
-  const quality = scoreQuestion(question, config.mode || 'practice', config.difficulty || 'Balanced');
+  const validation = await runQuestionValidation(question, config, scope);
   const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
   question.id = String(rawQuestion.id || fingerprint);
   const validFingerprint = Boolean(fingerprint && fingerprint !== '||');
-  const valid = quality.validationStatus === 'pass' && validFingerprint;
-  return { valid, question, quality, fingerprint };
+  const valid = validation.passed && validFingerprint;
+  return { valid, question, quality: validation.quality, validation, fingerprint };
 }
 
 async function _saveGeneratedQuestionsToBank(questions: Record<string, any>[], config: Record<string, any>): Promise<number> {
   const repo = getRepositories().questions;
   let saved = 0;
   for (const rawQuestion of questions) {
-    const { valid, question, quality, fingerprint } = _validatePromotableQuestion(rawQuestion, config);
+    const { valid, question, quality, fingerprint } = await _validatePromotableQuestion(rawQuestion, config);
     if (!valid) continue;
     const body = _questionBodyForGeneratedBank(question, config, fingerprint, quality);
     await repo.upsertByExternalId(fingerprint, {
       subject: String(body.subject || ''),
       system:  String(body.system || ''),
       body,
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      mode: String(body.mode || ''),
+      difficulty: String(body.difficulty || ''),
+      validationScore: Number(body.validationScore || 0),
+      validatedAt: String(body.validatedAt || ''),
     });
     saved++;
   }
@@ -1011,8 +1241,10 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
   // scope — which would cause off-topic questions to falsely pass inScope.
   const scopeFiltered = isSpecific(scope) ? rawBank.filter(q => inScope(q as Record<string, any>, scope)) : rawBank;
 
-  const valid = scopeFiltered
-    .map(q => _validatePromotableQuestion(q as Record<string, any>, config))
+  const validationResults = await Promise.all(
+    scopeFiltered.map(q => _validatePromotableQuestion(q as Record<string, any>, config)),
+  );
+  const valid = validationResults
     .filter(result => result.valid)
     .map(result => result.question as Record<string, any>);
 
@@ -1021,25 +1253,9 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
     if (quarantinedFps.size === 0) return valid;
     return valid.filter(q => !quarantinedFps.has(computeQuestionFingerprint(q.stem || '', q.testedConcept || '')));
   } catch {
-    return valid;
+    return [];
   }
 }
-
-router.get('/generated-question-bank', optionalAuth, async (req: Request, res: Response) => {
-  const parsed = generatedQuestionBankQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() });
-    return;
-  }
-
-  try {
-    const questions = await getRepositories().questions.findGeneratedBankQuestions(parsed.data);
-    res.json({ questions, count: questions.length, source: 'generated-bank' });
-  } catch (err) {
-    console.error('[generated-question-bank] list failed:', err instanceof Error ? err.message : err);
-    res.status(500).json({ error: 'Generated question bank lookup failed' });
-  }
-});
 
 router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
@@ -1065,6 +1281,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         difficulty: 'Balanced',
       };
     }
+    config = normalizeConfigTaxonomy(config);
     const targetCount = Math.min(Math.max(Number(config.questionCount) || 5, 1), 40);
     const scope = resolveScope(config);
     const specific = isSpecific(scope);
@@ -1096,6 +1313,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       const questions = generatedBankQuestions.slice(0, targetCount);
+      await getRepositories().questions.markUsedByExternalIds(
+        questions.map(q => String(q.fingerprint || q.id || '')),
+      ).catch(() => {});
       const telemetry = {
         requested:              targetCount,
         generated:              0,
@@ -1131,11 +1351,24 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     // bankPool: bank questions to serve directly (skipped if adaptive); shortfall: how many AI must fill
     const bankPool = adaptiveBlueprint ? [] : generatedBankQuestions;
     const shortfall = targetCount - bankPool.length;
+    const is40QExamBlock = config.mode === 'exam' && targetCount === 40;
 
     if (!process.env.ANTHROPIC_API_KEY) {
       if (bankPool.length > 0) {
+        if (is40QExamBlock) {
+          res.status(503).json({
+            error: '40 Question Block requires exactly 40 validated questions; live AI is unavailable to fill the shortfall',
+            code:  'AI_INSUFFICIENT_COUNT',
+            returned: bankPool.length,
+            requested: 40,
+          });
+          return;
+        }
         // Partial bank coverage — serve what we have; can't fill shortfall without an AI key
         const questions = bankPool.slice(0, targetCount);
+        await getRepositories().questions.markUsedByExternalIds(
+          questions.map(q => String(q.fingerprint || q.id || '')),
+        ).catch(() => {});
         res.json({
           questions,
           source:             'generated-bank',
@@ -1265,6 +1498,12 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     // Save the full AI output (idempotent upsert) — unused buffer questions enter the bank for future requests.
     const combined           = dedup([...bankPool, ...allQuestions]).slice(0, targetCount);
     const questions          = combined;
+    if (bankPool.length > 0) {
+      const returnedBankFingerprints = questions
+        .filter(q => bankPool.some(bankQ => computeQuestionFingerprint(bankQ.stem || '', bankQ.testedConcept || '') === computeQuestionFingerprint(q.stem || '', q.testedConcept || '')))
+        .map(q => computeQuestionFingerprint(q.stem || '', q.testedConcept || ''));
+      await getRepositories().questions.markUsedByExternalIds(returnedBankFingerprints).catch(() => {});
+    }
     const generatedBankSaved = await _saveGeneratedQuestionsToBank(allQuestions, config).catch(() => 0);
 
     const telemetry = {
@@ -1309,6 +1548,14 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       adaptiveConcepts:   adaptiveBlueprint ? adaptiveBlueprint.targetConcepts : [],
     });
   } catch (err) {
+    if (err instanceof TaxonomyConfigError) {
+      res.status(400).json({
+        error: err.message,
+        code: 'INVALID_TAXONOMY',
+        field: err.field,
+      });
+      return;
+    }
     const msg      = err instanceof Error ? err.message : String(err);
     const errName  = err instanceof Error ? err.constructor.name : typeof err;
     const errStatus = (err as any)?.status;

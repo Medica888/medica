@@ -64,7 +64,17 @@ export interface IQuestionsRepository {
   /** Upsert a question by its content fingerprint. Returns the DB UUID. */
   upsertByExternalId(
     externalId: string,
-    data: { subject: string; system: string; body: Record<string, unknown> },
+    data: {
+      subject: string;
+      system: string;
+      body: Record<string, unknown>;
+      source?: string;
+      bankStatus?: string;
+      mode?: string;
+      difficulty?: string;
+      validationScore?: number | null;
+      validatedAt?: Date | string | null;
+    },
     tx?: unknown,
   ): Promise<{ id: string }>;
   findByExternalId(externalId: string): Promise<{ id: string } | null>;
@@ -75,6 +85,25 @@ export interface IQuestionsRepository {
     mode?: string;
     limit?: number;
   }): Promise<Record<string, unknown>[]>;
+  findGeneratedBankReview(params: {
+    externalId?: string;
+    status?: 'validated_generated' | 'approved' | 'quarantined';
+    limit?: number;
+    offset?: number;
+  }): Promise<Record<string, unknown>[]>;
+  updateGeneratedBankStatus(
+    externalId: string,
+    status: 'validated_generated' | 'approved' | 'quarantined',
+  ): Promise<Record<string, unknown> | null>;
+  getGeneratedBankMetrics(): Promise<{
+    total: number;
+    validatedGenerated: number;
+    approved: number;
+    quarantined: number;
+    used: number;
+    totalUsage: number;
+  }>;
+  markUsedByExternalIds(externalIds: string[]): Promise<void>;
 }
 
 // ── Concept graph ─────────────────────────────────────────────────────────────
@@ -246,4 +275,18 @@ export interface IConceptReviewLogRepository {
     conceptId: string,
     limit?:    number,
   ): Promise<ConceptReviewEntry[]>;
+}
+
+export interface AuditLogEntry {
+  userId:         string | null;
+  action:         string;
+  questionId:     string;
+  previousStatus: string | null;
+  newStatus:      string | null;
+}
+
+export interface IAuditLogRepository {
+  log(entry: AuditLogEntry): Promise<void>;
+  /** Test helper — returns all entries in insertion order. Not used in production. */
+  getAll(): AuditLogEntry[];
 }

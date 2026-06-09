@@ -249,7 +249,12 @@ html, body, #root {
 .btn-new:hover { background: rgba(46,100,200,.3); border-color: rgba(46,100,200,.6); color: #fff; }
 
 /* -- MAIN --------------------------------------------------------- */
-.main { display: flex; flex-direction: column; overflow: hidden; }
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* -- DASHBOARD ---------------------------------------------------- */
 .view-home {
@@ -1967,6 +1972,7 @@ html, body, #root {
 
 .prv-page {
   flex: 1; display: flex; flex-direction: column;
+  min-height: 0;
   background: #080F1C; overflow: hidden;
 }
 
@@ -2041,7 +2047,7 @@ html, body, #root {
 
 /* Review list */
 .prv-list {
-  flex: 1; overflow-y: auto; padding: 20px 28px;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px;
   display: flex; flex-direction: column; gap: 16px;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.1) transparent;
 }
@@ -4596,6 +4602,7 @@ html, body, #root {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--bg);
   overflow: hidden;
 }
