@@ -74,6 +74,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     difficulty?: string;
     mode?: string;
     limit?: number;
+    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]> {
     const matchesRequested = (requested: string | undefined, actual: unknown, allLabels: string[]) => {
       const value = String(requested || '').trim();
@@ -93,10 +94,11 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       return searchLabels.includes(String(actual || ''));
     };
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
+    const allowedStatuses = params.approvedOnly ? ['approved'] : ['validated_generated', 'approved'];
     return [...this.store.values()]
       .filter(entry =>
         entry.source === 'ai'
-        && ['validated_generated', 'approved'].includes(entry.bankStatus)
+        && allowedStatuses.includes(entry.bankStatus)
         && matchesTaxonomy(params.subject, entry.subject, subjectSearchLabels, ['All Subjects'])
         && matchesTaxonomy(params.system, entry.system, systemSearchLabels, ['Mixed / All Systems', 'All Systems'])
         && matchesTaxonomy(params.difficulty, entry.difficulty, difficultySearchLabels, [])
@@ -149,6 +151,15 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       }));
   }
 
+  async countGeneratedBankReview(params: {
+    status?: 'validated_generated' | 'approved' | 'quarantined';
+  }): Promise<number> {
+    return [...this.store.values()].filter(entry =>
+      entry.source === 'ai'
+      && (!params.status || entry.bankStatus === params.status)
+    ).length;
+  }
+
   async updateGeneratedBankStatus(
     externalId: string,
     status: 'validated_generated' | 'approved' | 'quarantined',
@@ -183,20 +194,36 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
 
   async getGeneratedBankMetrics(): Promise<{
     total: number;
+    legacy: number;
     validatedGenerated: number;
     approved: number;
     quarantined: number;
     used: number;
     totalUsage: number;
+    approvalRate: number;
+    quarantineRate: number;
+    averageValidationScore: number | null;
   }> {
     const entries = [...this.store.values()].filter(entry => entry.source === 'ai');
+    const approved = entries.filter(entry => entry.bankStatus === 'approved').length;
+    const quarantined = entries.filter(entry => entry.bankStatus === 'quarantined').length;
+    const validatedGenerated = entries.filter(entry => entry.bankStatus === 'validated_generated').length;
+    const reviewable = approved + quarantined + validatedGenerated;
+    const scoredEntries = entries.filter(entry => entry.validationScore != null);
+    const avgScore = scoredEntries.length > 0
+      ? scoredEntries.reduce((sum, e) => sum + (e.validationScore as number), 0) / scoredEntries.length
+      : null;
     return {
       total: entries.length,
-      validatedGenerated: entries.filter(entry => entry.bankStatus === 'validated_generated').length,
-      approved: entries.filter(entry => entry.bankStatus === 'approved').length,
-      quarantined: entries.filter(entry => entry.bankStatus === 'quarantined').length,
+      legacy: entries.filter(entry => entry.bankStatus === 'legacy').length,
+      validatedGenerated,
+      approved,
+      quarantined,
       used: entries.filter(entry => entry.usageCount > 0).length,
       totalUsage: entries.reduce((sum, entry) => sum + entry.usageCount, 0),
+      approvalRate: reviewable > 0 ? approved / reviewable : 0,
+      quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
+      averageValidationScore: avgScore,
     };
   }
 

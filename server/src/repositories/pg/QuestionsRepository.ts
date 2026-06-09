@@ -79,11 +79,15 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     difficulty?: string;
     mode?: string;
     limit?: number;
+    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]> {
     const values: unknown[] = [];
+    const bankStatusClause = params.approvedOnly
+      ? "bank_status = 'approved'"
+      : "bank_status IN ('validated_generated', 'approved')";
     const clauses = [
       "source = 'ai'",
-      "bank_status IN ('validated_generated', 'approved')",
+      bankStatusClause,
     ];
 
     const addExact = (column: string, value?: string, allLabels: string[] = []) => {
@@ -175,6 +179,22 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     return res.rows;
   }
 
+  async countGeneratedBankReview(params: {
+    status?: 'validated_generated' | 'approved' | 'quarantined';
+  }): Promise<number> {
+    const values: unknown[] = [];
+    const clauses = ["source = 'ai'"];
+    if (params.status) {
+      values.push(params.status);
+      clauses.push(`bank_status = $${values.length}`);
+    }
+    const res = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM questions WHERE ${clauses.join(' AND ')}`,
+      values,
+    );
+    return Number(res.rows[0]?.count || 0);
+  }
+
   async updateGeneratedBankStatus(
     externalId: string,
     status: 'validated_generated' | 'approved' | 'quarantined',
@@ -206,37 +226,53 @@ export class PgQuestionsRepository implements IQuestionsRepository {
 
   async getGeneratedBankMetrics(): Promise<{
     total: number;
+    legacy: number;
     validatedGenerated: number;
     approved: number;
     quarantined: number;
     used: number;
     totalUsage: number;
+    approvalRate: number;
+    quarantineRate: number;
+    averageValidationScore: number | null;
   }> {
     const res = await this.pool.query<{
       total: string;
+      legacy: string;
       validatedGenerated: string;
       approved: string;
       quarantined: string;
       used: string;
       totalUsage: string;
+      averageValidationScore: string | null;
     }>(
       `SELECT COUNT(*)::text AS "total",
+              COUNT(*) FILTER (WHERE bank_status = 'legacy')::text AS "legacy",
               COUNT(*) FILTER (WHERE bank_status = 'validated_generated')::text AS "validatedGenerated",
               COUNT(*) FILTER (WHERE bank_status = 'approved')::text AS "approved",
               COUNT(*) FILTER (WHERE bank_status = 'quarantined')::text AS "quarantined",
               COUNT(*) FILTER (WHERE usage_count > 0)::text AS "used",
-              COALESCE(SUM(usage_count), 0)::text AS "totalUsage"
+              COALESCE(SUM(usage_count), 0)::text AS "totalUsage",
+              ROUND(AVG(validation_score)::numeric, 2)::text AS "averageValidationScore"
        FROM questions
        WHERE source = 'ai'`,
     );
     const row = res.rows[0];
+    const approved = Number(row?.approved || 0);
+    const quarantined = Number(row?.quarantined || 0);
+    const validatedGenerated = Number(row?.validatedGenerated || 0);
+    const reviewable = approved + quarantined + validatedGenerated;
     return {
       total: Number(row?.total || 0),
-      validatedGenerated: Number(row?.validatedGenerated || 0),
-      approved: Number(row?.approved || 0),
-      quarantined: Number(row?.quarantined || 0),
+      legacy: Number(row?.legacy || 0),
+      validatedGenerated,
+      approved,
+      quarantined,
       used: Number(row?.used || 0),
       totalUsage: Number(row?.totalUsage || 0),
+      approvalRate: reviewable > 0 ? approved / reviewable : 0,
+      quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
+      averageValidationScore: row?.averageValidationScore != null ? Number(row.averageValidationScore) : null,
     };
   }
 

@@ -84,7 +84,11 @@ export interface IQuestionsRepository {
     difficulty?: string;
     mode?: string;
     limit?: number;
+    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]>;
+  countGeneratedBankReview(params: {
+    status?: 'validated_generated' | 'approved' | 'quarantined';
+  }): Promise<number>;
   findGeneratedBankReview(params: {
     externalId?: string;
     status?: 'validated_generated' | 'approved' | 'quarantined';
@@ -97,11 +101,15 @@ export interface IQuestionsRepository {
   ): Promise<Record<string, unknown> | null>;
   getGeneratedBankMetrics(): Promise<{
     total: number;
+    legacy: number;
     validatedGenerated: number;
     approved: number;
     quarantined: number;
     used: number;
     totalUsage: number;
+    approvalRate: number;
+    quarantineRate: number;
+    averageValidationScore: number | null;
   }>;
   markUsedByExternalIds(externalIds: string[]): Promise<void>;
 }
@@ -283,10 +291,13 @@ export interface AuditLogEntry {
   questionId:     string;
   previousStatus: string | null;
   newStatus:      string | null;
+  createdAt?:     Date | string;
 }
 
 export interface IAuditLogRepository {
   log(entry: AuditLogEntry): Promise<void>;
   /** Test helper — returns all entries in insertion order. Not used in production. */
   getAll(): AuditLogEntry[];
+  getByQuestionId(questionId: string, limit?: number, offset?: number): Promise<AuditLogEntry[]>;
+  getRecentActions(actions: string[], limit: number): Promise<AuditLogEntry[]>;
 }

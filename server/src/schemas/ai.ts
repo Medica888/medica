@@ -47,6 +47,7 @@ export const skillsGenerateSchema = z.object({
 export const generatedQuestionBankReviewQuerySchema = z.object({
   status: generatedBankStatusSchema.optional(),
   limit:  z.coerce.number().int().min(1).max(200).optional(),
+  page:   z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).max(10000).optional(),
 });
 

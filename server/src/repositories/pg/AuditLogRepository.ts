@@ -17,6 +17,34 @@ export class PgAuditLogRepository implements IAuditLogRepository {
   getAll(): AuditLogEntry[] {
     return [];
   }
+
+  async getByQuestionId(questionId: string, limit = 50, offset = 0): Promise<AuditLogEntry[]> {
+    const res = await this.pool.query<AuditLogEntry>(
+      `SELECT user_id AS "userId", action, question_id AS "questionId",
+              previous_status AS "previousStatus", new_status AS "newStatus",
+              created_at AS "createdAt"
+       FROM generated_bank_audit_log
+       WHERE question_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [questionId, limit, offset],
+    );
+    return res.rows;
+  }
+
+  async getRecentActions(actions: string[], limit: number): Promise<AuditLogEntry[]> {
+    const res = await this.pool.query<AuditLogEntry>(
+      `SELECT user_id AS "userId", action, question_id AS "questionId",
+              previous_status AS "previousStatus", new_status AS "newStatus",
+              created_at AS "createdAt"
+       FROM generated_bank_audit_log
+       WHERE action = ANY($1::text[])
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [actions, limit],
+    );
+    return res.rows;
+  }
 }
 
 export class NullAuditLogRepository implements IAuditLogRepository {
@@ -25,6 +53,14 @@ export class NullAuditLogRepository implements IAuditLogRepository {
   }
 
   getAll(): AuditLogEntry[] {
+    return [];
+  }
+
+  async getByQuestionId(_questionId: string, _limit?: number, _offset?: number): Promise<AuditLogEntry[]> {
+    return [];
+  }
+
+  async getRecentActions(_actions: string[], _limit: number): Promise<AuditLogEntry[]> {
     return [];
   }
 }
