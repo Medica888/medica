@@ -66,6 +66,9 @@ function makeBatchResult(
       medicalReviewSkipped:   0,
       ruleRejected:           Math.max(0, ruleRejected),
       scopeRejected:          0,
+      matrixPasses:           0,
+      matrixWarnings:         0,
+      matrixFailures:         0,
       medicalReviewFailureCategories: {
         ...emptyMedicalReviewFailureCategories(),
         ...failureCategories,
@@ -711,6 +714,9 @@ describe('scope rejection — universal hard gate (all difficulties)', () => {
         medicalReviewSkipped:   1,
         ruleRejected:           0,
         scopeRejected:          3,
+        matrixPasses:           0,
+        matrixWarnings:         0,
+        matrixFailures:         0,
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
       },
     });
@@ -992,6 +998,9 @@ describe('generated question bank', () => {
     expect(res.body.source).toBe('generated-bank');
     expect(res.body.count).toBe(1);
     expect(res.body.telemetry.generated).toBe(0);
+    expect(res.body.telemetry.matrixPasses).toBe(0);
+    expect(res.body.telemetry.matrixWarnings).toBe(0);
+    expect(res.body.telemetry.matrixFailures).toBe(0);
     expect((getRepositories().questions as any)._getEntry(seededFingerprint)?.usageCount).toBe(1);
   });
 
@@ -2229,5 +2238,210 @@ describe('Phase 2 governance', () => {
       .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
       .set('Authorization', authHeader('user-999'))
       .expect(403);
+  });
+});
+
+// ── Matrix telemetry — subject_system validator counter integration ────────────
+//
+// These tests drive the full generateBatch Phase 1 loop via the HTTP route with a
+// mocked Anthropic SDK.  They prove the counting logic in ai.ts:
+//   subject_system.status === 'fail'  → matrixFailures++
+//   subject_system.status === 'warn'  → matrixWarnings++
+//   subject_system.status === 'pass'  → matrixPasses++
+//   ruleRejected formula is unchanged (matrix failures remain inside ruleRejected)
+
+describe('matrix telemetry — Phase 1 loop counters', () => {
+  let app: ReturnType<typeof createApp>;
+
+  function aiResponseWith(questions: Record<string, any>[]) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ questions }) }],
+      stop_reason: 'end_turn',
+    };
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    process.env.ANTHROPIC_API_KEY = 'test-key-matrix';
+    mockMessagesCreate.mockReset();
+    app = createApp();
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('invalid matrix pair (Biostatistics + Cardiovascular) increments matrixFailures', async () => {
+    // One invalid pair question (will be rejected) + one valid question (will be accepted).
+    // Two questions are required so the response is 200 instead of 500 EMPTY_RESULT.
+    const invalidQ = makePromotableQuestion({
+      subject: 'Biostatistics',
+      system: 'Cardiovascular',
+      topic: 'Sample size',
+      testedConcept: 'biostatistics sample size calculation cardiovascular trial',
+      questionAngle: 'calculation',
+      stem: 'A researcher designing a clinical trial for a new antihypertensive drug needs to calculate the minimum required sample size. Reducing which parameter most directly increases the required sample size?',
+    });
+    const validQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism matrix test',
+      topic: 'ACE inhibitors',
+      questionAngle: 'matrix-fail-companion',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([invalidQ, validQ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.telemetry.matrixFailures).toBeGreaterThanOrEqual(1);
+  });
+
+  it('warning-tier pair (Biochemistry + Cardiovascular) increments matrixWarnings', async () => {
+    // Biochemistry + Cardiovascular is a warning-tier pair.
+    // Warning is non-blocking so the question will pass and a 200 response is returned.
+    const warnQ = makePromotableQuestion({
+      subject: 'Biochemistry',
+      system: 'Cardiovascular',
+      topic: 'Lipid metabolism',
+      testedConcept: 'biochemistry lipoprotein cardiovascular disease risk warning',
+      questionAngle: 'warning-tier-test',
+      stem: 'A 52-year-old man with familial hypercholesterolemia has markedly elevated LDL cholesterol. Which lipoprotein particle carries the highest proportion of cholesterol to peripheral tissues and most directly drives atherogenesis in this patient?',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([warnQ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.telemetry.matrixWarnings).toBeGreaterThanOrEqual(1);
+    expect(res.body.telemetry.matrixFailures).toBe(0);
+  });
+
+  it('allowed pair (Pharmacology + Cardiovascular) increments matrixPasses', async () => {
+    const allowedQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism matrix passes test',
+      topic: 'ACE inhibitors',
+      questionAngle: 'allowed-pair-test',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([allowedQ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.telemetry.matrixPasses).toBeGreaterThanOrEqual(1);
+    expect(res.body.telemetry.matrixFailures).toBe(0);
+  });
+
+  it('ruleRejected still counts invalid-pair rejections (matrixFailures are inside ruleRejected)', async () => {
+    const invalidQ = makePromotableQuestion({
+      subject: 'Biostatistics',
+      system: 'Cardiovascular',
+      topic: 'Sample size',
+      testedConcept: 'biostatistics sample size cardiovascular rule rejected test',
+      questionAngle: 'rule-rejected-companion',
+      stem: 'A researcher designing a superiority trial for a new antihypertensive agent needs to determine the minimum required sample size. Increasing which design parameter most directly reduces the required sample size?',
+    });
+    const validQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism rule rejected valid companion',
+      topic: 'ACE inhibitors',
+      questionAngle: 'rule-rejected-valid',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([invalidQ, validQ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    // matrixFailures reflects the invalid pair
+    expect(res.body.telemetry.matrixFailures).toBeGreaterThanOrEqual(1);
+    // ruleRejectedCandidates is unchanged — matrix failures are still counted inside it
+    expect(res.body.telemetry.ruleRejectedCandidates).toBeGreaterThanOrEqual(res.body.telemetry.matrixFailures);
+  });
+});
+
+// ── Matrix telemetry — runAdaptiveRefill accumulation ────────────────────────
+
+describe('runAdaptiveRefill — matrix telemetry accumulation', () => {
+  it('accumulates matrixPasses across all batches', async () => {
+    const batchFn = async () => ({
+      questions: [{ id: `q${++_idCounter}`, testedConcept: `c${_idCounter}`, stem: 'S' }],
+      telemetry: {
+        medicalReviewRequested: 0, medicalReviewPassed: 0,
+        medicalReviewRejected: 0, medicalReviewSkipped: 1,
+        ruleRejected: 0, scopeRejected: 0,
+        matrixPasses: 3, matrixWarnings: 0, matrixFailures: 0,
+        medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+      },
+    });
+    const result = await runAdaptiveRefill(
+      2,
+      { maxCandidates: 100, maxRounds: 5, candidatesPerRound: 8 },
+      async () => batchFn(),
+      noFilter,
+    );
+    expect(result.totalMatrixPasses).toBe(result.refillRounds * 3);
+    expect(result.totalMatrixWarnings).toBe(0);
+    expect(result.totalMatrixFailures).toBe(0);
+  });
+
+  it('accumulates matrixWarnings across all batches', async () => {
+    const batchFn = async () => ({
+      questions: [{ id: `q${++_idCounter}`, testedConcept: `c${_idCounter}`, stem: 'S' }],
+      telemetry: {
+        medicalReviewRequested: 0, medicalReviewPassed: 0,
+        medicalReviewRejected: 0, medicalReviewSkipped: 1,
+        ruleRejected: 0, scopeRejected: 0,
+        matrixPasses: 0, matrixWarnings: 2, matrixFailures: 0,
+        medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+      },
+    });
+    const result = await runAdaptiveRefill(
+      2,
+      { maxCandidates: 100, maxRounds: 5, candidatesPerRound: 8 },
+      async () => batchFn(),
+      noFilter,
+    );
+    expect(result.totalMatrixWarnings).toBe(result.refillRounds * 2);
+    expect(result.totalMatrixPasses).toBe(0);
+    expect(result.totalMatrixFailures).toBe(0);
+  });
+
+  it('accumulates matrixFailures across all batches', async () => {
+    const batchFn = async () => ({
+      questions: [{ id: `q${++_idCounter}`, testedConcept: `c${_idCounter}`, stem: 'S' }],
+      telemetry: {
+        medicalReviewRequested: 0, medicalReviewPassed: 0,
+        medicalReviewRejected: 0, medicalReviewSkipped: 1,
+        ruleRejected: 1, scopeRejected: 0,
+        matrixPasses: 0, matrixWarnings: 0, matrixFailures: 1,
+        medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
+      },
+    });
+    const result = await runAdaptiveRefill(
+      2,
+      { maxCandidates: 100, maxRounds: 5, candidatesPerRound: 8 },
+      async () => batchFn(),
+      noFilter,
+    );
+    expect(result.totalMatrixFailures).toBe(result.refillRounds);
+    expect(result.totalMatrixPasses).toBe(0);
+    expect(result.totalMatrixWarnings).toBe(0);
+  });
+
+  it('GenerationLoopResult exposes all three matrix total fields as numbers', async () => {
+    const result = await runAdaptiveRefill(
+      1,
+      { maxCandidates: 100, maxRounds: 5, candidatesPerRound: 8 },
+      async () => makeBatchResult(1, 4, 1, 0),
+      noFilter,
+    );
+    expect(typeof result.totalMatrixPasses).toBe('number');
+    expect(typeof result.totalMatrixWarnings).toBe('number');
+    expect(typeof result.totalMatrixFailures).toBe('number');
   });
 });

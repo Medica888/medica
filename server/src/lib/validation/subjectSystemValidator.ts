@@ -1,5 +1,10 @@
 import { normalizeSubject, normalizeSystem } from '../medicaTaxonomy.js';
+import { getPairStatus } from '../medicaUsmleMatrix.js';
 import type { ValidationQuestion, ValidatorResult } from './validationTypes.js';
+
+// ── Content-detection regexes (Cardiovascular + Renal) ───────────────────────
+// These four combinations have content-level detection in addition to pair-level
+// matrix gating. New combinations will be added here in future validator phases.
 
 const CARDIO_PATHOLOGY_RE = /\b(myocardial\s+infarct|mi\b|atherosclerosis|atheroma|foam\s+cell|fibrous\s+cap|vasculitis|polyarteritis|takayasu|giant\s+cell|kawasaki|buerger|rheumatic\s+heart|aschoff|anitschkow|vegetation|coagulative\s+necrosis|fibrinoid\s+necrosis|cystic\s+medial|aortic\s+dissection|histolog|biopsy|patholog)\b/i;
 const CARDIO_PHARM_RE = /\b(beta\s*blocker|ace\s*inhibitor|angiotensin|arb\b|antiarrhythmic|calcium\s+channel|amlodipine|verapamil|diltiazem|statin|nitrate|digoxin|diuretic|antihypertensive|pharmacolog|drug|medication|mechanism\s+of\s+action)\b/i;
@@ -25,7 +30,6 @@ function textFor(q: ValidationQuestion): string {
 export function validateSubjectSystem(question: ValidationQuestion): ValidatorResult {
   const subject = normalizeSubject(question.subject);
   const system = normalizeSystem(question.system);
-  const haystack = textFor(question);
 
   if (!subject || !system) {
     return {
@@ -39,6 +43,27 @@ export function validateSubjectSystem(question: ValidationQuestion): ValidatorRe
       reasons: ['subject_system_not_fully_declared'],
     };
   }
+
+  // ── Phase 1: matrix-level gate ────────────────────────────────────────────
+  // Invalid combinations are blocked immediately — content detection is skipped.
+  const pairStatus = getPairStatus(subject, system);
+
+  if (pairStatus === 'invalid') {
+    return {
+      name: 'subject_system',
+      status: 'fail',
+      blocking: true,
+      score: 0,
+      expected: `${subject} + ${system}`,
+      detected: 'invalid_combination',
+      confidence: 1,
+      reasons: ['invalid_subject_system_combination'],
+    };
+  }
+
+  // ── Phase 2: content-level detection (cardiovascular + renal) ────────────
+  // These checks run for allowed pairs only; they remain unchanged from v1.
+  const haystack = textFor(question);
 
   if (subject === 'Pathology' && system === 'Cardiovascular') {
     if (CARDIO_PHARM_RE.test(haystack) && !CARDIO_PATHOLOGY_RE.test(haystack)) {
@@ -176,6 +201,24 @@ export function validateSubjectSystem(question: ValidationQuestion): ValidatorRe
     };
   }
 
+  // ── Phase 3: matrix-based fallback for all other pairs ────────────────────
+  // Content detection will be added per-pair in subsequent validator phases.
+  // For now: allowed → pass at 0.7 confidence; warning → non-blocking warn.
+
+  if (pairStatus === 'warning') {
+    return {
+      name: 'subject_system',
+      status: 'warn',
+      blocking: false,
+      score: 60,
+      expected: `${subject} + ${system}`,
+      detected: 'low_yield_combination',
+      confidence: 0.5,
+      reasons: ['low_yield_subject_system_combination'],
+    };
+  }
+
+  // pairStatus === 'allowed' (or 'unknown' as safe fallback)
   return {
     name: 'subject_system',
     status: 'pass',

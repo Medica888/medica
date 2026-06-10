@@ -898,6 +898,9 @@ export interface BatchTelemetry {
   medicalReviewSkipped:   number;
   ruleRejected:           number;
   scopeRejected:          number;  // hard-rejected for NBME/UWorld scope mismatch before medical review
+  matrixPasses:           number;  // subject_system validator returned pass
+  matrixWarnings:         number;  // subject_system validator returned warn
+  matrixFailures:         number;  // subject_system validator returned fail (invalid pair)
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -941,11 +944,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     parsed = JSON.parse(s) as { questions?: unknown[] };
   } catch (parseErr) {
     console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
   if (!Array.isArray(parsed.questions)) {
     console.warn('[generateBatch] AI response missing questions array');
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
 
   const rawQuestions: Record<string, any>[] = parsed.questions as Record<string, any>[];
@@ -958,6 +961,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   const needsReview = requiresMedicalReview(difficulty);
   let mrRequested = 0, mrPassed = 0, mrRejected = 0, mrSkipped = 0;
   let scopeRejected = 0;
+  let matrixPasses = 0, matrixWarnings = 0, matrixFailures = 0;
   const mrFailureCategories = emptyMedicalReviewFailureCategories();
 
   // ── Phase 1: rule-based validation only (MR deferred to Phase 2) ─────────────
@@ -982,6 +986,13 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
 
   for (let i = 0; i < normalized.length; i++) {
     const validation = await runQuestionValidation(normalized[i], config, scope, { medicalReview: false });
+
+    const ssV = validation.validators.find(v => v.name === 'subject_system');
+    if (ssV) {
+      if (ssV.status === 'fail')      matrixFailures++;
+      else if (ssV.status === 'warn') matrixWarnings++;
+      else                            matrixPasses++;
+    }
 
     if (validation.passed) {
       rulePassers.push({ q: normalized[i], rawQ: rawQuestions[i], validation, idx: i });
@@ -1100,6 +1111,9 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       medicalReviewSkipped:           mrSkipped,
       ruleRejected:                   rejectCount - mrRejected - scopeRejected,
       scopeRejected,
+      matrixPasses,
+      matrixWarnings,
+      matrixFailures,
       medicalReviewFailureCategories: mrFailureCategories,
     },
   };
@@ -1138,6 +1152,9 @@ export interface GenerationLoopResult {
   totalRuleRejected:   number;
   totalDedupRejected:  number;
   totalScopeRejected:  number;  // sum of scopeRejected across all batches
+  totalMatrixPasses:   number;
+  totalMatrixWarnings: number;
+  totalMatrixFailures: number;
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -1165,6 +1182,7 @@ export async function runAdaptiveRefill(
   let totalGenerated = 0, refillRounds = 0;
   let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
   let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
+  let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
   const medicalReviewFailureCategories = emptyMedicalReviewFailureCategories();
   let stoppedReason: StoppedReason = 'unknown';
 
@@ -1197,12 +1215,15 @@ export async function runAdaptiveRefill(
 
       roundGenerated    += batchSize;
       totalGenerated    += batchSize;
-      totalMrRequested  += batchResult.telemetry.medicalReviewRequested;
-      totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
-      totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
-      totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
+      totalMrRequested   += batchResult.telemetry.medicalReviewRequested;
+      totalMrPassed      += batchResult.telemetry.medicalReviewPassed;
+      totalMrRejected    += batchResult.telemetry.medicalReviewRejected;
+      totalMrSkipped     += batchResult.telemetry.medicalReviewSkipped;
       totalRuleRejected  += batchResult.telemetry.ruleRejected;
       totalScopeRejected += batchResult.telemetry.scopeRejected;
+      totalMatrixPasses   += batchResult.telemetry.matrixPasses;
+      totalMatrixWarnings += batchResult.telemetry.matrixWarnings;
+      totalMatrixFailures += batchResult.telemetry.matrixFailures;
       accumulateMedicalReviewFailureCategories(medicalReviewFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
 
       const beforeFilter  = batchResult.questions.length;
@@ -1236,6 +1257,7 @@ export async function runAdaptiveRefill(
     accepted, totalGenerated, refillRounds, stoppedReason,
     totalMrRequested, totalMrPassed, totalMrRejected, totalMrSkipped,
     totalRuleRejected, totalDedupRejected, totalScopeRejected,
+    totalMatrixPasses, totalMatrixWarnings, totalMatrixFailures,
     medicalReviewFailureCategories,
   };
 }
@@ -1426,6 +1448,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         dedupRejectedCandidates:       0,
         scopeRejectedCandidates:       0,
         quarantineRejectedCandidates:  0,
+        matrixPasses:                  0,
+        matrixWarnings:                0,
+        matrixFailures:                0,
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
         reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
@@ -1484,6 +1509,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             dedupRejectedCandidates: 0, scopeRejectedCandidates: 0,
             quarantineRejectedCandidates: 0, generatedBankSaved: 0,
             bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
+            matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0,
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
             reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
             approvedOnly,
@@ -1506,6 +1532,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     let totalGenerated = 0;
     let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
     let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
+    let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
     let refillRounds: number | undefined;
     let stoppedReason: StoppedReason | undefined;
     const totalMrFailureCategories = emptyMedicalReviewFailureCategories();
@@ -1522,17 +1549,20 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             !existingConcepts.has(norm(q.testedConcept ?? '')),
           ),
       );
-      allQuestions       = loopResult.accepted;
-      totalGenerated     = loopResult.totalGenerated;
-      totalMrRequested   = loopResult.totalMrRequested;
-      totalMrPassed      = loopResult.totalMrPassed;
-      totalMrRejected    = loopResult.totalMrRejected;
-      totalMrSkipped     = loopResult.totalMrSkipped;
-      totalRuleRejected  = loopResult.totalRuleRejected;
-      totalDedupRejected = loopResult.totalDedupRejected;
-      totalScopeRejected = loopResult.totalScopeRejected;
-      refillRounds       = loopResult.refillRounds;
-      stoppedReason      = loopResult.stoppedReason;
+      allQuestions         = loopResult.accepted;
+      totalGenerated       = loopResult.totalGenerated;
+      totalMrRequested     = loopResult.totalMrRequested;
+      totalMrPassed        = loopResult.totalMrPassed;
+      totalMrRejected      = loopResult.totalMrRejected;
+      totalMrSkipped       = loopResult.totalMrSkipped;
+      totalRuleRejected    = loopResult.totalRuleRejected;
+      totalDedupRejected   = loopResult.totalDedupRejected;
+      totalScopeRejected   = loopResult.totalScopeRejected;
+      totalMatrixPasses    = loopResult.totalMatrixPasses;
+      totalMatrixWarnings  = loopResult.totalMatrixWarnings;
+      totalMatrixFailures  = loopResult.totalMatrixFailures;
+      refillRounds         = loopResult.refillRounds;
+      stoppedReason        = loopResult.stoppedReason;
       accumulateMedicalReviewFailureCategories(totalMrFailureCategories, loopResult.medicalReviewFailureCategories);
     } else {
       // Balanced and other modes: existing fast path — no adaptive refill, no medical review.
@@ -1543,12 +1573,15 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         const batchResult = await generateBatch(config, batchSize, offset, scope);
         totalGenerated    += batchSize;
         allQuestions.push(...batchResult.questions);
-        totalMrRequested  += batchResult.telemetry.medicalReviewRequested;
-        totalMrPassed     += batchResult.telemetry.medicalReviewPassed;
-        totalMrRejected   += batchResult.telemetry.medicalReviewRejected;
-        totalMrSkipped    += batchResult.telemetry.medicalReviewSkipped;
-        totalRuleRejected  += batchResult.telemetry.ruleRejected;
-        totalScopeRejected += batchResult.telemetry.scopeRejected;
+        totalMrRequested    += batchResult.telemetry.medicalReviewRequested;
+        totalMrPassed       += batchResult.telemetry.medicalReviewPassed;
+        totalMrRejected     += batchResult.telemetry.medicalReviewRejected;
+        totalMrSkipped      += batchResult.telemetry.medicalReviewSkipped;
+        totalRuleRejected   += batchResult.telemetry.ruleRejected;
+        totalScopeRejected  += batchResult.telemetry.scopeRejected;
+        totalMatrixPasses   += batchResult.telemetry.matrixPasses;
+        totalMatrixWarnings += batchResult.telemetry.matrixWarnings;
+        totalMatrixFailures += batchResult.telemetry.matrixFailures;
         accumulateMedicalReviewFailureCategories(totalMrFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
         offset            += batchSize;
       }
@@ -1570,6 +1603,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
           totalMrSkipped      += retryResult.telemetry.medicalReviewSkipped;
           totalRuleRejected   += retryResult.telemetry.ruleRejected;
           totalScopeRejected  += retryResult.telemetry.scopeRejected;
+          totalMatrixPasses   += retryResult.telemetry.matrixPasses;
+          totalMatrixWarnings += retryResult.telemetry.matrixWarnings;
+          totalMatrixFailures += retryResult.telemetry.matrixFailures;
           accumulateMedicalReviewFailureCategories(totalMrFailureCategories, retryResult.telemetry.medicalReviewFailureCategories);
           const newDeduped     = dedup(retryResult.questions).filter(q =>
             inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
@@ -1638,6 +1674,9 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       dedupRejectedCandidates:       totalDedupRejected,
       scopeRejectedCandidates:       totalScopeRejected,
       quarantineRejectedCandidates:  quarantineRejected,
+      matrixPasses:                  totalMatrixPasses,
+      matrixWarnings:                totalMatrixWarnings,
+      matrixFailures:                totalMatrixFailures,
       generatedBankSaved,
       bankPoolUsed: bankPool.length,
       stoppedReason,
