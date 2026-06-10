@@ -42,7 +42,7 @@ function parseOptions(body) {
 
 export default function AdminReviewDetail({ questionId, onBack }) {
   const { data: detail, loading, error } = useReviewDetail(questionId)
-  const { data: histData, loading: histLoading } = useReviewHistory(questionId)
+  const { data: histData, loading: histLoading, refetch: refetchHistory } = useReviewHistory(questionId)
   const { pending, error: actionError, act } = useReviewActions()
 
   const [pendingAction, setPendingAction] = useState(null) // 'approved' | 'quarantined' | 'validated_generated'
@@ -68,6 +68,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
       await act(questionId, pendingAction)
       setLocalStatus(pendingAction)
       setPendingAction(null)
+      refetchHistory()
     } catch (err) {
       setRejectionError(err)
     }

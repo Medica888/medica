@@ -1331,8 +1331,6 @@ describe('generated question bank', () => {
       .send({ status: 'quarantined' })
       .expect(200);
 
-    // Allow the fire-and-forget log to settle
-    await new Promise(r => setTimeout(r, 10));
     const logs = getRepositories().auditLog.getAll();
     expect(logs).toHaveLength(1);
     expect(logs[0].action).toBe('quarantined');
@@ -1358,12 +1356,56 @@ describe('generated question bank', () => {
       .send({ status: 'validated_generated' })
       .expect(200);
 
-    await new Promise(r => setTimeout(r, 10));
     const logs = getRepositories().auditLog.getAll();
     expect(logs).toHaveLength(2);
     expect(logs[0].action).toBe('quarantined');
     expect(logs[1].action).toBe('validated_generated');
     expect(logs[1].previousStatus).toBe('quarantined');
+  });
+
+  it('writes an audit log entry on approve', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'approved' })
+      .expect(200);
+
+    const logs = getRepositories().auditLog.getAll();
+    expect(logs).toHaveLength(1);
+    expect(logs[0].action).toBe('approved');
+    expect(logs[0].userId).toBe('user-1');
+    expect(logs[0].questionId).toBe(fingerprint);
+    expect(logs[0].previousStatus).toBe('validated_generated');
+    expect(logs[0].newStatus).toBe('approved');
+  });
+
+  it('history endpoint returns entries in reverse chronological order', async () => {
+    const { fingerprint } = await seedBankQuestion();
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'approved' })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    const res = await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+
+    expect(res.body.count).toBe(2);
+    expect(res.body.history).toHaveLength(2);
+    // Newest first
+    expect(res.body.history[0].action).toBe('quarantined');
+    expect(res.body.history[1].action).toBe('approved');
   });
 });
 

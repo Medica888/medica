@@ -43,16 +43,19 @@ export function useReviewHistory(id) {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
 
-  useEffect(() => {
+  const fetch = useCallback(() => {
     if (!id) return
     setLoading(true)
+    setError(null)
     governance.history(id)
       .then(setData)
       .catch(setError)
       .finally(() => setLoading(false))
   }, [id])
 
-  return { data, loading, error }
+  useEffect(() => { fetch() }, [fetch])
+
+  return { data, loading, error, refetch: fetch }
 }
 
 export function useReviewActions() {

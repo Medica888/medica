@@ -244,17 +244,13 @@ router.patch(
         return;
       }
 
-      // Fire-and-forget: status changes return 200 even if the audit write fails,
-      // prioritising availability over audit durability.
-      // TODO: await this call before responding if durable audit records become a
-      // compliance requirement (change .catch() to await + surface error to client).
-      repos.auditLog.log({
+      await repos.auditLog.log({
         userId: req.userId ?? null,
         action: req.body.status,
         questionId: externalId,
         previousStatus: previousStatus || null,
         newStatus: req.body.status,
-      }).catch(err => console.error('[audit-log] failed to write entry:', err instanceof Error ? err.message : String(err)));
+      });
 
       res.json({ question });
     } catch (err) {
