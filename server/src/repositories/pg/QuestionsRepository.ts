@@ -135,6 +135,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     status?: 'validated_generated' | 'approved' | 'quarantined';
     limit?: number;
     offset?: number;
+    sort?: 'priority' | 'newest' | 'score' | 'usage';
   }): Promise<Record<string, unknown>[]> {
     const values: unknown[] = [];
     const clauses = ["source = 'ai'"];
@@ -151,6 +152,19 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     values.push(limit, offset);
     const limitIndex = values.length - 1;
     const offsetIndex = values.length;
+
+    const orderBy = params.sort === 'newest'
+      ? 'created_at DESC'
+      : params.sort === 'score'
+        ? 'validation_score DESC NULLS LAST, created_at DESC'
+        : params.sort === 'usage'
+          ? 'usage_count DESC, created_at DESC'
+          : /* priority (default) */
+            `CASE WHEN bank_status = 'validated_generated' THEN 0 ELSE 1 END ASC,
+             COALESCE(validation_score, 100) ASC,
+             usage_count DESC,
+             report_count DESC,
+             created_at DESC`;
 
     const res = await this.pool.query<Record<string, unknown>>(
       `SELECT external_id AS "externalId",
@@ -169,10 +183,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               body
        FROM questions
        WHERE ${clauses.join(' AND ')}
-       ORDER BY CASE WHEN bank_status = 'quarantined' THEN 0
-                     WHEN bank_status = 'validated_generated' THEN 1
-                     ELSE 2 END,
-                created_at DESC
+       ORDER BY ${orderBy}
        LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       values,
     );

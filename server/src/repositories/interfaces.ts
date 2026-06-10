@@ -94,6 +94,7 @@ export interface IQuestionsRepository {
     status?: 'validated_generated' | 'approved' | 'quarantined';
     limit?: number;
     offset?: number;
+    sort?: 'priority' | 'newest' | 'score' | 'usage';
   }): Promise<Record<string, unknown>[]>;
   updateGeneratedBankStatus(
     externalId: string,

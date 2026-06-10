@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request } from 'express';
 
 const isTest = process.env.NODE_ENV === 'test';
@@ -30,6 +30,6 @@ export const aiLimiter = rateLimit({
   skip: () => isTest,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req: Request) => (req as Request & { userId?: string }).userId || req.ip || 'unknown',
+  keyGenerator: (req: Request) => (req as Request & { userId?: string }).userId || ipKeyGenerator(req.ip ?? '') || 'unknown',
   message: { error: 'Too many AI generation requests. Please try again in 15 minutes.', code: 'RATE_LIMITED' },
 });

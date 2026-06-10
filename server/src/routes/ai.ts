@@ -103,14 +103,14 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
     return;
   }
 
-  const { status, limit: rawLimit, page, offset: rawOffset } = parsed.data;
+  const { status, limit: rawLimit, page, offset: rawOffset, sort } = parsed.data;
   const limit = rawLimit ?? 50;
   const effectiveOffset = page != null ? (page - 1) * limit : (rawOffset ?? 0);
 
   try {
     const repos = getRepositories();
     const [questions, total] = await Promise.all([
-      repos.questions.findGeneratedBankReview({ status, limit, offset: effectiveOffset }),
+      repos.questions.findGeneratedBankReview({ status, limit, offset: effectiveOffset, sort }),
       repos.questions.countGeneratedBankReview({ status }),
     ]);
     res.json({
@@ -172,7 +172,7 @@ router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async 
       repos.auditLog.getRecentActions(['approved'], 10),
       repos.auditLog.getRecentActions(['quarantined'], 10),
     ]);
-    res.json({ ...metrics, recentApprovals, recentQuarantines });
+    res.json({ metrics, recentApprovals, recentQuarantines });
   } catch (err) {
     console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });

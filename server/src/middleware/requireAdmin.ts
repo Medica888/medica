@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth.js';
 
-function getAdminUserIds(): Set<string> {
+export function getAdminUserIds(): Set<string> {
   const raw = (process.env.ADMIN_USER_IDS || '').trim();
   if (!raw) return new Set();
   return new Set(raw.split(',').map(id => id.trim()).filter(Boolean));

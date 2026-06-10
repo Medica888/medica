@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { id: 'settings',   label: 'Settings',   Icon: IconSettings },
 ]
 
-export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue }) {
+export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue, authUser }) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
 
@@ -55,6 +55,29 @@ export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue }) {
           )
         })}
       </nav>
+
+      {/* Admin nav — only visible to admins */}
+      {authUser?.isAdmin && (
+        <div className="sb-admin-group">
+          <div className="sb-admin-label">Admin</div>
+          <button
+            className={`sb-item${activeNav === 'admin-review' ? ' active' : ''}`}
+            onClick={() => onNav('admin-review')}
+            aria-current={activeNav === 'admin-review' ? 'page' : undefined}
+          >
+            <span className="sb-item-icon" aria-hidden="true"><IconReview /></span>
+            <span className="sb-item-label">Review Queue</span>
+          </button>
+          <button
+            className={`sb-item${activeNav === 'admin-governance' ? ' active' : ''}`}
+            onClick={() => onNav('admin-governance')}
+            aria-current={activeNav === 'admin-governance' ? 'page' : undefined}
+          >
+            <span className="sb-item-icon" aria-hidden="true"><IconGovernance /></span>
+            <span className="sb-item-label">Governance</span>
+          </button>
+        </div>
+      )}
 
       {/* Footer CTA */}
       <div className="sb-footer">
@@ -126,6 +149,26 @@ function IconSettings() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
       <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.85.85M11.75 11.75l.85.85M3.4 12.6l.85-.85M11.75 4.25l.85-.85" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconReview() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M5 6h6M5 8.5h4M5 11h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="11.5" cy="10.5" r="2.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M13.5 12.5l1.2 1.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconGovernance() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.5L14 4v4c0 3.5-2.8 6-6 7.5C2.8 14 0 11.5 0 8V4l6-2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+      <path d="M5.5 8l1.8 1.8L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )
 }

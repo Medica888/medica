@@ -8,7 +8,7 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
-import { restoreToken, setAuthToken, clearToken } from './lib/apiClient'
+import { restoreToken, setAuthToken, clearToken, auth } from './lib/apiClient'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
@@ -25,6 +25,9 @@ const ExamReview = lazy(() => import('./components/exam/ExamReview'))
 const AnalyticsDashboard = lazy(() => import('./components/analytics/AnalyticsDashboard'))
 const FlashcardsPage = lazy(() => import('./components/flashcards/FlashcardsPage'))
 const SettingsPage = lazy(() => import('./components/settings/SettingsPage'))
+const AdminReviewQueue = lazy(() => import('./components/admin/AdminReviewQueue'))
+const AdminReviewDetail = lazy(() => import('./components/admin/AdminReviewDetail'))
+const AdminGovernanceDashboard = lazy(() => import('./components/admin/AdminGovernanceDashboard'))
 
 const MOCK_FALLBACK_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
 const LOCAL_HARD_BANK_COUNTS = {
@@ -93,17 +96,26 @@ export default function App() {
   const [selectedSkill, setSelectedSkill] = useState(null)
   const [activeNav, setActiveNav]         = useState('dashboard')
   const [authUser, setAuthUser]           = useState(null)
+  const [adminDetailId, setAdminDetailId] = useState(null)
 
-  // Restore saved JWT on mount
+  // Restore saved JWT on mount — call /me to get isAdmin flag
   useEffect(() => {
     const token = restoreToken()
-    if (token) setAuthUser({ restored: true })
+    if (!token) return
+    setAuthUser({ restored: true })
+    auth.me()
+      .then(({ user, isAdmin }) => setAuthUser({ ...user, isAdmin: !!isAdmin }))
+      .catch(() => { clearToken(); setAuthUser(null) })
   }, [])
 
-  const handleLogin = useCallback((token, user) => {
+  const handleLogin = useCallback(async (token, user) => {
     setAuthToken(token)
     try { localStorage.setItem('medica_jwt', token) } catch { /* ignore */ }
     setAuthUser(user)
+    try {
+      const { user: fullUser, isAdmin } = await auth.me()
+      setAuthUser({ ...fullUser, isAdmin: !!isAdmin })
+    } catch { /* fallback to login user without isAdmin */ }
   }, [])
 
   const handleLogout = useCallback(() => {
@@ -113,13 +125,15 @@ export default function App() {
 
   const pageTitle = useMemo(() => {
     const map = {
-      dashboard:    'Mission Control',
-      'create-quiz': 'New Session',
-      qbank:        'QBank',
-      flashcards:   'Flashcards',
-      analytics:    'Analytics',
-      'ai-tutor':   'AI Coach',
-      settings:     'Settings',
+      dashboard:          'Mission Control',
+      'create-quiz':      'New Session',
+      qbank:              'QBank',
+      flashcards:         'Flashcards',
+      analytics:          'Analytics',
+      'ai-tutor':         'AI Coach',
+      settings:           'Settings',
+      'admin-review':     'Review Queue',
+      'admin-governance': 'Governance',
     }
     return map[activeNav] || 'Medica'
   }, [activeNav])
@@ -166,6 +180,7 @@ export default function App() {
   const handleNav = (id) => {
     setSelectedSkill(null)
     setActiveNav(id)
+    setAdminDetailId(null)
     setQuizPhase('builder')
     setQuizConfig(null)
     setQuizSession(null)
@@ -350,6 +365,28 @@ export default function App() {
       return <SettingsPage authUser={authUser} onLogin={handleLogin} onLogout={handleLogout} />
     }
 
+    if (activeNav === 'admin-review' || activeNav === 'admin-governance') {
+      if (!authUser?.isAdmin) {
+        return <Phase1Placeholder activeNav="dashboard" />
+      }
+      if (activeNav === 'admin-governance') {
+        return <AdminGovernanceDashboard />
+      }
+      if (adminDetailId) {
+        return (
+          <AdminReviewDetail
+            questionId={adminDetailId}
+            onBack={() => setAdminDetailId(null)}
+          />
+        )
+      }
+      return (
+        <AdminReviewQueue
+          onSelectDetail={(id) => setAdminDetailId(id)}
+        />
+      )
+    }
+
     if (showQuizBuilder) {
       if (quizPhase === 'loading' && quizConfig) {
         return (
@@ -470,6 +507,7 @@ export default function App() {
         onNav={handleNav}
         onHome={handleHome}
         flashcardsDue={flashcardsDue}
+        authUser={authUser}
       />
       <main className="main" id="main-content">
         <Suspense fallback={<MainLoading />}>

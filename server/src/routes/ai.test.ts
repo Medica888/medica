@@ -1134,10 +1134,10 @@ describe('generated question bank', () => {
       .set('Authorization', authHeader())
       .expect(200);
 
-    expect(res.body.total).toBe(2);
-    expect(res.body.validatedGenerated).toBe(1);
-    expect(res.body.approved).toBe(1);
-    expect(res.body.quarantined).toBe(0);
+    expect(res.body.metrics.total).toBe(2);
+    expect(res.body.metrics.validatedGenerated).toBe(1);
+    expect(res.body.metrics.approved).toBe(1);
+    expect(res.body.metrics.quarantined).toBe(0);
   });
 
   it('prefers approved generated-bank questions over unapproved validated candidates', async () => {
@@ -2004,16 +2004,16 @@ describe('Phase 2 governance', () => {
       .set('Authorization', authHeader())
       .expect(200);
 
-    expect(res.body.total).toBe(2);
-    expect(res.body.approved).toBe(1);
-    expect(res.body.validatedGenerated).toBe(1);
-    expect(typeof res.body.approvalRate).toBe('number');
-    expect(typeof res.body.quarantineRate).toBe('number');
-    expect(res.body.approvalRate).toBeCloseTo(0.5);
-    expect(res.body.quarantineRate).toBe(0);
+    expect(res.body.metrics.total).toBe(2);
+    expect(res.body.metrics.approved).toBe(1);
+    expect(res.body.metrics.validatedGenerated).toBe(1);
+    expect(typeof res.body.metrics.approvalRate).toBe('number');
+    expect(typeof res.body.metrics.quarantineRate).toBe('number');
+    expect(res.body.metrics.approvalRate).toBeCloseTo(0.5);
+    expect(res.body.metrics.quarantineRate).toBe(0);
     expect(Array.isArray(res.body.recentApprovals)).toBe(true);
     expect(Array.isArray(res.body.recentQuarantines)).toBe(true);
-    expect(res.body.averageValidationScore === null || typeof res.body.averageValidationScore === 'number').toBe(true);
+    expect(res.body.metrics.averageValidationScore === null || typeof res.body.metrics.averageValidationScore === 'number').toBe(true);
   });
 
   it('metrics recentApprovals list contains approval actions', async () => {

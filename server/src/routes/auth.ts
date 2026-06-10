@@ -6,6 +6,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { registerSchema, loginSchema } from '../schemas/auth.js';
 import { getRepositories } from '../repositories/index.js';
 import { loginLimiter, registerLimiter } from '../middleware/rateLimiter.js';
+import { getAdminUserIds } from '../middleware/requireAdmin.js';
 
 const router = Router();
 
@@ -46,7 +47,8 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req, res: Resp
 router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const user = await getService().getProfile(req.userId!);
-    res.json({ user });
+    const isAdmin = getAdminUserIds().has(req.userId!);
+    res.json({ user, isAdmin });
   } catch {
     res.status(404).json({ error: 'User not found' });
   }

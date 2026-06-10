@@ -120,19 +120,30 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     status?: 'validated_generated' | 'approved' | 'quarantined';
     limit?: number;
     offset?: number;
+    sort?: 'priority' | 'newest' | 'score' | 'usage';
   }): Promise<Record<string, unknown>[]> {
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
     const offset = Math.max(0, Number(params.offset) || 0);
+    const sorter = (sort: string | undefined) => ([, a]: [string, typeof this.store extends Map<string, infer V> ? V : never], [, b]: [string, typeof this.store extends Map<string, infer V> ? V : never]): number => {
+      if (sort === 'newest') return 0;
+      if (sort === 'score') return (b.validationScore ?? -1) - (a.validationScore ?? -1);
+      if (sort === 'usage') return b.usageCount - a.usageCount;
+      // priority: validated_generated first, then lower score, then higher usage
+      const aStatus = a.bankStatus === 'validated_generated' ? 0 : 1;
+      const bStatus = b.bankStatus === 'validated_generated' ? 0 : 1;
+      if (aStatus !== bStatus) return aStatus - bStatus;
+      const aScore = a.validationScore ?? 100;
+      const bScore = b.validationScore ?? 100;
+      if (aScore !== bScore) return aScore - bScore;
+      return b.usageCount - a.usageCount;
+    };
     return [...this.store.entries()]
       .filter(([eid, entry]) =>
         entry.source === 'ai'
         && (!params.externalId || eid === params.externalId)
         && (!params.status || entry.bankStatus === params.status)
       )
-      .sort(([, a], [, b]) => {
-        const weight = (status: string) => status === 'quarantined' ? 0 : status === 'validated_generated' ? 1 : 2;
-        return weight(a.bankStatus) - weight(b.bankStatus);
-      })
+      .sort(sorter(params.sort))
       .slice(offset, offset + limit)
       .map(([externalId, entry]) => ({
         externalId,

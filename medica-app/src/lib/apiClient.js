@@ -125,6 +125,26 @@ export const generate = {
     request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
 };
 
+// ── Governance (admin) ────────────────────────────────────────────────────
+export const governance = {
+  list: ({ status, limit = 50, page = 1, sort } = {}) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('limit', String(limit));
+    params.set('page', String(page));
+    if (sort) params.set('sort', sort);
+    return request('GET', `/api/generated-question-bank/review?${params}`);
+  },
+  get: (id) =>
+    request('GET', `/api/generated-question-bank/review/${encodeURIComponent(id)}`),
+  history: (id) =>
+    request('GET', `/api/generated-question-bank/review/${encodeURIComponent(id)}/history`),
+  metrics: () =>
+    request('GET', '/api/generated-question-bank/metrics'),
+  updateStatus: (id, status) =>
+    request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/status`, { status }),
+};
+
 // ── Token persistence helpers ─────────────────────────────────────────────
 const TOKEN_KEY = 'medica_jwt';
 
