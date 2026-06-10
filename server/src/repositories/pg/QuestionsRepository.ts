@@ -246,6 +246,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     approvalRate: number;
     quarantineRate: number;
     averageValidationScore: number | null;
+    averagePendingAgeDays: number | null;
+    generatedLast7d: number;
   }> {
     const res = await this.pool.query<{
       total: string;
@@ -256,6 +258,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       used: string;
       totalUsage: string;
       averageValidationScore: string | null;
+      averagePendingAgeDays: string | null;
+      generatedLast7d: string;
     }>(
       `SELECT COUNT(*)::text AS "total",
               COUNT(*) FILTER (WHERE bank_status = 'legacy')::text AS "legacy",
@@ -264,7 +268,9 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               COUNT(*) FILTER (WHERE bank_status = 'quarantined')::text AS "quarantined",
               COUNT(*) FILTER (WHERE usage_count > 0)::text AS "used",
               COALESCE(SUM(usage_count), 0)::text AS "totalUsage",
-              ROUND(AVG(validation_score)::numeric, 2)::text AS "averageValidationScore"
+              ROUND(AVG(validation_score)::numeric, 2)::text AS "averageValidationScore",
+              ROUND((AVG(EXTRACT(EPOCH FROM (now() - created_at)) / 86400) FILTER (WHERE bank_status = 'validated_generated'))::numeric, 2)::text AS "averagePendingAgeDays",
+              COUNT(*) FILTER (WHERE created_at > now() - interval '7 days')::text AS "generatedLast7d"
        FROM questions
        WHERE source = 'ai'`,
     );
@@ -284,6 +290,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       approvalRate: reviewable > 0 ? approved / reviewable : 0,
       quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
       averageValidationScore: row?.averageValidationScore != null ? Number(row.averageValidationScore) : null,
+      averagePendingAgeDays: row?.averagePendingAgeDays != null ? Number(row.averagePendingAgeDays) : null,
+      generatedLast7d: Number(row?.generatedLast7d || 0),
     };
   }
 

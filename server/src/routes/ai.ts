@@ -167,12 +167,26 @@ router.get('/generated-question-bank/review/:id', requireAuth, requireAdmin, asy
 router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     const repos = getRepositories();
-    const [metrics, recentApprovals, recentQuarantines] = await Promise.all([
+    const [metrics, recentApprovals, recentQuarantines, throughput7d] = await Promise.all([
       repos.questions.getGeneratedBankMetrics(),
       repos.auditLog.getRecentActions(['approved'], 10),
       repos.auditLog.getRecentActions(['quarantined'], 10),
+      repos.auditLog.getThroughput(24 * 7),
     ]);
-    res.json({ metrics, recentApprovals, recentQuarantines });
+    res.json({
+      metrics: {
+        ...metrics,
+        pendingReviewCount: metrics.validatedGenerated,
+        averagePendingAge: metrics.averagePendingAgeDays,
+        approvedLast7d: throughput7d.approved,
+        quarantinedLast7d: throughput7d.quarantined,
+        approvedPerDay: throughput7d.approved / 7,
+        quarantinedPerDay: throughput7d.quarantined / 7,
+        generatedPerDay: metrics.generatedLast7d / 7,
+      },
+      recentApprovals,
+      recentQuarantines,
+    });
   } catch (err) {
     console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });
@@ -1262,7 +1276,9 @@ async function _validatePromotableQuestion(rawQuestion: Record<string, any>, con
   const question = normalizeQuestion(rawQuestion, 0, scope);
   const validation = await runQuestionValidation(question, config, scope);
   const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
-  question.id = String(rawQuestion.id || fingerprint);
+  (question as Record<string, any>).id = String(rawQuestion.id || fingerprint);
+  // Preserve lifecycle metadata that normalizeQuestion does not carry
+  if (rawQuestion.bankStatus) (question as Record<string, any>).bankStatus = String(rawQuestion.bankStatus);
   const validFingerprint = Boolean(fingerprint && fingerprint !== '||');
   const valid = validation.passed && validFingerprint;
   return { valid, question, quality: validation.quality, validation, fingerprint };
@@ -1383,12 +1399,15 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
     const requireApprovalForProduction = process.env.REQUIRE_APPROVAL_FOR_PRODUCTION === 'true';
     const allowValidatedReuse = process.env.ALLOW_VALIDATED_REUSE !== 'false';
-    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount, requireApprovalForProduction);
+    const approvedOnly = requireApprovalForProduction || !allowValidatedReuse;
+    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount, approvedOnly);
+    const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       const questions = generatedBankQuestions.slice(0, targetCount);
       await getRepositories().questions.markUsedByExternalIds(
         questions.map(q => String(q.fingerprint || q.id || '')),
       ).catch(() => {});
+      const approvedReuseCount = questions.filter(q => String(q.bankStatus) === 'approved').length;
       const telemetry = {
         requested:              targetCount,
         generated:              0,
@@ -1409,9 +1428,13 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         quarantineRejectedCandidates:  0,
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
-        reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
-        approvedOnly: requireApprovalForProduction,
-        validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
+        reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
+        approvedOnly,
+        validatedFallbackAllowed: !approvedOnly,
+        approvedReuseCount,
+        liveGeneratedCount: 0,
+        validatedQueueCount,
+        approvedOnlyMode: approvedOnly,
       };
       res.json({
         questions,
@@ -1445,6 +1468,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         await getRepositories().questions.markUsedByExternalIds(
           questions.map(q => String(q.fingerprint || q.id || '')),
         ).catch(() => {});
+        const approvedReuseCount = questions.filter(q => String(q.bankStatus) === 'approved').length;
         res.json({
           questions,
           source:             'generated-bank',
@@ -1461,9 +1485,13 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             quarantineRejectedCandidates: 0, generatedBankSaved: 0,
             bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
-            reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
-            approvedOnly: requireApprovalForProduction,
-            validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
+            reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
+            approvedOnly,
+            validatedFallbackAllowed: !approvedOnly,
+            approvedReuseCount,
+            liveGeneratedCount: 0,
+            validatedQueueCount,
+            approvedOnlyMode: approvedOnly,
           },
           generationStrategy: 'generated-bank',
           adaptiveConcepts:   [],
@@ -1577,6 +1605,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     // Save the full AI output (idempotent upsert) — unused buffer questions enter the bank for future requests.
     const combined           = dedup([...bankPool, ...allQuestions]).slice(0, targetCount);
     const questions          = combined;
+    // Compute reuse counts before save (save does not mutate question objects)
+    const bankContrib = Math.min(bankPool.length, combined.length);
+    const approvedReuseCount = combined.slice(0, bankContrib).filter(q => String(q.bankStatus) === 'approved').length;
+    const liveGeneratedCount = combined.length - bankContrib;
     if (bankPool.length > 0) {
       const returnedBankFingerprints = questions
         .filter(q => bankPool.some(bankQ => computeQuestionFingerprint(bankQ.stem || '', bankQ.testedConcept || '') === computeQuestionFingerprint(q.stem || '', q.testedConcept || '')))
@@ -1610,9 +1642,13 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       bankPoolUsed: bankPool.length,
       stoppedReason,
       medicalReviewFailureCategories: totalMrFailureCategories,
-      reusePolicy: requireApprovalForProduction ? 'approved-only' : 'approved-first',
-      approvedOnly: requireApprovalForProduction,
-      validatedFallbackAllowed: !requireApprovalForProduction && allowValidatedReuse,
+      reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
+      approvedOnly,
+      validatedFallbackAllowed: !approvedOnly,
+      approvedReuseCount,
+      liveGeneratedCount,
+      validatedQueueCount,
+      approvedOnlyMode: approvedOnly,
     };
     console.log('[generate-questions]', JSON.stringify(telemetry));
 

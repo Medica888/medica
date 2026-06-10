@@ -1898,7 +1898,7 @@ describe('Phase 2 governance', () => {
     expect(res.body.telemetry.validatedFallbackAllowed).toBe(true);
   });
 
-  it('ALLOW_VALIDATED_REUSE=false sets validatedFallbackAllowed to false in telemetry', async () => {
+  it('ALLOW_VALIDATED_REUSE=false blocks validated_generated from bank reuse', async () => {
     process.env.ALLOW_VALIDATED_REUSE = 'false';
     app = createApp();
 
@@ -1906,10 +1906,52 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+    // validated_generated must not be served — no approved questions and no API key → 503
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('ALLOW_VALIDATED_REUSE=false allows approved questions to serve from bank', async () => {
+    process.env.ALLOW_VALIDATED_REUSE = 'false';
+    app = createApp();
+
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.telemetry.approvedOnly).toBe(true);
+    expect(res.body.telemetry.reusePolicy).toBe('approved-only');
     expect(res.body.telemetry.validatedFallbackAllowed).toBe(false);
+  });
+
+  it('telemetry includes approvedReuseCount, liveGeneratedCount, approvedOnlyMode, validatedQueueCount', async () => {
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
+    // seed a second validated_generated that is NOT served (counts toward queue)
+    await seedBankQuestion(
+      { testedConcept: 'pending queue item for telemetry', stem: 'A 30-year-old has a pending review question. What is the status?' },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' },
+    );
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(typeof res.body.telemetry.approvedReuseCount).toBe('number');
+    expect(typeof res.body.telemetry.liveGeneratedCount).toBe('number');
+    expect(typeof res.body.telemetry.approvedOnlyMode).toBe('boolean');
+    expect(typeof res.body.telemetry.validatedQueueCount).toBe('number');
+    // 1 approved question served from bank
+    expect(res.body.telemetry.approvedReuseCount).toBe(1);
+    expect(res.body.telemetry.liveGeneratedCount).toBe(0);
+    // 1 validated_generated remains in queue
+    expect(res.body.telemetry.validatedQueueCount).toBe(1);
   });
 
   it('quarantined questions are never reused regardless of reuse policy', async () => {
@@ -2076,6 +2118,53 @@ describe('Phase 2 governance', () => {
 
     expect(res.body.recentApprovals.length).toBeGreaterThanOrEqual(1);
     expect(res.body.recentApprovals[0].action).toBe('approved');
+  });
+
+  it('metrics include review queue impact fields: pendingReviewCount, averagePendingAge, throughput', async () => {
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(typeof res.body.metrics.pendingReviewCount).toBe('number');
+    expect(res.body.metrics.pendingReviewCount).toBe(1);
+    // averagePendingAge may be null in memory repo (no createdAt stored)
+    expect(res.body.metrics.averagePendingAge === null || typeof res.body.metrics.averagePendingAge === 'number').toBe(true);
+    expect(typeof res.body.metrics.approvedLast7d).toBe('number');
+    expect(typeof res.body.metrics.quarantinedLast7d).toBe('number');
+    expect(typeof res.body.metrics.approvedPerDay).toBe('number');
+    expect(typeof res.body.metrics.quarantinedPerDay).toBe('number');
+    expect(typeof res.body.metrics.generatedPerDay).toBe('number');
+  });
+
+  it('metrics throughput counts include recent approvals and quarantines within window', async () => {
+    const { fingerprint: fp1 } = await seedBankQuestion();
+    const { fingerprint: fp2 } = await seedBankQuestion({
+      testedConcept: 'throughput quarantine test concept',
+      stem: 'A 45-year-old woman has a question that will be quarantined for throughput testing.',
+    });
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fp1)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'approved' })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fp2)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/metrics')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.metrics.approvedLast7d).toBeGreaterThanOrEqual(1);
+    expect(res.body.metrics.quarantinedLast7d).toBeGreaterThanOrEqual(1);
   });
 
   // ── P5: approval safety ───────────────────────────────────────────────────────

@@ -214,6 +214,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     approvalRate: number;
     quarantineRate: number;
     averageValidationScore: number | null;
+    averagePendingAgeDays: number | null;
+    generatedLast7d: number;
   }> {
     const entries = [...this.store.values()].filter(entry => entry.source === 'ai');
     const approved = entries.filter(entry => entry.bankStatus === 'approved').length;
@@ -235,6 +237,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       approvalRate: reviewable > 0 ? approved / reviewable : 0,
       quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
       averageValidationScore: avgScore,
+      averagePendingAgeDays: null,
+      generatedLast7d: 0,
     };
   }
 

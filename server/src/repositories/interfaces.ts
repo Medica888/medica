@@ -111,6 +111,8 @@ export interface IQuestionsRepository {
     approvalRate: number;
     quarantineRate: number;
     averageValidationScore: number | null;
+    averagePendingAgeDays: number | null;
+    generatedLast7d: number;
   }>;
   markUsedByExternalIds(externalIds: string[]): Promise<void>;
 }
@@ -301,4 +303,5 @@ export interface IAuditLogRepository {
   getAll(): AuditLogEntry[];
   getByQuestionId(questionId: string, limit?: number, offset?: number): Promise<AuditLogEntry[]>;
   getRecentActions(actions: string[], limit: number): Promise<AuditLogEntry[]>;
+  getThroughput(windowHours: number): Promise<{ approved: number; quarantined: number }>;
 }

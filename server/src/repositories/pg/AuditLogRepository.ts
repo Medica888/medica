@@ -45,6 +45,21 @@ export class PgAuditLogRepository implements IAuditLogRepository {
     );
     return res.rows;
   }
+
+  async getThroughput(windowHours: number): Promise<{ approved: number; quarantined: number }> {
+    const res = await this.pool.query<{ approved: string; quarantined: string }>(
+      `SELECT COUNT(*) FILTER (WHERE action = 'approved')::text AS "approved",
+              COUNT(*) FILTER (WHERE action = 'quarantined')::text AS "quarantined"
+       FROM generated_bank_audit_log
+       WHERE created_at > now() - make_interval(hours => $1::int)`,
+      [windowHours],
+    );
+    const row = res.rows[0];
+    return {
+      approved: Number(row?.approved || 0),
+      quarantined: Number(row?.quarantined || 0),
+    };
+  }
 }
 
 export class NullAuditLogRepository implements IAuditLogRepository {
@@ -62,6 +77,10 @@ export class NullAuditLogRepository implements IAuditLogRepository {
 
   async getRecentActions(_actions: string[], _limit: number): Promise<AuditLogEntry[]> {
     return [];
+  }
+
+  async getThroughput(_windowHours: number): Promise<{ approved: number; quarantined: number }> {
+    return { approved: 0, quarantined: 0 };
   }
 }
 
