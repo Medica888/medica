@@ -115,6 +115,16 @@ export interface IQuestionsRepository {
     generatedLast7d: number;
   }>;
   markUsedByExternalIds(externalIds: string[]): Promise<void>;
+  /**
+   * Returns generated-bank questions whose JSONB body contains `concept` in their
+   * `canonicalConcepts` array. Used for concept-targeted review and adaptive prep.
+   */
+  getQuestionsByConcept(concept: string, limit?: number): Promise<Record<string, unknown>[]>;
+  /**
+   * Aggregates canonical concept frequency across all AI-source questions.
+   * Returns concept → count pairs sorted by count descending.
+   */
+  getConceptCoverage(): Promise<Array<{ concept: string; count: number }>>;
 }
 
 // ── Concept graph ─────────────────────────────────────────────────────────────

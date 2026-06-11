@@ -36,7 +36,7 @@ import {
   normalizeSystem,
 } from '../lib/medicaTaxonomy.js';
 import { normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
-import { normalizeConcept } from '../lib/medicaConceptTaxonomy.js';
+import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 
@@ -214,6 +214,36 @@ router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async 
   } catch (err) {
     console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
     res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });
+  }
+});
+
+router.get('/generated-question-bank/concept-summary', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const coverage = await getRepositories().questions.getConceptCoverage();
+    const known: Array<{ concept: string; count: number }> = [];
+    const unknown: string[] = [];
+    for (const entry of coverage) {
+      if (lookupConcept(entry.concept)) {
+        known.push(entry);
+      } else {
+        unknown.push(entry.concept);
+      }
+    }
+    // totalConceptTaggings = sum of per-concept question counts (concept-question pairs,
+    // NOT distinct questions — a question with N concepts contributes N to this total).
+    const totalConceptTaggings = coverage.reduce((s, e) => s + e.count, 0);
+    res.json({
+      totalConceptTaggings,
+      uniqueConceptCount: coverage.length,
+      knownConceptCount: known.length,
+      unknownConceptCount: unknown.length,
+      topConcepts: known.slice(0, 20),
+      unknownConcepts: unknown.slice(0, 50),
+      note: 'warnings/failures are per-generation only; no historical aggregation stored',
+    });
+  } catch (err) {
+    console.error('[generated-question-bank/concept-summary]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Concept summary failed', code: 'CONCEPT_SUMMARY_FAILED' });
   }
 });
 

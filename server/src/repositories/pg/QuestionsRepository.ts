@@ -306,4 +306,53 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       [ids],
     );
   }
+
+  async getQuestionsByConcept(concept: string, limit = 500): Promise<Record<string, unknown>[]> {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 500));
+    // CTE pre-filters to array-typed canonicalConcepts before the SRF runs,
+    // preventing jsonb_array_elements_text from crashing on scalar values.
+    const res = await this.pool.query<Record<string, unknown>>(
+      `WITH array_rows AS (
+         SELECT external_id, subject, system, source, bank_status, mode, difficulty,
+                validation_score, validated_at, last_used_at, usage_count,
+                report_count, created_at, body
+         FROM questions
+         WHERE source = 'ai'
+           AND jsonb_typeof(body->'canonicalConcepts') = 'array'
+       )
+       SELECT external_id AS "externalId", subject, system, source,
+              bank_status AS "bankStatus", mode, difficulty,
+              validation_score AS "validationScore", validated_at AS "validatedAt",
+              last_used_at AS "lastUsedAt", usage_count AS "usageCount",
+              report_count AS "reportCount", created_at AS "createdAt", body
+       FROM array_rows
+       WHERE EXISTS (
+         SELECT 1 FROM jsonb_array_elements_text(body->'canonicalConcepts') AS elem
+         WHERE elem = $1
+       )
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [concept, safeLimit],
+    );
+    return res.rows;
+  }
+
+  async getConceptCoverage(): Promise<Array<{ concept: string; count: number }>> {
+    // CTE pre-filters to array-typed canonicalConcepts before the SRF runs,
+    // preventing jsonb_array_elements_text from crashing on scalar values.
+    const res = await this.pool.query<{ concept: string; count: string }>(
+      `WITH array_rows AS (
+         SELECT body FROM questions
+         WHERE source = 'ai'
+           AND jsonb_typeof(body->'canonicalConcepts') = 'array'
+       )
+       SELECT elem AS concept, COUNT(*)::text AS count
+       FROM array_rows,
+            jsonb_array_elements_text(body->'canonicalConcepts') AS elem
+       GROUP BY elem
+       ORDER BY COUNT(*) DESC
+       LIMIT 500`,
+    );
+    return res.rows.map(r => ({ concept: r.concept, count: Number(r.count) }));
+  }
 }

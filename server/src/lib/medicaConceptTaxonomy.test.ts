@@ -11,6 +11,7 @@ import {
   getAllCanonicals,
   groupFlashcardsByConcept,
   extractConceptWeaknesses,
+  extractConceptFingerprints,
 } from './medicaConceptTaxonomy.js';
 
 // ── Integrity guards ──────────────────────────────────────────────────────────
@@ -306,5 +307,61 @@ describe('extractConceptWeaknesses', () => {
     expect(result[0]).toBe('Lewy Body Alpha-Synuclein Pathology');
     expect(result[1]).toBe('Loop Diuretic Hypokalemia');
     expect(result[2]).toBe('Na-K-2Cl Transporter Inhibition');
+  });
+});
+
+// ── extractConceptFingerprints (v8.1.0 helper) ───────────────────────────────
+
+describe('extractConceptFingerprints', () => {
+  it('returns validated canonicals from canonicalConcepts array', () => {
+    const question = {
+      canonicalConcepts: ['Na-K-2Cl Transporter Inhibition', 'Loop Diuretic Ototoxicity'],
+    };
+    const result = extractConceptFingerprints(question);
+    expect(result).toEqual(['Na-K-2Cl Transporter Inhibition', 'Loop Diuretic Ototoxicity']);
+  });
+
+  it('filters out unknown concepts from canonicalConcepts', () => {
+    const question = {
+      canonicalConcepts: ['Na-K-2Cl Transporter Inhibition', 'Totally Unknown Concept XYZ'],
+    };
+    const result = extractConceptFingerprints(question);
+    expect(result).toEqual(['Na-K-2Cl Transporter Inhibition']);
+    expect(result).not.toContain('Totally Unknown Concept XYZ');
+  });
+
+  it('deduplicates case-insensitive variants', () => {
+    const question = {
+      canonicalConcepts: [
+        'Na-K-2Cl Transporter Inhibition',
+        'Na-K-2Cl Transporter Inhibition',
+      ],
+    };
+    const result = extractConceptFingerprints(question);
+    expect(result.length).toBe(1);
+  });
+
+  it('falls back to normalizing testedConcept when canonicalConcepts absent', () => {
+    const question = { testedConcept: 'NKCC2 inhibition' };
+    const result = extractConceptFingerprints(question);
+    expect(result).toEqual(['Na-K-2Cl Transporter Inhibition']);
+  });
+
+  it('returns empty array when both canonicalConcepts and testedConcept are absent', () => {
+    expect(extractConceptFingerprints({})).toEqual([]);
+  });
+
+  it('returns empty array when testedConcept is an unknown concept', () => {
+    const result = extractConceptFingerprints({ testedConcept: 'Totally Unknown Concept ZZZ' });
+    expect(result).toEqual([]);
+  });
+
+  it('falls back to testedConcept when canonicalConcepts is non-empty but all items fail isValidConcept', () => {
+    const question = {
+      canonicalConcepts: ['???invalid???', 'also invalid XYZ'],
+      testedConcept: 'NKCC2 inhibition',
+    };
+    const result = extractConceptFingerprints(question);
+    expect(result).toEqual(['Na-K-2Cl Transporter Inhibition']);
   });
 });

@@ -47,6 +47,18 @@ export class AdaptiveExamService {
     return this.buildAdaptiveBlueprint(userId, 10, readinessScore, rows);
   }
 
+  /**
+   * Stub for future adaptive targeting (v8.2+).
+   * Returns canonical concept names from the legacy mastery graph where the user's
+   * ease-factor-derived score is below `threshold`.
+   *
+   * NOT yet connected to IQuestionsRepository.getQuestionsByConcept() —
+   * that bridge (slug → canonical) is out of scope for v8.1.
+   */
+  async getWeakConceptCandidates(_userId: string, _threshold = 0.6): Promise<string[]> {
+    return [];
+  }
+
   async buildAdaptiveBlueprint(
     userId:          string,
     questionCount:   number,

@@ -1860,6 +1860,19 @@ describe('Phase 2 governance', () => {
     expect((rows[0] as any).bankStatus).toBe('validated_generated');
   });
 
+  it('_saveGeneratedQuestionsToBank skips questions that fail central validation', async () => {
+    const invalid = makePromotableQuestion({
+      subject: 'Biostatistics',
+      system: 'Cardiovascular',
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+    });
+
+    const saved = await _saveGeneratedQuestionsToBank([invalid], saveConfig);
+
+    expect(saved).toBe(0);
+    expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
+  });
+
   // ── P1: approved-only reuse ───────────────────────────────────────────────────
 
   it('REQUIRE_APPROVAL_FOR_PRODUCTION blocks validated_generated from bank reuse', async () => {
@@ -2238,6 +2251,142 @@ describe('Phase 2 governance', () => {
       .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}/history`)
       .set('Authorization', authHeader('user-999'))
       .expect(403);
+  });
+
+  // ── v8.1.0: canonical concepts in saved questions ─────────────────────────────
+
+  it('saved question body contains canonicalConcepts array', async () => {
+    const q = makePromotableQuestion({ testedConcept: 'ACE inhibitor bradykinin cough mechanism' });
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['ACE Inhibitor Bradykinin Cough'] },
+      source: 'ai',
+      bankStatus: 'validated_generated',
+    });
+
+    const rows = await getRepositories().questions.findGeneratedBankReview({ externalId: fingerprint, limit: 1 });
+    const body = (rows[0] as any)?.body ?? {};
+    expect(Array.isArray(body.canonicalConcepts)).toBe(true);
+  });
+
+  it('review detail response includes body with canonicalConcepts when present', async () => {
+    const q = makePromotableQuestion({ testedConcept: 'ACE inhibitor bradykinin cough mechanism' });
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['ACE Inhibitor Bradykinin Cough'] },
+      source: 'ai',
+      bankStatus: 'validated_generated',
+    });
+
+    const res = await request(app)
+      .get(`/api/generated-question-bank/review/${encodeURIComponent(fingerprint)}`)
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(Array.isArray(res.body.question.body.canonicalConcepts)).toBe(true);
+  });
+
+  it('getQuestionsByConcept returns only questions containing that concept', async () => {
+    const concept = 'ACE Inhibitor Bradykinin Cough';
+    const fp1 = 'test-fp-concept-match';
+    const fp2 = 'test-fp-no-concept';
+
+    await getRepositories().questions.upsertByExternalId(fp1, {
+      subject: 'Pharmacology', system: 'Cardiovascular',
+      body: { id: fp1, source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: [concept] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+    await getRepositories().questions.upsertByExternalId(fp2, {
+      subject: 'Pharmacology', system: 'Cardiovascular',
+      body: { id: fp2, source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['Loop Diuretic Ototoxicity'] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+
+    const results = await getRepositories().questions.getQuestionsByConcept(concept);
+    expect(results.length).toBe(1);
+    expect((results[0] as any).externalId ?? (results[0] as any).body?.id).toBeTruthy();
+    const noneResults = await getRepositories().questions.getQuestionsByConcept('Nonexistent Concept XYZ');
+    expect(noneResults.length).toBe(0);
+  });
+
+  it('getConceptCoverage returns concept-count pairs sorted by count', async () => {
+    const concept = 'Loop Diuretic Ototoxicity';
+    for (let i = 0; i < 3; i++) {
+      await getRepositories().questions.upsertByExternalId(`fp-cov-${i}`, {
+        subject: 'Pharmacology', system: 'Renal / Urinary',
+        body: { id: `fp-cov-${i}`, source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: [concept] },
+        source: 'ai', bankStatus: 'validated_generated',
+      });
+    }
+    await getRepositories().questions.upsertByExternalId('fp-cov-other', {
+      subject: 'Pharmacology', system: 'Cardiovascular',
+      body: { id: 'fp-cov-other', source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['Na-K-2Cl Transporter Inhibition'] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+
+    const coverage = await getRepositories().questions.getConceptCoverage();
+    expect(coverage.length).toBeGreaterThanOrEqual(2);
+    const first = coverage[0];
+    expect(first.concept).toBe(concept);
+    expect(first.count).toBe(3);
+    expect(typeof first.count).toBe('number');
+  });
+
+  it('concept-summary endpoint returns expected shape and requires admin', async () => {
+    await request(app)
+      .get('/api/generated-question-bank/concept-summary')
+      .expect(401);
+
+    await request(app)
+      .get('/api/generated-question-bank/concept-summary')
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+
+    // Seed one known canonical concept
+    await getRepositories().questions.upsertByExternalId('fp-summary-1', {
+      subject: 'Pharmacology', system: 'Renal / Urinary',
+      body: { id: 'fp-summary-1', source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['Na-K-2Cl Transporter Inhibition'] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/concept-summary')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(typeof res.body.totalConceptTaggings).toBe('number');
+    expect(typeof res.body.uniqueConceptCount).toBe('number');
+    expect(typeof res.body.knownConceptCount).toBe('number');
+    expect(typeof res.body.unknownConceptCount).toBe('number');
+    expect(Array.isArray(res.body.topConcepts)).toBe(true);
+    expect(Array.isArray(res.body.unknownConcepts)).toBe(true);
+    expect(res.body.totalConceptTaggings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('concept-summary separates known canonicals from unknowns', async () => {
+    await getRepositories().questions.upsertByExternalId('fp-known', {
+      subject: 'Pharmacology', system: 'Renal / Urinary',
+      body: { id: 'fp-known', source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['Na-K-2Cl Transporter Inhibition'] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+    await getRepositories().questions.upsertByExternalId('fp-unknown', {
+      subject: 'Pharmacology', system: 'Cardiovascular',
+      body: { id: 'fp-unknown', source: 'ai', bankStatus: 'validated_generated', canonicalConcepts: ['Totally Unknown Concept XYZ 99'] },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/concept-summary')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    expect(res.body.knownConceptCount).toBeGreaterThanOrEqual(1);
+    expect(res.body.unknownConceptCount).toBeGreaterThanOrEqual(1);
+    expect(res.body.unknownConcepts).toContain('Totally Unknown Concept XYZ 99');
   });
 });
 

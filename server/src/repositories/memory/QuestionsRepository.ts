@@ -254,6 +254,49 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     }
   }
 
+  async getQuestionsByConcept(concept: string, limit = 500): Promise<Record<string, unknown>[]> {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 500, 500));
+    return [...this.store.entries()]
+      .filter(([, entry]) => {
+        if (entry.source !== 'ai') return false;
+        const concepts = entry.body['canonicalConcepts'];
+        return Array.isArray(concepts) && concepts.includes(concept);
+      })
+      .slice(0, safeLimit)
+      .map(([externalId, entry]) => ({
+        externalId,
+        subject: entry.subject,
+        system: entry.system,
+        source: entry.source,
+        bankStatus: entry.bankStatus,
+        mode: entry.mode,
+        difficulty: entry.difficulty,
+        validationScore: entry.validationScore,
+        validatedAt: entry.validatedAt,
+        lastUsedAt: entry.lastUsedAt,
+        usageCount: entry.usageCount,
+        reportCount: 0,
+        body: entry.body,
+      }));
+  }
+
+  async getConceptCoverage(): Promise<Array<{ concept: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const entry of this.store.values()) {
+      if (entry.source !== 'ai') continue;
+      const concepts = entry.body['canonicalConcepts'];
+      if (!Array.isArray(concepts)) continue;
+      for (const c of concepts) {
+        if (typeof c !== 'string' || !c) continue;
+        counts.set(c, (counts.get(c) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 500)
+      .map(([concept, count]) => ({ concept, count }));
+  }
+
   _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown>; usageCount?: number; lastUsedAt?: Date | null } | undefined {
     return this.store.get(externalId);
   }

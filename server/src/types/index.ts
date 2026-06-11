@@ -48,6 +48,8 @@ export interface Question {
   topicSlug?: string;
   topicSource?: string;
   questionAngle?: string;
+  // Canonical concepts from v8.0.0 taxonomy stored in JSONB body at generation time
+  canonicalConcepts?: string[];
 }
 
 export interface SubjectStats {

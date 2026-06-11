@@ -957,3 +957,33 @@ export function extractConceptWeaknesses(
     .sort(([, a], [, b]) => a - b)
     .map(([concept]) => concept);
 }
+
+/**
+ * Extracts a deduplicated, validated list of canonical concept names from a stored
+ * question record (typically from the generated bank body).
+ *
+ * Reads `canonicalConcepts` from the record; validates each against the taxonomy
+ * via `isValidConcept()`. Returns only recognized canonicals, deduplicated.
+ * Falls back to normalizing `testedConcept` if `canonicalConcepts` is absent.
+ */
+export function extractConceptFingerprints(question: Record<string, unknown>): string[] {
+  const raw = question['canonicalConcepts'];
+  if (Array.isArray(raw) && raw.length > 0) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of raw) {
+      const s = typeof item === 'string' ? item.trim() : '';
+      if (!s || seen.has(s.toLowerCase())) continue;
+      if (!isValidConcept(s)) continue;
+      seen.add(s.toLowerCase());
+      result.push(s);
+    }
+    // If all items were invalid, fall through to testedConcept fallback.
+    if (result.length > 0) return result;
+  }
+  // Fallback: attempt to normalize testedConcept
+  const tested = typeof question['testedConcept'] === 'string' ? question['testedConcept'].trim() : '';
+  if (!tested) return [];
+  const canonical = normalizeConcept(tested);
+  return canonical ? [canonical] : [];
+}
