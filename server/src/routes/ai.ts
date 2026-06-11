@@ -36,11 +36,34 @@ import {
   normalizeSystem,
 } from '../lib/medicaTaxonomy.js';
 import { normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
+import { normalizeConcept } from '../lib/medicaConceptTaxonomy.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+function hasAnthropicApiKey(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
+
+function qbankPersistenceMode(): 'postgres' | 'memory' {
+  return process.env.DATABASE_URL?.trim() ? 'postgres' : 'memory';
+}
+
+function qbankDeveloperWarnings(): string[] {
+  return qbankPersistenceMode() === 'postgres'
+    ? []
+    : ['DATABASE_URL is not configured; generated question bank writes use transient in-memory storage and will not persist after server restart.'];
+}
+
+function missingAnthropicResponse() {
+  return {
+    error: 'AI generation unavailable — server is missing required AI provider configuration',
+    code: 'NO_API_KEY',
+    developerMessage: 'Set ANTHROPIC_API_KEY in the server environment to enable live AI generation. Do not expose this value to the frontend.',
+  };
+}
 
 // Skills files live at the repo root: <project>/skills/
 const SKILLS_DIR = path.join(__dirname, '../../../skills');
@@ -906,6 +929,10 @@ export interface BatchTelemetry {
   topicWarnings:          number;  // topic validator returned warn (unknown or cross-cutting)
   topicFailures:          number;  // topic validator returned fail (both dims mismatch)
   unknownTopics:          Array<{ topic: string; subject: string; system: string }>;
+  conceptPasses:          number;  // concept validator returned pass
+  conceptWarnings:        number;  // concept validator returned warn (unknown, alias, or cross-cutting)
+  conceptFailures:        number;  // concept validator returned fail (both dims mismatch)
+  unknownConcepts:        Array<{ concept: string; topic: string; subject: string; system: string }>;
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -949,11 +976,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     parsed = JSON.parse(s) as { questions?: unknown[] };
   } catch (parseErr) {
     console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
   if (!Array.isArray(parsed.questions)) {
     console.warn('[generateBatch] AI response missing questions array');
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
 
   const rawQuestions: Record<string, any>[] = parsed.questions as Record<string, any>[];
@@ -969,6 +996,8 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   let matrixPasses = 0, matrixWarnings = 0, matrixFailures = 0;
   let topicPasses = 0, topicWarnings = 0, topicFailures = 0;
   const unknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
+  let conceptPasses = 0, conceptWarnings = 0, conceptFailures = 0;
+  const unknownConcepts: Array<{ concept: string; topic: string; subject: string; system: string }> = [];
   const mrFailureCategories = emptyMedicalReviewFailureCategories();
 
   // ── Phase 1: rule-based validation only (MR deferred to Phase 2) ─────────────
@@ -1015,6 +1044,24 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
         }
       } else {
         topicPasses++;
+      }
+    }
+
+    const conceptV = validation.validators.find(v => v.name === 'concept');
+    if (conceptV) {
+      if (conceptV.status === 'fail')      conceptFailures++;
+      else if (conceptV.status === 'warn') {
+        conceptWarnings++;
+        if (conceptV.reasons.includes('concept_unknown')) {
+          unknownConcepts.push({
+            concept: normalized[i].testedConcept || '',
+            topic:   normalized[i].topic         || normalized[i].canonicalTopic || '',
+            subject: normalized[i].subject       || '',
+            system:  normalized[i].system        || '',
+          });
+        }
+      } else {
+        conceptPasses++;
       }
     }
 
@@ -1142,6 +1189,10 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       topicWarnings,
       topicFailures,
       unknownTopics,
+      conceptPasses,
+      conceptWarnings,
+      conceptFailures,
+      unknownConcepts,
       medicalReviewFailureCategories: mrFailureCategories,
     },
   };
@@ -1183,10 +1234,14 @@ export interface GenerationLoopResult {
   totalMatrixPasses:   number;
   totalMatrixWarnings: number;
   totalMatrixFailures: number;
-  totalTopicPasses:    number;
-  totalTopicWarnings:  number;
-  totalTopicFailures:  number;
-  unknownTopics:       Array<{ topic: string; subject: string; system: string }>;
+  totalTopicPasses:      number;
+  totalTopicWarnings:    number;
+  totalTopicFailures:    number;
+  unknownTopics:         Array<{ topic: string; subject: string; system: string }>;
+  totalConceptPasses:    number;
+  totalConceptWarnings:  number;
+  totalConceptFailures:  number;
+  unknownConcepts:       Array<{ concept: string; topic: string; subject: string; system: string }>;
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -1217,6 +1272,8 @@ export async function runAdaptiveRefill(
   let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
   let totalTopicPasses = 0, totalTopicWarnings = 0, totalTopicFailures = 0;
   const unknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
+  let totalConceptPasses = 0, totalConceptWarnings = 0, totalConceptFailures = 0;
+  const unknownConcepts: Array<{ concept: string; topic: string; subject: string; system: string }> = [];
   const medicalReviewFailureCategories = emptyMedicalReviewFailureCategories();
   let stoppedReason: StoppedReason = 'unknown';
 
@@ -1262,6 +1319,10 @@ export async function runAdaptiveRefill(
       totalTopicWarnings  += batchResult.telemetry.topicWarnings;
       totalTopicFailures  += batchResult.telemetry.topicFailures;
       unknownTopics.push(...(batchResult.telemetry.unknownTopics ?? []));
+      totalConceptPasses    += batchResult.telemetry.conceptPasses;
+      totalConceptWarnings  += batchResult.telemetry.conceptWarnings;
+      totalConceptFailures  += batchResult.telemetry.conceptFailures;
+      unknownConcepts.push(...(batchResult.telemetry.unknownConcepts ?? []));
       accumulateMedicalReviewFailureCategories(medicalReviewFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
 
       const beforeFilter  = batchResult.questions.length;
@@ -1297,6 +1358,7 @@ export async function runAdaptiveRefill(
     totalRuleRejected, totalDedupRejected, totalScopeRejected,
     totalMatrixPasses, totalMatrixWarnings, totalMatrixFailures,
     totalTopicPasses, totalTopicWarnings, totalTopicFailures, unknownTopics,
+    totalConceptPasses, totalConceptWarnings, totalConceptFailures, unknownConcepts,
     medicalReviewFailureCategories,
   };
 }
@@ -1313,12 +1375,16 @@ function _questionBodyForGeneratedBank(
   const difficulty = normalizeDifficulty(question.difficulty) ?? normalizeDifficulty(config.difficulty) ?? 'Balanced';
   const rawTopicForNorm = question.topic || question.canonicalTopic || '';
   const canonicalTopic = normalizeTopic(rawTopicForNorm) ?? question.canonicalTopic ?? '';
+  const rawConceptForNorm = question.testedConcept || '';
+  const canonicalConceptNorm = normalizeConcept(rawConceptForNorm);
+  const canonicalConcepts = canonicalConceptNorm ? [canonicalConceptNorm] : (rawConceptForNorm ? [rawConceptForNorm] : []);
   return {
     ...question,
     id: fingerprint,
     subject,
     system,
     canonicalTopic,
+    canonicalConcepts,
     source: 'ai',
     bankStatus: 'validated_generated',
     promotionStatus: 'candidate',
@@ -1497,6 +1563,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         topicWarnings:                 0,
         topicFailures:                 0,
         unknownTopics:                 [],
+        conceptPasses:                 0,
+        conceptWarnings:               0,
+        conceptFailures:               0,
+        unknownConcepts:               [],
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
         reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
@@ -1557,6 +1627,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
             matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0,
             topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [],
+            conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [],
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
             reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
             approvedOnly,
@@ -1582,6 +1653,8 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
     let totalTopicPasses = 0, totalTopicWarnings = 0, totalTopicFailures = 0;
     const totalUnknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
+    let totalConceptPasses = 0, totalConceptWarnings = 0, totalConceptFailures = 0;
+    const totalUnknownConcepts: Array<{ concept: string; topic: string; subject: string; system: string }> = [];
     let refillRounds: number | undefined;
     let stoppedReason: StoppedReason | undefined;
     const totalMrFailureCategories = emptyMedicalReviewFailureCategories();
@@ -1614,6 +1687,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       totalTopicWarnings   = loopResult.totalTopicWarnings;
       totalTopicFailures   = loopResult.totalTopicFailures;
       totalUnknownTopics.push(...loopResult.unknownTopics);
+      totalConceptPasses    = loopResult.totalConceptPasses;
+      totalConceptWarnings  = loopResult.totalConceptWarnings;
+      totalConceptFailures  = loopResult.totalConceptFailures;
+      totalUnknownConcepts.push(...loopResult.unknownConcepts);
       refillRounds         = loopResult.refillRounds;
       stoppedReason        = loopResult.stoppedReason;
       accumulateMedicalReviewFailureCategories(totalMrFailureCategories, loopResult.medicalReviewFailureCategories);
@@ -1639,6 +1716,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         totalTopicWarnings  += batchResult.telemetry.topicWarnings;
         totalTopicFailures  += batchResult.telemetry.topicFailures;
         totalUnknownTopics.push(...batchResult.telemetry.unknownTopics);
+        totalConceptPasses    += batchResult.telemetry.conceptPasses;
+        totalConceptWarnings  += batchResult.telemetry.conceptWarnings;
+        totalConceptFailures  += batchResult.telemetry.conceptFailures;
+        totalUnknownConcepts.push(...batchResult.telemetry.unknownConcepts);
         accumulateMedicalReviewFailureCategories(totalMrFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
         offset            += batchSize;
       }
@@ -1667,6 +1748,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
           totalTopicWarnings  += retryResult.telemetry.topicWarnings;
           totalTopicFailures  += retryResult.telemetry.topicFailures;
           totalUnknownTopics.push(...retryResult.telemetry.unknownTopics);
+          totalConceptPasses    += retryResult.telemetry.conceptPasses;
+          totalConceptWarnings  += retryResult.telemetry.conceptWarnings;
+          totalConceptFailures  += retryResult.telemetry.conceptFailures;
+          totalUnknownConcepts.push(...retryResult.telemetry.unknownConcepts);
           accumulateMedicalReviewFailureCategories(totalMrFailureCategories, retryResult.telemetry.medicalReviewFailureCategories);
           const newDeduped     = dedup(retryResult.questions).filter(q =>
             inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
@@ -1742,6 +1827,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       topicWarnings:                 totalTopicWarnings,
       topicFailures:                 totalTopicFailures,
       unknownTopics:                 totalUnknownTopics,
+      conceptPasses:                 totalConceptPasses,
+      conceptWarnings:               totalConceptWarnings,
+      conceptFailures:               totalConceptFailures,
+      unknownConcepts:               totalUnknownConcepts,
       generatedBankSaved,
       bankPoolUsed: bankPool.length,
       stoppedReason,

@@ -8,6 +8,7 @@ export interface ValidationQuestion {
   difficulty?: string;
   topic?: string;
   testedConcept?: string;
+  canonicalConcepts?: string[];
   questionAngle?: string;
   canonicalTopic?: string;
   rawTopic?: string;
