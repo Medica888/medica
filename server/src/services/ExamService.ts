@@ -5,6 +5,7 @@ import type { ExamSession, Question, SubjectStats, PaginationParams, PaginatedRe
 import type { CreateSessionInput } from '../schemas/exam.js';
 import type { ConceptMappingService } from './ConceptMappingService.js';
 import type { ConceptMasteryService } from './ConceptMasteryService.js';
+import { normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
 
 const ANSWER_LETTERS = ['A', 'B', 'C', 'D'] as const;
 
@@ -58,6 +59,43 @@ export function _fingerprint(
   return createHash('sha256').update(raw).digest('hex');
 }
 
+function canonicalSubject(value: unknown): string {
+  return normalizeSubject(value) ?? '';
+}
+
+function canonicalSystem(value: unknown): string {
+  return normalizeSystem(value) ?? '';
+}
+
+function normalizeQuestionTaxonomy(question: Question): Question {
+  return {
+    ...question,
+    subject: canonicalSubject(question.subject),
+    system: canonicalSystem(question.system),
+  };
+}
+
+function normalizeStatsKeys<T extends SubjectStats>(
+  stats: Record<string, T>,
+  normalizer: (value: unknown) => string | null,
+): Record<string, T> {
+  const normalized: Record<string, T> = {};
+  for (const [key, value] of Object.entries(stats || {})) {
+    const normalizedKey = normalizer(key) ?? key;
+    const existing = normalized[normalizedKey];
+    normalized[normalizedKey] = existing
+      ? {
+          total: existing.total + value.total,
+          correct: existing.correct + value.correct,
+          percentage: existing.total + value.total > 0
+            ? Math.round(((existing.correct + value.correct) / (existing.total + value.total)) * 100)
+            : 0,
+        } as T
+      : value;
+  }
+  return normalized;
+}
+
 export class ExamService {
   constructor(
     private sessions: IExamSessionsRepository,
@@ -68,18 +106,23 @@ export class ExamService {
   ) {}
 
   async createSession(userId: string, input: CreateSessionInput): Promise<ExamSession> {
+    const normalizedQuestions = input.questions.map(normalizeQuestionTaxonomy);
+    const normalizedMissedQuestions = input.missed_questions.map(normalizeQuestionTaxonomy);
+    const normalizedSubjectBreakdown = normalizeStatsKeys(input.subject_breakdown, normalizeSubject);
+    const normalizedSystemBreakdown = normalizeStatsKeys(input.system_breakdown, normalizeSystem);
+
     const sessionData = {
       user_id: userId,
       mode: input.mode,
-      questions: input.questions as Question[],
+      questions: normalizedQuestions as Question[],
       answers: input.answers,
       score: input.score,
       percentage: input.percentage,
       medica_score: input.medica_score,
       readiness_label: input.readiness_label,
-      subject_breakdown: input.subject_breakdown as Record<string, SubjectStats>,
-      system_breakdown: input.system_breakdown as Record<string, SubjectStats>,
-      missed_questions: input.missed_questions as Question[],
+      subject_breakdown: normalizedSubjectBreakdown as Record<string, SubjectStats>,
+      system_breakdown: normalizedSystemBreakdown as Record<string, SubjectStats>,
+      missed_questions: normalizedMissedQuestions as Question[],
       completed_at: new Date(input.completed_at),
       duration_seconds: input.duration_seconds,
       difficulty: input.difficulty,
@@ -90,8 +133,8 @@ export class ExamService {
       //    Skipped when questions repo is not wired (backward-compat path).
       const questionRefMap = new Map<string, string>(); // q.id → questions.id
       if (this.questions) {
-        for (let i = 0; i < input.questions.length; i++) {
-          const q = input.questions[i]!;
+        for (let i = 0; i < normalizedQuestions.length; i++) {
+          const q = normalizedQuestions[i]!;
           const externalId = _fingerprint(q.text, _getCorrectAnswer(q as unknown as Record<string, unknown>), q.subject ?? '', q.system ?? '');
           if (!externalId) continue;
           const { id: dbId } = await this.questions.upsertByExternalId(
@@ -112,7 +155,7 @@ export class ExamService {
 
       // 2b. Map question metadata to concept nodes (Phase 2).
       if (this.conceptMapping) {
-        for (const q of input.questions) {
+        for (const q of normalizedQuestions) {
           const dbId = questionRefMap.get(q.id);
           if (dbId) {
             await this.conceptMapping.mapQuestion(q as Question, dbId, tx);
@@ -123,10 +166,11 @@ export class ExamService {
       // 2c. Update per-user concept mastery for directly linked concepts (Phase 3).
       //     Direct links only — no hierarchy roll-up.
       if (this.conceptMastery && questionRefMap.size > 0) {
-        const answered = input.questions
+        const answered = normalizedQuestions
           .map((q) => ({
-            questionDbId: questionRefMap.get(q.id) ?? '',
-            isCorrect:    _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
+            questionDbId:      questionRefMap.get(q.id) ?? '',
+            isCorrect:         _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
+            canonicalConcepts: q.canonicalConcepts,
           }))
           .filter((x) => x.questionDbId !== '');
         await this.conceptMastery.updateFromSession(userId, answered, tx);
@@ -134,14 +178,14 @@ export class ExamService {
 
       // 3. Write session→question links with position ordering.
       if (questionRefMap.size > 0) {
-        const links = input.questions
+        const links = normalizedQuestions
           .map((q, i) => ({ questionId: questionRefMap.get(q.id)!, position: i }))
           .filter((l) => l.questionId != null);
         await this.sessions.createQuestionLinks(s.id, links, tx);
       }
 
       // 4. Write per-question attempts; include question_ref_id when available.
-      const attempts = input.questions.map((q) => ({
+      const attempts = normalizedQuestions.map((q) => ({
         user_id:            userId,
         session_id:         s.id,
         question_id:        q.id,

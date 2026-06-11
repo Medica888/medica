@@ -101,6 +101,7 @@ export interface Concept {
   parent_concept_id?: string;
   difficulty: string;
   description: string;
+  source: 'legacy' | 'canonical';
   created_at: Date;
   updated_at: Date;
 }

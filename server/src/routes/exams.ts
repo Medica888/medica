@@ -17,7 +17,7 @@ const router = Router();
 function getService(): ExamService {
   const { examSessions, questionAttempts, questions, concepts, questionConcepts, userConceptMastery } = getRepositories();
   const conceptMapping = new ConceptMappingService(concepts, questionConcepts);
-  const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts);
+  const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts, concepts);
   return new ExamService(examSessions, questionAttempts, questions, conceptMapping, conceptMastery);
 }
 

@@ -11,6 +11,7 @@ interface ConceptRow extends QueryResultRow {
   parent_concept_id: string | null;
   difficulty: string;
   description: string;
+  source: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -25,6 +26,7 @@ function toConcept(row: ConceptRow): Concept {
     parent_concept_id: row.parent_concept_id ?? undefined,
     difficulty:        row.difficulty,
     description:       row.description,
+    source:            row.source === 'canonical' ? 'canonical' : 'legacy',
     created_at:        row.created_at,
     updated_at:        row.updated_at,
   };
@@ -41,6 +43,7 @@ export class PgConceptsRepository implements IConceptsRepository {
       system: string;
       description?: string;
       parent_concept_id?: string;
+      source?: 'legacy' | 'canonical';
     },
     tx?: unknown,
   ): Promise<Concept> {
@@ -50,12 +53,14 @@ export class PgConceptsRepository implements IConceptsRepository {
       //   name / updated_at   always updated
       //   subject / system    first-wins (kept if existing row already has them)
       //   parent_concept_id   set when EXCLUDED value is non-null; else keep existing
-      `INSERT INTO concepts (name, slug, subject, system, description, parent_concept_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      //   source              once canonical, always canonical (canonical-wins)
+      `INSERT INTO concepts (name, slug, subject, system, description, parent_concept_id, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (slug) DO UPDATE
          SET name              = EXCLUDED.name,
              updated_at        = NOW(),
-             parent_concept_id = COALESCE(EXCLUDED.parent_concept_id, concepts.parent_concept_id)
+             parent_concept_id = COALESCE(EXCLUDED.parent_concept_id, concepts.parent_concept_id),
+             source            = CASE WHEN EXCLUDED.source = 'canonical' THEN 'canonical' ELSE concepts.source END
        RETURNING *`,
       [
         data.name,
@@ -64,6 +69,7 @@ export class PgConceptsRepository implements IConceptsRepository {
         data.system,
         data.description ?? '',
         data.parent_concept_id ?? null,
+        data.source ?? 'legacy',
       ],
     );
     return toConcept(res.rows[0]!);

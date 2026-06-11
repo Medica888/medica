@@ -48,15 +48,21 @@ export class AdaptiveExamService {
   }
 
   /**
-   * Stub for future adaptive targeting (v8.2+).
-   * Returns canonical concept names from the legacy mastery graph where the user's
-   * ease-factor-derived score is below `threshold`.
-   *
-   * NOT yet connected to IQuestionsRepository.getQuestionsByConcept() —
-   * that bridge (slug → canonical) is out of scope for v8.1.
+   * Returns canonical concept names where the user's mastery_score is below
+   * `threshold`. Only concepts with source='canonical' are returned — legacy
+   * slug concepts are excluded since they lack a stable canonical name for
+   * question targeting via getQuestionsByConcept().
    */
-  async getWeakConceptCandidates(_userId: string, _threshold = 0.6): Promise<string[]> {
-    return [];
+  async getWeakConceptCandidates(userId: string, threshold = 0.6): Promise<string[]> {
+    const rows = await this.mastery.findByUserId(userId);
+    const weakIds = rows
+      .filter((r) => r.mastery_score < threshold)
+      .map((r) => r.concept_id);
+    if (!weakIds.length) return [];
+    const concepts = await this.concepts.findManyById(weakIds);
+    return concepts
+      .filter((c) => c.source === 'canonical')
+      .map((c) => c.name);
   }
 
   async buildAdaptiveBlueprint(

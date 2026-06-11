@@ -3,6 +3,11 @@ import { ExamService, _fingerprint, _normalizeAnswerLetter, _getCorrectAnswer } 
 import { InMemoryExamSessionsRepository } from '../repositories/memory/ExamSessionsRepository.js';
 import { InMemoryQuestionAttemptsRepository } from '../repositories/memory/QuestionAttemptsRepository.js';
 import { InMemoryQuestionsRepository } from '../repositories/memory/QuestionsRepository.js';
+import { InMemoryConceptsRepository } from '../repositories/memory/ConceptsRepository.js';
+import { InMemoryQuestionConceptsRepository } from '../repositories/memory/QuestionConceptsRepository.js';
+import { InMemoryUserConceptMasteryRepository } from '../repositories/memory/UserConceptMasteryRepository.js';
+import { ConceptMappingService } from './ConceptMappingService.js';
+import { ConceptMasteryService } from './ConceptMasteryService.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +85,7 @@ describe('ExamService — Phase 1 question bank', () => {
   it('upserts each question into the questions table', async () => {
     await service.createSession('user-1', makeInput());
 
-    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', 'Cardiology', 'Cardiovascular');
+    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', '', 'Cardiovascular');
     const entry = await questionsRepo.findByExternalId(fp);
     expect(entry).not.toBeNull();
     expect(typeof entry!.id).toBe('string');
@@ -90,7 +95,7 @@ describe('ExamService — Phase 1 question bank', () => {
   it('persists concept-signal metadata in questions.body', async () => {
     await service.createSession('user-1', makeInput());
 
-    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', 'Cardiology', 'Cardiovascular');
+    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', '', 'Cardiovascular');
     const entry = questionsRepo._getEntry(fp);
     expect(entry).toBeDefined();
     expect(entry!.body.testedConcept).toBe('Acute Myocardial Infarction');
@@ -98,8 +103,10 @@ describe('ExamService — Phase 1 question bank', () => {
     expect(entry!.body.questionAngle).toBe('diagnosis');
     expect(entry!.body.commonTrap).toBeTruthy();
     expect(entry!.body.memoryAnchor).toBeTruthy();
-    expect(entry!.subject).toBe('Cardiology');
+    expect(entry!.subject).toBe('');
     expect(entry!.system).toBe('Cardiovascular');
+    expect(entry!.body.subject).toBe('');
+    expect(entry!.body.system).toBe('Cardiovascular');
   });
 
   it('preserves session-question order in exam_session_questions', async () => {
@@ -125,7 +132,7 @@ describe('ExamService — Phase 1 question bank', () => {
   it('populates question_ref_id on attempts', async () => {
     const session = await service.createSession('user-1', makeInput());
 
-    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', 'Cardiology', 'Cardiovascular');
+    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', '', 'Cardiovascular');
     const dbEntry = await questionsRepo.findByExternalId(fp);
     const attempts = await attemptsRepo.findBySessionId(session.id);
 
@@ -142,6 +149,8 @@ describe('ExamService — Phase 1 question bank', () => {
     expect(loaded!.questions[0]!.id).toBe('q-uuid-001');
     expect(loaded!.questions[0]!.text).toBe(QUESTION_TEXT);
     expect(loaded!.questions[0]!.correct_answer).toBe('Acute inferior MI');
+    expect(loaded!.questions[0]!.subject).toBe('');
+    expect(loaded!.questions[0]!.system).toBe('Cardiovascular');
   });
 
   it('works without questions repo — no question_ref_id, no links', async () => {
@@ -161,13 +170,48 @@ describe('ExamService — Phase 1 question bank', () => {
     await service.createSession('user-1', makeInput());
     await service.createSession('user-2', makeInput()); // same question text
 
-    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', 'Cardiology', 'Cardiovascular');
+    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', '', 'Cardiovascular');
     // Both sessions upserted the same fingerprint — only one entry in the bank
     const entry1 = await questionsRepo.findByExternalId(fp);
     expect(entry1).not.toBeNull();
     // findByExternalId returns the same id for both
     const entry2 = questionsRepo._getEntry(fp);
     expect(entry2).toBeDefined();
+  });
+
+  it('normalizes system_breakdown aliases before saving a session', async () => {
+    const input = {
+      ...makeInput(),
+      system_breakdown: { Renal: { total: 1, correct: 1, percentage: 100 } },
+    };
+
+    const session = await service.createSession('user-1', input);
+    const loaded = await sessionsRepo.findById(session.id);
+
+    expect(loaded!.system_breakdown['Renal / Urinary']).toEqual({ total: 1, correct: 1, percentage: 100 });
+    expect(loaded!.system_breakdown['Renal']).toBeUndefined();
+  });
+
+  it('normalizes question system aliases before question bank upsert', async () => {
+    const neuroQuestion = {
+      ...sampleQuestion,
+      id: 'q-neuro-001',
+      subject: 'Physiology',
+      system: 'Nervous System & Special Senses',
+    };
+
+    await service.createSession(
+      'user-1',
+      makeInput([neuroQuestion], { 'q-neuro-001': 'Acute inferior MI' }),
+    );
+
+    const fp = _fingerprint(QUESTION_TEXT, 'Acute inferior MI', 'Physiology', 'Neurology');
+    const entry = questionsRepo._getEntry(fp);
+    expect(entry).toBeDefined();
+    expect(entry!.subject).toBe('Physiology');
+    expect(entry!.system).toBe('Neurology');
+    expect(entry!.body.subject).toBe('Physiology');
+    expect(entry!.body.system).toBe('Neurology');
   });
 });
 
@@ -342,5 +386,90 @@ describe('_getCorrectAnswer', () => {
     const attempts = await attemptsR.findBySessionId(session.id);
     // Answer 'C' matches correct 'C' — should be marked correct
     expect(attempts[0]!.is_correct).toBe(true);
+  });
+});
+
+// ── v8.2 canonical concept bridge — end-to-end through createSession ──────────
+
+describe('ExamService — v8.2 canonical concept bridge', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let conceptsRepo: InMemoryConceptsRepository;
+  let questionConceptsRepo: InMemoryQuestionConceptsRepository;
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let service: ExamService;
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    conceptsRepo = new InMemoryConceptsRepository();
+    questionConceptsRepo = new InMemoryQuestionConceptsRepository();
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+
+    const conceptMapping = new ConceptMappingService(conceptsRepo, questionConceptsRepo);
+    const conceptMastery = new ConceptMasteryService(masteryRepo, questionConceptsRepo, conceptsRepo);
+    service = new ExamService(sessionsRepo, attemptsRepo, questionsRepo, conceptMapping, conceptMastery);
+  });
+
+  it('creates a mastery record for a canonical concept that flows through createSession', async () => {
+    const questionWithCanonical = {
+      ...sampleQuestion,
+      id: 'q-canonical-001',
+      canonicalConcepts: ['Acute Myocardial Infarction'],
+    };
+
+    await service.createSession(
+      'user-bridge-1',
+      makeInput([questionWithCanonical as any], { 'q-canonical-001': 'Acute inferior MI' }),
+    );
+
+    const mastery = await masteryRepo.findByUserId('user-bridge-1');
+    expect(mastery.length).toBeGreaterThan(0);
+
+    // Verify concept row was upserted with source='canonical'
+    const all = conceptsRepo._getAll();
+    const canonical = all.find((c) => c.name === 'Acute Myocardial Infarction');
+    expect(canonical).toBeDefined();
+    expect(canonical!.source).toBe('canonical');
+
+    // Mastery record references the canonical concept UUID
+    const record = mastery.find((m) => m.concept_id === canonical!.id);
+    expect(record).toBeDefined();
+    expect(record!.attempts).toBe(1);
+    expect(record!.correct).toBe(1);
+  });
+
+  it('canonicalConcepts field survives normalizeQuestionTaxonomy spread and reaches mastery', async () => {
+    // Regression guard: if normalizeQuestionTaxonomy dropped canonicalConcepts, no mastery record would appear
+    const questionWithCanonical = {
+      ...sampleQuestion,
+      id: 'q-canonical-002',
+      system: 'Cardiovascular',
+      canonicalConcepts: ['Coronary Artery Disease'],
+    };
+
+    await service.createSession(
+      'user-bridge-2',
+      makeInput([questionWithCanonical as any], { 'q-canonical-002': 'Acute inferior MI' }),
+    );
+
+    const mastery = await masteryRepo.findByUserId('user-bridge-2');
+    const all = conceptsRepo._getAll();
+    const canonical = all.find((c) => c.name === 'Coronary Artery Disease');
+    expect(canonical).toBeDefined();
+    expect(mastery.some((m) => m.concept_id === canonical!.id)).toBe(true);
+  });
+
+  it('does not create any canonical concept rows when canonicalConcepts is absent', async () => {
+    // sampleQuestion has no canonicalConcepts — legacy concepts may be created but none with source='canonical'
+    await service.createSession(
+      'user-bridge-3',
+      makeInput([sampleQuestion], { 'q-uuid-001': 'Acute inferior MI' }),
+    );
+
+    const all = conceptsRepo._getAll();
+    expect(all.every((c) => c.source !== 'canonical')).toBe(true);
   });
 });

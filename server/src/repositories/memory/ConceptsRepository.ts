@@ -14,6 +14,7 @@ export class InMemoryConceptsRepository implements IConceptsRepository {
       system: string;
       description?: string;
       parent_concept_id?: string;
+      source?: 'legacy' | 'canonical';
     },
     _tx?: unknown,
   ): Promise<Concept> {
@@ -25,6 +26,8 @@ export class InMemoryConceptsRepository implements IConceptsRepository {
       if (data.parent_concept_id && !existing.parent_concept_id) {
         existing.parent_concept_id = data.parent_concept_id;
       }
+      // Once canonical, always canonical
+      if (data.source === 'canonical') existing.source = 'canonical';
       return { ...existing };
     }
     const concept: Concept = {
@@ -36,6 +39,7 @@ export class InMemoryConceptsRepository implements IConceptsRepository {
       parent_concept_id: data.parent_concept_id,
       difficulty:        'standard',
       description:       data.description ?? '',
+      source:            data.source ?? 'legacy',
       created_at:        new Date(),
       updated_at:        new Date(),
     };

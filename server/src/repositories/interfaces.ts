@@ -145,6 +145,7 @@ export interface IConceptsRepository {
       system: string;
       description?: string;
       parent_concept_id?: string;
+      source?: 'legacy' | 'canonical';
     },
     tx?: unknown,
   ): Promise<Concept>;

@@ -26,11 +26,15 @@ const SKIP_SLUGS = new Set([
   'usmle', 'step-1', 'step1', 'medical', 'clinical', 'na', 'n-a',
 ]);
 
-function isUsable(value: string | undefined): value is string {
+export function isConceptUsable(value: string | undefined): value is string {
   if (!value) return false;
   const s = value.trim();
   const slug = slugifyConcept(s);
   return s.length >= 3 && slug.length >= 2 && !SKIP_SLUGS.has(slug);
+}
+
+function isUsable(value: string | undefined): value is string {
+  return isConceptUsable(value);
 }
 
 // ── Hierarchy depth ───────────────────────────────────────────────────────────

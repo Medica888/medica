@@ -763,3 +763,160 @@ describe('ConceptReviewLogRepository.getConceptHistory', () => {
     expect(() => new Date(result[0]!.reviewedAt)).not.toThrow();
   });
 });
+
+// ── v8.2 Canonical concept bridge ─────────────────────────────────────────────
+
+describe('ConceptMasteryService — canonical concept bridge (v8.2)', () => {
+  let masteryRepo:  InMemoryUserConceptMasteryRepository;
+  let qcRepo:       InMemoryQuestionConceptsRepository;
+  let conceptsRepo: InMemoryConceptsRepository;
+  let service:      ConceptMasteryService;
+
+  beforeEach(() => {
+    masteryRepo  = new InMemoryUserConceptMasteryRepository();
+    qcRepo       = new InMemoryQuestionConceptsRepository();
+    conceptsRepo = new InMemoryConceptsRepository();
+    // Three-arg constructor: enables canonical bridge
+    service = new ConceptMasteryService(masteryRepo, qcRepo, conceptsRepo);
+  });
+
+  it('question with canonicalConcepts creates canonical mastery rows', async () => {
+    await service.updateFromSession(USER_A, [
+      { questionDbId: 'q-bridge-1', isCorrect: true, canonicalConcepts: ['Aortic Stenosis'] },
+    ]);
+    const rows = await masteryRepo.findByUserId(USER_A);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.attempts).toBe(1);
+    expect(rows[0]!.correct).toBe(1);
+  });
+
+  it('question without canonicalConcepts still uses legacy flow', async () => {
+    const conceptId = await seedConcept(conceptsRepo, 'legacy-only', 'Legacy Only');
+    await qcRepo.linkMany([{ questionId: 'q-legacy', conceptId, weight: 1 }]);
+
+    await service.updateFromSession(USER_A, [
+      { questionDbId: 'q-legacy', isCorrect: false },
+    ]);
+
+    const rows = await masteryRepo.findByUserId(USER_A);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.concept_id).toBe(conceptId);
+    expect(rows[0]!.correct).toBe(0);
+  });
+
+  it('multiple canonicalConcepts produce multiple mastery records', async () => {
+    await service.updateFromSession(USER_A, [
+      {
+        questionDbId: 'q-multi',
+        isCorrect: true,
+        canonicalConcepts: ['Aortic Stenosis', 'Mitral Regurgitation'],
+      },
+    ]);
+    const rows = await masteryRepo.findByUserId(USER_A);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.attempts === 1)).toBe(true);
+  });
+
+  it('duplicate canonicalConcepts do not create duplicate mastery records', async () => {
+    await service.updateFromSession(USER_A, [
+      {
+        questionDbId: 'q-dedup',
+        isCorrect: true,
+        canonicalConcepts: ['Aortic Stenosis', 'aortic stenosis', 'Aortic Stenosis'],
+      },
+    ]);
+    const rows = await masteryRepo.findByUserId(USER_A);
+    // All three normalize to the same slug → one concept → one mastery row
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.attempts).toBe(1);
+  });
+
+  it('skip-list concepts are ignored and do not create mastery rows', async () => {
+    await service.updateFromSession(USER_A, [
+      {
+        questionDbId: 'q-skip',
+        isCorrect: true,
+        canonicalConcepts: ['general', 'unknown', 'mixed', 'Aortic Stenosis'],
+      },
+    ]);
+    const rows = await masteryRepo.findByUserId(USER_A);
+    // Only 'Aortic Stenosis' passes the skip-list filter
+    expect(rows).toHaveLength(1);
+  });
+
+  it('canonical concept has source=canonical in the concepts table', async () => {
+    await service.updateFromSession(USER_A, [
+      { questionDbId: 'q-src', isCorrect: true, canonicalConcepts: ['Beta Blocker Overdose'] },
+    ]);
+    const concept = await conceptsRepo.findBySlug('beta-blocker-overdose');
+    expect(concept).not.toBeNull();
+    expect(concept!.source).toBe('canonical');
+  });
+
+  it('legacy-seeded concept retains source=legacy', async () => {
+    // Seed a concept via the legacy path (no source arg → defaults to 'legacy')
+    const id = await seedConcept(conceptsRepo, 'ace-inhibitors', 'ACE Inhibitors');
+    const before = await conceptsRepo.findById(id);
+    expect(before!.source).toBe('legacy');
+
+    // Running a legacy-only session does not change the source
+    await qcRepo.linkMany([{ questionId: 'q-ace', conceptId: id, weight: 1 }]);
+    await service.updateFromSession(USER_A, [{ questionDbId: 'q-ace', isCorrect: true }]);
+
+    const after = await conceptsRepo.findById(id);
+    expect(after!.source).toBe('legacy');
+  });
+
+  it('cross-path collision is counted exactly once per question', async () => {
+    // Seed legacy concept with the same slug as the canonical concept
+    const id = await seedConcept(conceptsRepo, 'aortic-stenosis', 'Aortic Stenosis');
+    await qcRepo.linkMany([{ questionId: 'q-cross', conceptId: id, weight: 1 }]);
+
+    await service.updateFromSession(USER_A, [
+      {
+        questionDbId: 'q-cross',
+        isCorrect: true,
+        // 'Aortic Stenosis' slugifies to 'aortic-stenosis' → same UUID as legacy link
+        canonicalConcepts: ['Aortic Stenosis'],
+      },
+    ]);
+
+    const rows = await masteryRepo.findByUserId(USER_A);
+    // One concept ID (same UUID), counted once despite appearing in both paths
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.attempts).toBe(1);
+  });
+
+  it('mastery_score and SRS fields are unchanged from legacy behavior', async () => {
+    await service.updateFromSession(USER_A, [
+      { questionDbId: 'q-srs', isCorrect: true, canonicalConcepts: ['Digoxin Mechanism'] },
+    ]);
+    const rows = await masteryRepo.findByUserId(USER_A);
+    const row = rows[0]!;
+    // Correct answer → mastery_score = 1, confidence grows, SRS interval set
+    expect(row.mastery_score).toBe(1);
+    expect(row.confidence_score).toBe(0.2);   // 1 correct / 5 cap
+    expect(row.review_interval_days).toBe(7);  // first-correct SRS schedule
+    expect(row.next_review_at).toBeInstanceOf(Date);
+  });
+
+  it('service without concepts repo skips canonical bridge (legacy compat)', async () => {
+    // Two-arg constructor — no concepts repo
+    const legacyService = new ConceptMasteryService(masteryRepo, qcRepo);
+    const legacyConceptId = await seedConcept(conceptsRepo, 'legacy-compat', 'Legacy Compat');
+    await qcRepo.linkMany([{ questionId: 'q-compat', conceptId: legacyConceptId, weight: 1 }]);
+
+    await legacyService.updateFromSession(USER_A, [
+      {
+        questionDbId: 'q-compat',
+        isCorrect: true,
+        canonicalConcepts: ['Some Canonical Concept'],
+      },
+    ]);
+
+    // Only the legacy link is counted; canonical bridge is skipped (no concepts repo)
+    const rows = await masteryRepo.findByUserId(USER_A);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.concept_id).toBe(legacyConceptId);
+  });
+});

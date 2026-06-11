@@ -21,6 +21,7 @@ const questionSchema = z.object({
   topicSlug: z.string().optional(),
   topicSource: z.string().optional(),
   questionAngle: z.string().optional(),
+  canonicalConcepts: z.array(z.string()).optional(),
 });
 
 const subjectStatsSchema = z.object({
