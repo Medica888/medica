@@ -35,6 +35,7 @@ import {
   normalizeSubject,
   normalizeSystem,
 } from '../lib/medicaTaxonomy.js';
+import { normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 
@@ -901,6 +902,10 @@ export interface BatchTelemetry {
   matrixPasses:           number;  // subject_system validator returned pass
   matrixWarnings:         number;  // subject_system validator returned warn
   matrixFailures:         number;  // subject_system validator returned fail (invalid pair)
+  topicPasses:            number;  // topic validator returned pass
+  topicWarnings:          number;  // topic validator returned warn (unknown or cross-cutting)
+  topicFailures:          number;  // topic validator returned fail (both dims mismatch)
+  unknownTopics:          Array<{ topic: string; subject: string; system: string }>;
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -944,11 +949,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     parsed = JSON.parse(s) as { questions?: unknown[] };
   } catch (parseErr) {
     console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
   if (!Array.isArray(parsed.questions)) {
     console.warn('[generateBatch] AI response missing questions array');
-    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
+    return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
 
   const rawQuestions: Record<string, any>[] = parsed.questions as Record<string, any>[];
@@ -962,6 +967,8 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   let mrRequested = 0, mrPassed = 0, mrRejected = 0, mrSkipped = 0;
   let scopeRejected = 0;
   let matrixPasses = 0, matrixWarnings = 0, matrixFailures = 0;
+  let topicPasses = 0, topicWarnings = 0, topicFailures = 0;
+  const unknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
   const mrFailureCategories = emptyMedicalReviewFailureCategories();
 
   // ── Phase 1: rule-based validation only (MR deferred to Phase 2) ─────────────
@@ -992,6 +999,23 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       if (ssV.status === 'fail')      matrixFailures++;
       else if (ssV.status === 'warn') matrixWarnings++;
       else                            matrixPasses++;
+    }
+
+    const topicV = validation.validators.find(v => v.name === 'topic');
+    if (topicV) {
+      if (topicV.status === 'fail')      topicFailures++;
+      else if (topicV.status === 'warn') {
+        topicWarnings++;
+        if (topicV.reasons.includes('topic_unknown')) {
+          unknownTopics.push({
+            topic:   normalized[i].topic   || normalized[i].canonicalTopic || '',
+            subject: normalized[i].subject || '',
+            system:  normalized[i].system  || '',
+          });
+        }
+      } else {
+        topicPasses++;
+      }
     }
 
     if (validation.passed) {
@@ -1114,6 +1138,10 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       matrixPasses,
       matrixWarnings,
       matrixFailures,
+      topicPasses,
+      topicWarnings,
+      topicFailures,
+      unknownTopics,
       medicalReviewFailureCategories: mrFailureCategories,
     },
   };
@@ -1155,6 +1183,10 @@ export interface GenerationLoopResult {
   totalMatrixPasses:   number;
   totalMatrixWarnings: number;
   totalMatrixFailures: number;
+  totalTopicPasses:    number;
+  totalTopicWarnings:  number;
+  totalTopicFailures:  number;
+  unknownTopics:       Array<{ topic: string; subject: string; system: string }>;
   medicalReviewFailureCategories: MedicalReviewFailureCategories;
 }
 
@@ -1183,6 +1215,8 @@ export async function runAdaptiveRefill(
   let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
   let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
   let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
+  let totalTopicPasses = 0, totalTopicWarnings = 0, totalTopicFailures = 0;
+  const unknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
   const medicalReviewFailureCategories = emptyMedicalReviewFailureCategories();
   let stoppedReason: StoppedReason = 'unknown';
 
@@ -1224,6 +1258,10 @@ export async function runAdaptiveRefill(
       totalMatrixPasses   += batchResult.telemetry.matrixPasses;
       totalMatrixWarnings += batchResult.telemetry.matrixWarnings;
       totalMatrixFailures += batchResult.telemetry.matrixFailures;
+      totalTopicPasses    += batchResult.telemetry.topicPasses;
+      totalTopicWarnings  += batchResult.telemetry.topicWarnings;
+      totalTopicFailures  += batchResult.telemetry.topicFailures;
+      unknownTopics.push(...(batchResult.telemetry.unknownTopics ?? []));
       accumulateMedicalReviewFailureCategories(medicalReviewFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
 
       const beforeFilter  = batchResult.questions.length;
@@ -1258,6 +1296,7 @@ export async function runAdaptiveRefill(
     totalMrRequested, totalMrPassed, totalMrRejected, totalMrSkipped,
     totalRuleRejected, totalDedupRejected, totalScopeRejected,
     totalMatrixPasses, totalMatrixWarnings, totalMatrixFailures,
+    totalTopicPasses, totalTopicWarnings, totalTopicFailures, unknownTopics,
     medicalReviewFailureCategories,
   };
 }
@@ -1272,11 +1311,14 @@ function _questionBodyForGeneratedBank(
   const subject = normalizeSubject(question.subject) ?? normalizeSubject(config.subject) ?? '';
   const system = normalizeSystem(question.system) ?? normalizeSystem(config.system) ?? '';
   const difficulty = normalizeDifficulty(question.difficulty) ?? normalizeDifficulty(config.difficulty) ?? 'Balanced';
+  const rawTopicForNorm = question.topic || question.canonicalTopic || '';
+  const canonicalTopic = normalizeTopic(rawTopicForNorm) ?? question.canonicalTopic ?? '';
   return {
     ...question,
     id: fingerprint,
     subject,
     system,
+    canonicalTopic,
     source: 'ai',
     bankStatus: 'validated_generated',
     promotionStatus: 'candidate',
@@ -1451,6 +1493,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         matrixPasses:                  0,
         matrixWarnings:                0,
         matrixFailures:                0,
+        topicPasses:                   0,
+        topicWarnings:                 0,
+        topicFailures:                 0,
+        unknownTopics:                 [],
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
         reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
@@ -1510,6 +1556,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
             quarantineRejectedCandidates: 0, generatedBankSaved: 0,
             bankPoolUsed: bankPool.length, stoppedReason: 'bank_partial_no_api_key',
             matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0,
+            topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [],
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
             reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
             approvedOnly,
@@ -1533,6 +1580,8 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
     let totalRuleRejected = 0, totalDedupRejected = 0, totalScopeRejected = 0;
     let totalMatrixPasses = 0, totalMatrixWarnings = 0, totalMatrixFailures = 0;
+    let totalTopicPasses = 0, totalTopicWarnings = 0, totalTopicFailures = 0;
+    const totalUnknownTopics: Array<{ topic: string; subject: string; system: string }> = [];
     let refillRounds: number | undefined;
     let stoppedReason: StoppedReason | undefined;
     const totalMrFailureCategories = emptyMedicalReviewFailureCategories();
@@ -1561,6 +1610,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       totalMatrixPasses    = loopResult.totalMatrixPasses;
       totalMatrixWarnings  = loopResult.totalMatrixWarnings;
       totalMatrixFailures  = loopResult.totalMatrixFailures;
+      totalTopicPasses     = loopResult.totalTopicPasses;
+      totalTopicWarnings   = loopResult.totalTopicWarnings;
+      totalTopicFailures   = loopResult.totalTopicFailures;
+      totalUnknownTopics.push(...loopResult.unknownTopics);
       refillRounds         = loopResult.refillRounds;
       stoppedReason        = loopResult.stoppedReason;
       accumulateMedicalReviewFailureCategories(totalMrFailureCategories, loopResult.medicalReviewFailureCategories);
@@ -1582,6 +1635,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         totalMatrixPasses   += batchResult.telemetry.matrixPasses;
         totalMatrixWarnings += batchResult.telemetry.matrixWarnings;
         totalMatrixFailures += batchResult.telemetry.matrixFailures;
+        totalTopicPasses    += batchResult.telemetry.topicPasses;
+        totalTopicWarnings  += batchResult.telemetry.topicWarnings;
+        totalTopicFailures  += batchResult.telemetry.topicFailures;
+        totalUnknownTopics.push(...batchResult.telemetry.unknownTopics);
         accumulateMedicalReviewFailureCategories(totalMrFailureCategories, batchResult.telemetry.medicalReviewFailureCategories);
         offset            += batchSize;
       }
@@ -1606,6 +1663,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
           totalMatrixPasses   += retryResult.telemetry.matrixPasses;
           totalMatrixWarnings += retryResult.telemetry.matrixWarnings;
           totalMatrixFailures += retryResult.telemetry.matrixFailures;
+          totalTopicPasses    += retryResult.telemetry.topicPasses;
+          totalTopicWarnings  += retryResult.telemetry.topicWarnings;
+          totalTopicFailures  += retryResult.telemetry.topicFailures;
+          totalUnknownTopics.push(...retryResult.telemetry.unknownTopics);
           accumulateMedicalReviewFailureCategories(totalMrFailureCategories, retryResult.telemetry.medicalReviewFailureCategories);
           const newDeduped     = dedup(retryResult.questions).filter(q =>
             inScope(q, scope) && !existingConcepts.has(norm(q.testedConcept))
@@ -1677,6 +1738,10 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       matrixPasses:                  totalMatrixPasses,
       matrixWarnings:                totalMatrixWarnings,
       matrixFailures:                totalMatrixFailures,
+      topicPasses:                   totalTopicPasses,
+      topicWarnings:                 totalTopicWarnings,
+      topicFailures:                 totalTopicFailures,
+      unknownTopics:                 totalUnknownTopics,
       generatedBankSaved,
       bankPoolUsed: bankPool.length,
       stoppedReason,

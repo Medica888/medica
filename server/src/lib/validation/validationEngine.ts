@@ -7,6 +7,7 @@ import { validateDifficulty } from './difficultyValidator.js';
 import { validateSubject } from './subjectValidator.js';
 import { validateSubjectSystem } from './subjectSystemValidator.js';
 import { validateSystem } from './systemValidator.js';
+import { validateTopic } from './topicValidator.js';
 import type {
   ValidateQuestionInput,
   ValidationEngineResult,
@@ -62,6 +63,7 @@ function computeScore(results: ValidatorResult[]): number {
     subject: 15,
     system: 15,
     subject_system: 15,
+    topic: 10,
     difficulty: 5,
     scope: 10,
   };
@@ -88,6 +90,7 @@ export async function validateQuestion(input: ValidateQuestionInput): Promise<Va
   validators.push(validateSubject(input.question, input.requestedScope?.subject));
   validators.push(validateSystem(input.question, input.requestedScope?.system));
   validators.push(validateSubjectSystem(input.question));
+  validators.push(validateTopic(input.question));
   validators.push(validateDifficulty(input.question, input.difficulty, policy.allowDifficultyWarn));
 
   const scopeReasons = input.requestedScope
