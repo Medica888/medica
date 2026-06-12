@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const generatedBankStatusSchema = z.enum(['validated_generated', 'approved', 'quarantined']);
+const taxonomyCandidateStatusSchema = z.enum(['pending', 'approved_canonical', 'mapped_alias', 'rejected']);
 
 export const generateQuestionsSchema = z.object({
   config: z.object({
@@ -54,4 +55,17 @@ export const generatedQuestionBankReviewQuerySchema = z.object({
 
 export const generatedQuestionBankStatusUpdateSchema = z.object({
   status: generatedBankStatusSchema,
+});
+
+export const taxonomyCandidateReviewQuerySchema = z.object({
+  status: taxonomyCandidateStatusSchema.optional(),
+  limit:  z.coerce.number().int().min(1).max(200).optional(),
+  page:   z.coerce.number().int().min(1).max(500).optional(),
+  offset: z.coerce.number().int().min(0).max(10000).optional(),
+});
+
+export const taxonomyCandidateStatusUpdateSchema = z.object({
+  status: taxonomyCandidateStatusSchema,
+  mappedTo: z.string().max(200).optional(),
+  note: z.string().max(1000).optional(),
 });

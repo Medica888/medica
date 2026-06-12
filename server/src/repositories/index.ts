@@ -13,6 +13,7 @@ import { InMemoryMasterySnapshotsRepository } from './memory/MasterySnapshotsRep
 import { InMemoryConceptReviewLogRepository } from './memory/ConceptReviewLogRepository.js';
 import { InMemoryQuestionReportsRepository } from './memory/QuestionReportsRepository.js';
 import { InMemoryAuditLogRepository } from './memory/AuditLogRepository.js';
+import { InMemoryTaxonomyCandidatesRepository } from './memory/TaxonomyCandidatesRepository.js';
 
 import { PgUsersRepository } from './pg/UsersRepository.js';
 import { PgExamSessionsRepository } from './pg/ExamSessionsRepository.js';
@@ -27,6 +28,7 @@ import { PgMasterySnapshotsRepository } from './pg/MasterySnapshotsRepository.js
 import { PgConceptReviewLogRepository } from './pg/ConceptReviewLogRepository.js';
 import { PgQuestionReportsRepository } from './pg/QuestionReportsRepository.js';
 import { PgAuditLogRepository } from './pg/AuditLogRepository.js';
+import { PgTaxonomyCandidatesRepository } from './pg/TaxonomyCandidatesRepository.js';
 
 import type { IUsersRepository } from './interfaces.js';
 import type { IExamSessionsRepository } from './interfaces.js';
@@ -41,6 +43,7 @@ import type { IMasterySnapshotsRepository } from './interfaces.js';
 import type { IConceptReviewLogRepository } from './interfaces.js';
 import type { IQuestionReportsRepository } from './interfaces.js';
 import type { IAuditLogRepository } from './interfaces.js';
+import type { ITaxonomyCandidatesRepository } from './interfaces.js';
 
 import { config } from '../config.js';
 
@@ -58,6 +61,7 @@ export interface Repositories {
   reviewLog:          IConceptReviewLogRepository;
   questionReports:    IQuestionReportsRepository;
   auditLog:           IAuditLogRepository;
+  taxonomyCandidates: ITaxonomyCandidatesRepository;
 }
 
 let _repos: Repositories | null = null;
@@ -86,6 +90,7 @@ export function createInMemoryRepositories(): Repositories {
     reviewLog:          new InMemoryConceptReviewLogRepository(),
     questionReports:    new InMemoryQuestionReportsRepository(),
     auditLog:           new InMemoryAuditLogRepository(),
+    taxonomyCandidates: new InMemoryTaxonomyCandidatesRepository(),
   };
 }
 
@@ -106,6 +111,7 @@ export function createPgRepositories(): Repositories {
     reviewLog:          new PgConceptReviewLogRepository(pool),
     questionReports:    new PgQuestionReportsRepository(pool),
     auditLog:           new PgAuditLogRepository(pool),
+    taxonomyCandidates: new PgTaxonomyCandidatesRepository(pool),
   };
 }
 

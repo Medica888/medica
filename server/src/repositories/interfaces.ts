@@ -129,6 +129,51 @@ export interface IQuestionsRepository {
 
 // ── Concept graph ─────────────────────────────────────────────────────────────
 
+export type TaxonomyCandidateStatus = 'pending' | 'approved_canonical' | 'mapped_alias' | 'rejected';
+
+export interface TaxonomyCandidate {
+  id: string;
+  rawLabel: string;
+  rawLabelKey: string;
+  normalizedGuess: string;
+  subject: string;
+  system: string;
+  frequency: number;
+  exampleQuestionFingerprint: string | null;
+  source: string;
+  status: TaxonomyCandidateStatus;
+  metadata: Record<string, unknown>;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+  lastSeenAt?: Date | string;
+}
+
+export interface ITaxonomyCandidatesRepository {
+  upsertUnknownTopicCandidate(data: {
+    rawLabel: string;
+    normalizedGuess: string;
+    subject: string;
+    system: string;
+    exampleQuestionFingerprint?: string | null;
+    source?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<TaxonomyCandidate>;
+
+  findUnknownTopicCandidates(params?: {
+    status?: TaxonomyCandidateStatus;
+    limit?: number;
+    offset?: number;
+  }): Promise<TaxonomyCandidate[]>;
+
+  updateUnknownTopicCandidateStatus(
+    id: string,
+    data: {
+      status: TaxonomyCandidateStatus;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<TaxonomyCandidate | null>;
+}
+
 export interface IConceptsRepository {
   /**
    * Insert or update a concept by slug.

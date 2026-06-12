@@ -17,6 +17,8 @@ import {
   skillsGenerateSchema,
   generatedQuestionBankReviewQuerySchema,
   generatedQuestionBankStatusUpdateSchema,
+  taxonomyCandidateReviewQuerySchema,
+  taxonomyCandidateStatusUpdateSchema,
 } from '../schemas/ai.js';
 import fs from 'fs';
 import path from 'path';
@@ -35,7 +37,7 @@ import {
   normalizeSubject,
   normalizeSystem,
 } from '../lib/medicaTaxonomy.js';
-import { normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
+import { lookupTopic, normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
 import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
@@ -119,6 +121,67 @@ router.get('/skills', (_req: Request, res: Response) => {
 });
 
 // ─── POST /api/generate (skills streaming) ───────────────────────────────────
+
+router.get('/taxonomy-candidates', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const parsed = taxonomyCandidateReviewQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid taxonomy candidate query', code: 'INVALID_QUERY' });
+    return;
+  }
+
+  const { status, limit: rawLimit, page, offset: rawOffset } = parsed.data;
+  const limit = rawLimit ?? 100;
+  const offset = rawOffset ?? ((page ?? 1) - 1) * limit;
+
+  try {
+    const candidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates({
+      status,
+      limit,
+      offset,
+    });
+    res.json({ candidates, count: candidates.length, limit, offset });
+  } catch (err) {
+    console.error('[taxonomy-candidates]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Taxonomy candidate review failed', code: 'TAXONOMY_CANDIDATE_REVIEW_FAILED' });
+  }
+});
+
+router.patch(
+  '/taxonomy-candidates/:id/status',
+  requireAuth,
+  requireAdmin,
+  validate(taxonomyCandidateStatusUpdateSchema),
+  async (req: AuthRequest, res: Response) => {
+    const id = String(req.params.id || '').trim();
+    if (!id || id.length > 100) {
+      res.status(400).json({ error: 'Invalid taxonomy candidate id', code: 'INVALID_TAXONOMY_CANDIDATE_ID' });
+      return;
+    }
+
+    try {
+      const metadata: Record<string, unknown> = {
+        reviewedBy: req.userId,
+        reviewedAt: new Date().toISOString(),
+      };
+      if (req.body.mappedTo) metadata.mappedTo = req.body.mappedTo;
+      if (req.body.note) metadata.note = req.body.note;
+
+      const candidate = await getRepositories().taxonomyCandidates.updateUnknownTopicCandidateStatus(id, {
+        status: req.body.status,
+        metadata,
+      });
+      if (!candidate) {
+        res.status(404).json({ error: 'Taxonomy candidate not found', code: 'TAXONOMY_CANDIDATE_NOT_FOUND' });
+        return;
+      }
+
+      res.json({ candidate });
+    } catch (err) {
+      console.error('[taxonomy-candidates/status]', err instanceof Error ? err.message : String(err));
+      res.status(500).json({ error: 'Taxonomy candidate status update failed', code: 'TAXONOMY_CANDIDATE_STATUS_FAILED' });
+    }
+  },
+);
 
 router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
   const parsed = generatedQuestionBankReviewQuerySchema.safeParse(req.query);
@@ -592,6 +655,175 @@ const INJECTION_PATTERNS = [
 
 function isTopicSuspect(topic: string): boolean {
   return INJECTION_PATTERNS.some(p => p.test(topic));
+}
+
+const NON_MEDICAL_TOPIC_TERMS = [
+  'banana', 'magic', 'wizard', 'dragon', 'pizza', 'recipe', 'football', 'soccer',
+  'crypto', 'bitcoin', 'stock', 'weather', 'lottery', 'casino', 'celebrity',
+  'movie', 'song', 'lyrics', 'dating', 'homework answer',
+];
+
+const MEDICAL_TOPIC_TERMS = [
+  'abdomen', 'acid', 'adrenal', 'airway', 'allergy', 'anemia', 'aneurysm',
+  'antibiotic', 'antibody', 'arrhythmia', 'artery', 'arthritis', 'asthma',
+  'autoimmune', 'bacter', 'benign', 'biopsy', 'blocker', 'blood', 'bone',
+  'brain', 'breast', 'bronch', 'cancer', 'carcinoma', 'cardiac', 'cardio',
+  'cell', 'cerebral', 'chest', 'colon', 'congenital', 'cortisol', 'deficiency',
+  'diabetes', 'diagnosis', 'diuretic', 'dislocation', 'disease', 'disorder',
+  'duct', 'edema', 'embol', 'endocrine', 'enzyme', 'fracture', 'gene',
+  'glomer', 'heart', 'hepatic', 'hormone', 'hypertension', 'immune',
+  'infection', 'inflammation', 'inhibitor', 'injury', 'insulin', 'intestinal',
+  'ischemia', 'kidney', 'lesion', 'leukemia', 'ligament', 'liver', 'lung',
+  'lymphoma', 'malign', 'mechanism', 'metabolism', 'metast', 'muscle',
+  'mutation', 'myocard', 'nerve', 'neoplasm', 'neph', 'neuro', 'obstruction',
+  'oncology', 'organ', 'patellar', 'pathology', 'pharma', 'physiology',
+  'platelet', 'pneum', 'pulmonary', 'receptor', 'renal', 'seizure', 'shock',
+  'skin', 'stroke', 'syndrome', 'tendon', 'thyroid', 'toxin', 'transport',
+  'trauma', 'tumor', 'tumour', 'urinary', 'vascular', 'vein', 'virus',
+];
+
+function hasTermMatch(value: string, terms: string[]): boolean {
+  const normalized = norm(value);
+  return terms.some(term => normalized.includes(norm(term)));
+}
+
+function normalizeUserTopicLabel(value: string): string {
+  return sanitizeTopic(value)
+    .split(' ')
+    .filter(Boolean)
+    .map(part => part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function classifyRequestedTopic(scope: ReturnType<typeof resolveScope>, config: Record<string, any>) {
+  if (!isSpecific(scope) || !scope.scopeText) {
+    return { ok: true, status: 'none' as const, config };
+  }
+
+  const rawTopic = sanitizeTopic(scope.scopeText);
+  const knownTopic = lookupTopic(rawTopic);
+  if (knownTopic) {
+    return {
+      ok: true,
+      status: knownTopic.wasAlias ? 'known_alias' as const : 'known' as const,
+      canonicalTopic: knownTopic.canonical,
+      config: {
+        ...config,
+        topic: knownTopic.canonical,
+        rawTopic: scope.scopeType === 'manualTopic' ? rawTopic : config.rawTopic,
+        canonicalTopic: knownTopic.canonical,
+        subject: config.subject || knownTopic.subject,
+        system: config.system || knownTopic.system,
+      },
+    };
+  }
+
+  if (hasTermMatch(rawTopic, NON_MEDICAL_TOPIC_TERMS)) {
+    return {
+      ok: false,
+      status: 'rejected' as const,
+      reason: 'Topic contains non-medical or unsafe terms.',
+      config,
+    };
+  }
+
+  if (!hasTermMatch(rawTopic, MEDICAL_TOPIC_TERMS)) {
+    return {
+      ok: false,
+      status: 'rejected' as const,
+      reason: 'Topic is not recognized as a medical education topic.',
+      config,
+    };
+  }
+
+  return {
+    ok: true,
+    status: 'medical_unknown' as const,
+    canonicalTopic: normalizeUserTopicLabel(rawTopic),
+    config: {
+      ...config,
+      topic: normalizeUserTopicLabel(rawTopic),
+      rawTopic,
+      canonicalTopic: normalizeUserTopicLabel(rawTopic),
+      topicSource: config.topicSource || 'manual_medical_unknown',
+    },
+  };
+}
+
+type TopicIntakeResult = ReturnType<typeof classifyRequestedTopic>;
+
+function firstQuestionFingerprint(questions: Record<string, any>[], topic?: string): string | null {
+  const needle = norm(topic || '');
+  const question = questions.find(q => {
+    if (!needle) return true;
+    return [q.topic, q.canonicalTopic, q.rawTopic, q.testedConcept]
+      .map(value => norm(value || ''))
+      .some(value => value && (value.includes(needle) || needle.includes(value)));
+  }) ?? questions[0];
+  if (!question) return null;
+  const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
+  return fingerprint && fingerprint !== '||' ? fingerprint : null;
+}
+
+async function captureUnknownTopicCandidates(params: {
+  topicIntake: TopicIntakeResult;
+  unknownTopics: Array<{ topic: string; subject: string; system: string }>;
+  questions: Record<string, any>[];
+  config: Record<string, any>;
+}): Promise<number> {
+  const repo = getRepositories().taxonomyCandidates;
+  const seen = new Set<string>();
+  let captured = 0;
+  const enqueue = async (candidate: {
+    rawLabel: string;
+    normalizedGuess?: string;
+    subject?: string;
+    system?: string;
+    source: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    const rawLabel = sanitizeTopic(candidate.rawLabel);
+    if (!rawLabel) return;
+    const key = norm(rawLabel);
+    if (seen.has(key)) return;
+    seen.add(key);
+    await repo.upsertUnknownTopicCandidate({
+      rawLabel,
+      normalizedGuess: candidate.normalizedGuess || normalizeUserTopicLabel(rawLabel),
+      subject: candidate.subject || String(params.config.subject || ''),
+      system: candidate.system || String(params.config.system || ''),
+      exampleQuestionFingerprint: firstQuestionFingerprint(params.questions, rawLabel),
+      source: candidate.source,
+      metadata: candidate.metadata,
+    });
+    captured++;
+  };
+
+  if (params.topicIntake.ok && params.topicIntake.status === 'medical_unknown') {
+    const intakeConfig = params.topicIntake.config as Record<string, any>;
+    const rawLabel = String(intakeConfig.rawTopic || intakeConfig.topic || '');
+    const matchingUnknown = params.unknownTopics.find(unknown => norm(unknown.topic) === norm(params.topicIntake.canonicalTopic || rawLabel));
+    await enqueue({
+      rawLabel,
+      normalizedGuess: params.topicIntake.canonicalTopic,
+      subject: matchingUnknown?.subject || String(intakeConfig.subject || params.config.subject || ''),
+      system: matchingUnknown?.system || String(intakeConfig.system || params.config.system || ''),
+      source: 'manual_topic',
+      metadata: { intakeStatus: params.topicIntake.status },
+    });
+  }
+
+  for (const unknown of params.unknownTopics) {
+    await enqueue({
+      rawLabel: unknown.topic,
+      subject: unknown.subject,
+      system: unknown.system,
+      source: 'validation_topic',
+      metadata: { validatorReason: 'topic_unknown' },
+    });
+  }
+
+  return captured;
 }
 
 function resolveScope(config: Record<string, any>) {
@@ -1530,14 +1762,28 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     }
     config = normalizeConfigTaxonomy(config);
     const targetCount = Math.min(Math.max(Number(config.questionCount) || 5, 1), 40);
-    const scope = resolveScope(config);
-    const specific = isSpecific(scope);
+    let scope = resolveScope(config);
+    let specific = isSpecific(scope);
 
     // Reject suspect topic text before it reaches the prompt.
     if (specific && isTopicSuspect(scope.scopeText)) {
       res.status(400).json({ error: 'Invalid topic — contains disallowed content', code: 'INVALID_TOPIC' });
       return;
     }
+
+    // Classify manual topics before prompt construction or generated-bank lookup.
+    const topicIntake = classifyRequestedTopic(scope, config);
+    if (!topicIntake.ok) {
+      res.status(400).json({
+        error: 'Invalid topic - enter a medical education topic',
+        code: 'INVALID_TOPIC',
+        reason: topicIntake.reason,
+      });
+      return;
+    }
+    config = topicIntake.config;
+    scope = resolveScope(config);
+    specific = isSpecific(scope);
 
     // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
     // Requires an authenticated user (optionalAuth sets req.userId when token is present).
@@ -1828,6 +2074,17 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       await getRepositories().questions.markUsedByExternalIds(returnedBankFingerprints).catch(() => {});
     }
     const generatedBankSaved = await _saveGeneratedQuestionsToBank(allQuestions, config).catch(() => 0);
+    const taxonomyCandidatesCaptured = generatedBankSaved > 0
+      ? await captureUnknownTopicCandidates({
+        topicIntake,
+        unknownTopics: totalUnknownTopics,
+        questions: allQuestions,
+        config,
+      }).catch(err => {
+        console.warn('[generate-questions] taxonomy candidate capture skipped:', (err as Error).message);
+        return 0;
+      })
+      : 0;
 
     const telemetry = {
       // Backward-compatible existing fields
@@ -1857,6 +2114,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       topicWarnings:                 totalTopicWarnings,
       topicFailures:                 totalTopicFailures,
       unknownTopics:                 totalUnknownTopics,
+      taxonomyCandidatesCaptured,
       conceptPasses:                 totalConceptPasses,
       conceptWarnings:               totalConceptWarnings,
       conceptFailures:               totalConceptFailures,

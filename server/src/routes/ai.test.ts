@@ -1015,6 +1015,52 @@ describe('generated question bank', () => {
     expect(res.body.source).not.toBe('generated-bank');
   });
 
+  it('rejects non-medical manual topics before live AI is required', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'banana heart magic' } })
+      .expect(400);
+
+    expect(res.body.code).toBe('INVALID_TOPIC');
+    expect(res.body.reason).toContain('non-medical');
+  });
+
+  it('allows medical unknown manual topics to continue into the AI generation path', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
+      .expect(503);
+
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('allows orthopedic medical unknown manual topics to continue into the AI generation path', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'patellar dislocations' } })
+      .expect(503);
+
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('accepts known topic aliases before prompt construction', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({
+        config: {
+          mode: 'practice',
+          questionCount: 1,
+          subject: 'Pharmacology',
+          system: 'Renal',
+          difficulty: 'Balanced',
+          topic: 'loop diuretics',
+        },
+      })
+      .expect(503);
+
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
   it('serves legacy Skin bank rows for Dermatology requests', async () => {
     await seedBankQuestion({
       subject: 'Pathology',
@@ -1147,6 +1193,76 @@ describe('generated question bank', () => {
     expect(res.body.metrics.validatedGenerated).toBe(1);
     expect(res.body.metrics.approved).toBe(1);
     expect(res.body.metrics.quarantined).toBe(0);
+  });
+
+  it('requires admin access for taxonomy candidate review endpoints', async () => {
+    await request(app)
+      .get('/api/taxonomy-candidates')
+      .expect(401);
+
+    await request(app)
+      .get('/api/taxonomy-candidates')
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+  });
+
+  it('lists pending taxonomy candidates for admins', async () => {
+    await getRepositories().taxonomyCandidates.upsertUnknownTopicCandidate({
+      rawLabel: 'breast cancers',
+      normalizedGuess: 'Breast Cancers',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      exampleQuestionFingerprint: 'fp-breast-cancers',
+      source: 'manual_topic',
+    });
+
+    const res = await request(app)
+      .get('/api/taxonomy-candidates?status=pending')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+
+    expect(res.body.count).toBe(1);
+    expect(res.body.candidates[0]).toMatchObject({
+      rawLabel: 'breast cancers',
+      normalizedGuess: 'Breast Cancers',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      status: 'pending',
+      frequency: 1,
+    });
+  });
+
+  it('allows admins to map a taxonomy candidate as an alias', async () => {
+    const candidate = await getRepositories().taxonomyCandidates.upsertUnknownTopicCandidate({
+      rawLabel: 'breast cancers',
+      normalizedGuess: 'Breast Cancers',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      source: 'manual_topic',
+    });
+
+    const res = await request(app)
+      .patch(`/api/taxonomy-candidates/${candidate.id}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'mapped_alias', mappedTo: 'Breast Cancer Pathology', note: 'Map plural to canonical topic.' })
+      .expect(200);
+
+    expect(res.body.candidate.status).toBe('mapped_alias');
+    expect(res.body.candidate.metadata).toMatchObject({
+      mappedTo: 'Breast Cancer Pathology',
+      note: 'Map plural to canonical topic.',
+      reviewedBy: 'user-1',
+    });
+  });
+
+  it('returns 404 when updating a missing taxonomy candidate', async () => {
+    const res = await request(app)
+      .patch('/api/taxonomy-candidates/00000000-0000-0000-0000-000000000000/status')
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'rejected', note: 'Noisy label.' })
+      .expect(404);
+
+    expect(res.body.code).toBe('TAXONOMY_CANDIDATE_NOT_FOUND');
   });
 
   it('prefers approved generated-bank questions over unapproved validated candidates', async () => {
@@ -1487,6 +1603,104 @@ describe('hybrid question bank fill', () => {
 
     expect(res.status).not.toBe(200);
     expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
+  });
+
+  it('captures validated medical-unknown manual topics as taxonomy candidates', async () => {
+    const breastCancerQuestion = makePromotableQuestion({
+      id: 'breast-cancer-q-1',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      topic: 'Breast Cancers',
+      canonicalTopic: 'Breast Cancers',
+      testedConcept: 'breast cancer estrogen receptor pathology',
+      questionAngle: 'breast-cancer-pathology',
+      stem: 'A 54-year-old woman presents with a firm, irregular breast mass and nipple retraction. Core biopsy shows infiltrating malignant cells arranged in duct-like structures with desmoplastic stroma, and immunohistochemistry shows estrogen receptor expression. Which diagnosis best explains these biopsy findings?',
+      options: [
+        'Estrogen receptor positive invasive ductal carcinoma',
+        'Fibroadenoma with hormonally responsive stromal proliferation',
+        'Acute bacterial mastitis with neutrophilic abscess formation',
+        'Fat necrosis with calcified adipocyte membranes',
+      ],
+      correctAnswer: 'A',
+      explanation: 'Invasive ductal carcinoma is the most common breast cancer and often presents as a firm irregular mass with stromal desmoplasia and duct-forming malignant epithelial cells. Estrogen receptor testing is clinically important because receptor-positive tumors may respond to endocrine therapy. Fibroadenoma is benign and well circumscribed, mastitis is inflammatory and infectious, and fat necrosis follows trauma or surgery rather than forming invasive malignant ducts.',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([breastCancerQuestion]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
+      .expect(200);
+
+    expect(res.body.telemetry.taxonomyCandidatesCaptured).toBe(1);
+    const candidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      rawLabel: 'breast cancers',
+      normalizedGuess: 'Breast Cancers',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      frequency: 1,
+      source: 'manual_topic',
+      status: 'pending',
+    });
+    expect(candidates[0].exampleQuestionFingerprint).toBeTruthy();
+  });
+
+  it('increments an existing taxonomy candidate instead of duplicating it', async () => {
+    const firstQuestion = makePromotableQuestion({
+      id: 'breast-cancer-q-1',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      topic: 'Breast Cancers',
+      canonicalTopic: 'Breast Cancers',
+      testedConcept: 'breast cancer receptor pathology first',
+      questionAngle: 'breast-cancer-pathology-first',
+      stem: 'A 54-year-old woman presents with a new fixed breast mass and dimpling of the overlying skin. Biopsy shows infiltrating malignant epithelial cells forming duct-like glands within a dense fibrotic stroma. Which diagnosis is most consistent with this pathologic pattern?',
+      options: [
+        'Invasive ductal carcinoma of the breast',
+        'Fibrocystic change with apocrine metaplasia',
+        'Lactational adenoma with benign glandular expansion',
+        'Plasma cell mastitis involving subareolar ducts',
+      ],
+      correctAnswer: 'A',
+      explanation: 'A fixed breast mass with skin dimpling and malignant duct-forming epithelial cells in a desmoplastic stroma is most consistent with invasive ductal carcinoma. Fibrocystic change can cause nodularity but lacks invasive malignant glands. Lactational adenoma is benign and pregnancy associated. Plasma cell mastitis causes inflammatory subareolar disease rather than invasive carcinoma.',
+    });
+    const secondQuestion = makePromotableQuestion({
+      id: 'breast-cancer-q-2',
+      subject: 'Pathology',
+      system: 'Reproductive',
+      topic: 'Breast Cancers',
+      canonicalTopic: 'Breast Cancers',
+      testedConcept: 'breast cancer receptor pathology second',
+      questionAngle: 'breast-cancer-pathology-second',
+      stem: 'A 61-year-old woman undergoes biopsy of a spiculated breast lesion found on mammography. Histology shows malignant epithelial cells invading through the basement membrane, and additional testing demonstrates estrogen receptor positivity. Which feature most directly supports malignant breast cancer rather than a benign breast lesion?',
+      options: [
+        'Invasion of epithelial cells beyond the basement membrane',
+        'Cyst dilation with apocrine metaplasia',
+        'Well-circumscribed stromal and glandular proliferation',
+        'Milk stasis with acute inflammatory infiltrates',
+      ],
+      correctAnswer: 'A',
+      explanation: 'Invasion through the basement membrane is the defining feature that separates carcinoma from in situ or benign proliferative breast lesions. Estrogen receptor positivity helps classify the tumor and guide therapy, but invasive growth establishes malignant behavior. Apocrine metaplasia, fibroadenoma-like stromal proliferation, and lactational inflammation do not indicate invasive breast carcinoma.',
+    });
+    mockMessagesCreate
+      .mockResolvedValueOnce(aiResponseWith([firstQuestion]))
+      .mockResolvedValueOnce(aiResponseWith([secondQuestion]));
+
+    await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
+      .expect(200);
+
+    await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 2, difficulty: 'Balanced', topic: 'breast cancers' } })
+      .expect(200);
+
+    const candidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].rawLabel).toBe('breast cancers');
+    expect(candidates[0].frequency).toBe(2);
   });
 
   it('serves bank questions and fills shortfall with AI when bank is partial', async () => {
