@@ -115,12 +115,12 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
     expect(bp.reason).toBeUndefined();
   });
 
-  it('buckets weak concepts correctly (mastery_score < 0.65)', async () => {
+  it('buckets weak concepts correctly (P1 mastery_score < 0.50)', async () => {
     // 2 weak concepts
     const c1 = await seedConcept(concepts, 'weak-1', 'ACE Inhibitor Adverse Effects');
     const c2 = await seedConcept(concepts, 'weak-2', 'Beta-Blocker Overdose');
     await seedMastery(masteryRepo, USER, c1, 2, 0);  // mastery 0.0 → weak
-    await seedMastery(masteryRepo, USER, c2, 2, 1);  // mastery 0.5 → weak
+    await seedMastery(masteryRepo, USER, c2, 4, 1);  // mastery 0.25 -> weak
     await seedFillers(concepts, masteryRepo, USER, 18, 100); // 18 strong fillers
 
     const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10);
@@ -129,8 +129,8 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
     expect(bp.weakConcepts).not.toContain('Filler Concept 100');
   });
 
-  it('buckets medium concepts correctly (0.65 ≤ mastery_score < 0.75)', async () => {
-    // 13/20 = 0.65 exactly → focus tier
+  it('buckets medium concepts correctly (P2 0.50 <= mastery_score < 0.70)', async () => {
+    // 13/20 = 0.65 -> P2 tier
     const cMed = await seedConcept(concepts, 'medium-1', 'Digoxin Mechanism');
     await seedMastery(masteryRepo, USER, cMed, 20, 13);
     await seedFillers(concepts, masteryRepo, USER, 19, 200);
@@ -139,7 +139,7 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
     expect(bp.mediumConcepts).toContain('Digoxin Mechanism');
   });
 
-  it('buckets strong concepts correctly (mastery_score ≥ 0.75)', async () => {
+  it('buckets strong concepts correctly (P3/on-track mastery_score >= 0.70)', async () => {
     const cStr = await seedConcept(concepts, 'strong-1', 'Basic Pharmacokinetics');
     await seedMastery(masteryRepo, USER, cStr, 10, 10); // mastery 1.0
     await seedFillers(concepts, masteryRepo, USER, 19, 300);
@@ -156,7 +156,7 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
     const cHigh = await seedConcept(concepts, 'barely-weak', 'Barely Weak Concept');
     await seedMastery(masteryRepo, USER, cLow,  2, 0); // 0.00 — weakest
     await seedMastery(masteryRepo, USER, cMid,  4, 1); // 0.25
-    await seedMastery(masteryRepo, USER, cHigh, 4, 2); // 0.50
+    await seedMastery(masteryRepo, USER, cHigh, 5, 2); // 0.40
     await seedFillers(concepts, masteryRepo, USER, 17, 400);
 
     const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10);
@@ -166,11 +166,11 @@ describe('AdaptiveExamService — adaptive strategy (≥20 records)', () => {
   });
 
   it('uses recent_incorrect_count as tiebreaker when mastery_score is equal', async () => {
-    // Both mastery 0.5, but different incorrect counts
+    // Both mastery 0.25, but different incorrect counts
     const cHighErr = await seedConcept(concepts, 'high-errors',  'High Error Concept');
     const cLowErr  = await seedConcept(concepts, 'low-errors',   'Low Error Concept');
-    await seedMastery(masteryRepo, USER, cHighErr, 4, 2); // mastery 0.5, incorrect 2
-    await seedMastery(masteryRepo, USER, cLowErr,  2, 1); // mastery 0.5, incorrect 1
+    await seedMastery(masteryRepo, USER, cHighErr, 8, 2); // mastery 0.25, incorrect 6
+    await seedMastery(masteryRepo, USER, cLowErr,  4, 1); // mastery 0.25, incorrect 3
     await seedFillers(concepts, masteryRepo, USER, 18, 500);
 
     const bp = await makeService(masteryRepo, concepts).buildAdaptiveBlueprint(USER, 10);
@@ -357,11 +357,11 @@ describe('buildConceptBuckets — weakest-first order preserved when findManyByI
     };
 
     const masteryRepo = new InMemoryUserConceptMasteryRepository();
-    // mastery 0.00, 0.25, 0.50 — all weak (< 0.65)
+    // mastery 0.00, 0.25, 0.40 -> all weak (< 0.50)
     await masteryRepo.upsertMany([
       { userId: USER, conceptId: c1.id, attempted: 4, correct: 0 }, // 0.00
       { userId: USER, conceptId: c2.id, attempted: 4, correct: 1 }, // 0.25
-      { userId: USER, conceptId: c3.id, attempted: 4, correct: 2 }, // 0.50
+      { userId: USER, conceptId: c3.id, attempted: 5, correct: 2 }, // 0.40
     ]);
     const rows = await masteryRepo.findByUserId(USER);
 

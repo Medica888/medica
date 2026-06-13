@@ -322,7 +322,7 @@ describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
     saveQuestionReport(q('q-post'), 'wrong_answer', { mode: 'practice' })
 
     expect(mockFetch).toHaveBeenCalledWith(
-      '/api/question-reports',
+      'http://localhost:4000/api/question-reports',
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -349,7 +349,7 @@ describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url, opts] = mockFetch.mock.calls[0]
-    expect(url).toBe('/api/question-reports')
+    expect(url).toBe('http://localhost:4000/api/question-reports')
     const body = JSON.parse(opts.body)
     expect(body.fingerprint).toBeDefined()
     expect(body.fingerprint).not.toBe('')

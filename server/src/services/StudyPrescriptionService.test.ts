@@ -98,7 +98,7 @@ describe('StudyPrescriptionService - daily study plan', () => {
     expect(plan.summary).toMatch(/No urgent concept reviews/);
   });
 
-  it('ranks priority concepts before focus and reinforced concepts', async () => {
+  it('ranks P1 concepts before P2 and P3 concepts', async () => {
     const focusId = await seedConcept(concepts, 'daily-focus', 'Daily Focus');
     const priorityId = await seedConcept(concepts, 'daily-priority', 'Daily Priority');
     const reinforcedId = await seedConcept(concepts, 'daily-reinforced', 'Daily Reinforced');
@@ -109,7 +109,7 @@ describe('StudyPrescriptionService - daily study plan', () => {
 
     const plan = await makeService(mastery, concepts).getDailyPlan(USER, score);
     expect(plan.conceptReviews[0]?.conceptId).toBe(priorityId);
-    expect(plan.conceptReviews[0]?.priority).toBe('priority');
+    expect(plan.conceptReviews[0]?.priority).toBe('p1');
   });
 
   it('uses mastery, confidence, and recent incorrects to break ranking ties', async () => {
@@ -117,7 +117,7 @@ describe('StudyPrescriptionService - daily study plan', () => {
     const c2 = await seedConcept(concepts, 'daily-tie-low-conf', 'Low Confidence Tie');
     const c3 = await seedConcept(concepts, 'daily-tie-more-wrong', 'More Wrong Tie');
     await seedMastery(mastery, USER, c1, 10, 5);
-    await seedMastery(mastery, USER, c2, 2, 1);
+    await seedMastery(mastery, USER, c2, 2, 0);
     await seedMastery(mastery, USER, c3, 10, 5);
     await seedFillers(concepts, mastery, USER, MIN - 3, 1300);
 
@@ -183,7 +183,7 @@ describe('StudyPrescriptionService - daily study plan', () => {
 
   it('includes next review and interval fields in concept reviews', async () => {
     const conceptId = await seedConcept(concepts, 'daily-srs-fields', 'Daily SRS Fields');
-    await seedMastery(mastery, USER, conceptId, 9, 6);
+    await seedMastery(mastery, USER, conceptId, 9, 5);
     await seedMastery(mastery, USER, conceptId, 1, 1);
     await seedFillers(concepts, mastery, USER, MIN - 1, 1800);
 
@@ -208,40 +208,40 @@ describe('StudyPrescriptionService — enabled (20+ records)', () => {
     expect(rx.enabled).toBe(true);
   });
 
-  it('buckets mastery_score < 0.65 into priority', async () => {
+  it('buckets mastery_score < 0.50 into P1', async () => {
     const c = await seedConcept(concepts, 'weak-rx', 'Weak RX');
-    await seedMastery(mastery, USER, c, 2, 0); // 0.0 → priority
+    await seedMastery(mastery, USER, c, 2, 0);
     await seedFillers(concepts, mastery, USER, MIN - 1, 100);
     const rx = await makeService(mastery, concepts).getPrescription(USER);
-    expect(rx.priority.some(p => p.name === 'Weak RX')).toBe(true);
+    expect(rx.p1.some(p => p.name === 'Weak RX')).toBe(true);
   });
 
-  it('buckets 0.65 ≤ mastery_score < 0.75 into focus', async () => {
+  it('buckets 0.50 <= mastery_score < 0.70 into P2', async () => {
     const c = await seedConcept(concepts, 'focus-rx', 'Focus RX');
-    await seedMastery(mastery, USER, c, 20, 13); // 0.65 exactly → focus
+    await seedMastery(mastery, USER, c, 20, 10);
     await seedFillers(concepts, mastery, USER, MIN - 1, 200);
     const rx = await makeService(mastery, concepts).getPrescription(USER);
-    expect(rx.focus.some(f => f.name === 'Focus RX')).toBe(true);
-    expect(rx.priority.some(p => p.name === 'Focus RX')).toBe(false);
+    expect(rx.p2.some(f => f.name === 'Focus RX')).toBe(true);
+    expect(rx.p1.some(p => p.name === 'Focus RX')).toBe(false);
   });
 
-  it('buckets 0.75 ≤ mastery_score < 0.85 into reinforced', async () => {
+  it('buckets 0.70 <= mastery_score < 0.80 into P3', async () => {
     const c = await seedConcept(concepts, 'reinf-rx', 'Reinforced RX');
-    await seedMastery(mastery, USER, c, 20, 15); // 0.75 exactly → reinforced
+    await seedMastery(mastery, USER, c, 10, 7);
     await seedFillers(concepts, mastery, USER, MIN - 1, 300);
     const rx = await makeService(mastery, concepts).getPrescription(USER);
-    expect(rx.reinforced.some(r => r.name === 'Reinforced RX')).toBe(true);
+    expect(rx.p3.some(r => r.name === 'Reinforced RX')).toBe(true);
   });
 
-  it('excludes mastery_score >= 0.85 (on-track) from all tiers', async () => {
-    const c1 = await seedConcept(concepts, 'ontrack-85', 'On Track 85');
+  it('excludes mastery_score >= 0.80 from all prescription tiers', async () => {
+    const c1 = await seedConcept(concepts, 'ontrack-80', 'On Track 80');
     const c2 = await seedConcept(concepts, 'ontrack-92', 'On Track 92');
-    await seedMastery(mastery, USER, c1, 20, 17); // 0.85 → excluded
-    await seedMastery(mastery, USER, c2, 10, 10); // 1.0  → excluded
+    await seedMastery(mastery, USER, c1, 10, 8);
+    await seedMastery(mastery, USER, c2, 10, 10);
     await seedFillers(concepts, mastery, USER, MIN - 2, 400);
     const rx = await makeService(mastery, concepts).getPrescription(USER);
-    const allNames = [...rx.priority, ...rx.focus, ...rx.reinforced].map(c => c.name);
-    expect(allNames).not.toContain('On Track 85');
+    const allNames = [...rx.p1, ...rx.p2, ...rx.p3].map(c => c.name);
+    expect(allNames).not.toContain('On Track 80');
     expect(allNames).not.toContain('On Track 92');
   });
 
@@ -250,8 +250,8 @@ describe('StudyPrescriptionService — enabled (20+ records)', () => {
     const c2 = await seedConcept(concepts, 'low-err-rx',  'Low Error');
     // 6 attempts, 0 correct: total_incorrect=6 (>= 5) → "Persistent weak area"
     await seedMastery(mastery, USER, c1, 6, 0);
-    // 2 attempts, 1 correct: total_incorrect=1 (< 5) → default priority message
-    await seedMastery(mastery, USER, c2, 2, 1);
+    // 2 attempts, 0 correct: total_incorrect=2 (< 5), still P1.
+    await seedMastery(mastery, USER, c2, 2, 0);
     await seedFillers(concepts, mastery, USER, MIN - 2, 500);
     const rx      = await makeService(mastery, concepts).getPrescription(USER);
     const highErr = rx.priority.find(p => p.name === 'High Error');

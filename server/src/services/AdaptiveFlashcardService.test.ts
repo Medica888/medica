@@ -102,7 +102,7 @@ describe('AdaptiveFlashcardService — adaptive strategy', () => {
     expect(plan.enabled).toBe(true);
   });
 
-  it('puts mastery_score < 0.65 concepts into weakConcepts', async () => {
+  it('puts P1 mastery_score < 0.50 concepts into weakConcepts', async () => {
     const c1 = await seedConcept(concepts, 'weak-fc', 'ACE Inhibitor Cough');
     await seedMastery(masteryRepo, USER, c1, 2, 0); // mastery 0.0
     await seedFillers(concepts, masteryRepo, USER, MIN - 1, 100);
@@ -117,7 +117,7 @@ describe('AdaptiveFlashcardService — adaptive strategy', () => {
     const c3 = await seedConcept(concepts, 'barely-weak-fc', 'Barely Weak');
     await seedMastery(masteryRepo, USER, c1, 2, 0); // 0.00
     await seedMastery(masteryRepo, USER, c2, 4, 1); // 0.25
-    await seedMastery(masteryRepo, USER, c3, 4, 2); // 0.50
+    await seedMastery(masteryRepo, USER, c3, 5, 2); // 0.40
     await seedFillers(concepts, masteryRepo, USER, MIN - 3, 200);
 
     const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);
@@ -129,8 +129,8 @@ describe('AdaptiveFlashcardService — adaptive strategy', () => {
   it('uses recent_incorrect_count as tiebreaker for equal mastery_score', async () => {
     const cHigh = await seedConcept(concepts, 'high-err-fc', 'High Error FC');
     const cLow  = await seedConcept(concepts, 'low-err-fc',  'Low Error FC');
-    await seedMastery(masteryRepo, USER, cHigh, 4, 2); // mastery 0.5, incorrect 2
-    await seedMastery(masteryRepo, USER, cLow,  2, 1); // mastery 0.5, incorrect 1
+    await seedMastery(masteryRepo, USER, cHigh, 8, 2); // mastery 0.25, incorrect 6
+    await seedMastery(masteryRepo, USER, cLow,  4, 1); // mastery 0.25, incorrect 3
     await seedFillers(concepts, masteryRepo, USER, MIN - 2, 300);
 
     const plan = await makeService(masteryRepo, concepts).buildAdaptiveFlashcardPlan(USER);

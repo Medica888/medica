@@ -44,23 +44,23 @@ function makeService(
 // ── masteryTier — exact boundary ──────────────────────────────────────────────
 
 describe('masteryTier', () => {
-  it('returns priority for score < 0.65', () => {
+  it('returns priority/P1 for score < 0.50', () => {
     expect(masteryTier(0.00)).toBe('priority');
-    expect(masteryTier(0.64)).toBe('priority');
+    expect(masteryTier(0.49)).toBe('priority');
   });
 
-  it('returns focus at exactly 0.65 and up to < 0.75', () => {
-    expect(masteryTier(0.65)).toBe('focus');
-    expect(masteryTier(0.74)).toBe('focus');
+  it('returns focus/P2 at exactly 0.50 and up to < 0.70', () => {
+    expect(masteryTier(0.50)).toBe('focus');
+    expect(masteryTier(0.69)).toBe('focus');
   });
 
-  it('returns reinforced at exactly 0.75 and up to < 0.85', () => {
-    expect(masteryTier(0.75)).toBe('reinforced');
-    expect(masteryTier(0.84)).toBe('reinforced');
+  it('returns reinforced/P3 at exactly 0.70 and up to < 0.80', () => {
+    expect(masteryTier(0.70)).toBe('reinforced');
+    expect(masteryTier(0.79)).toBe('reinforced');
   });
 
-  it('returns ontrack at exactly 0.85 and above', () => {
-    expect(masteryTier(0.85)).toBe('ontrack');
+  it('returns ontrack at exactly 0.80 and above', () => {
+    expect(masteryTier(0.80)).toBe('ontrack');
     expect(masteryTier(1.00)).toBe('ontrack');
   });
 });
@@ -93,15 +93,15 @@ describe('MasteryQueryService.getOverview', () => {
 
     // focus     (mastery 13/20 = 0.65 — exactly at boundary)
     const c2 = await seedConcept(concepts, 'c2', 'C2');
-    await seedMastery(masteryRepo, USER, c2, 20, 13);
+    await seedMastery(masteryRepo, USER, c2, 20, 10);
 
     // reinforced (mastery 15/20 = 0.75 — exactly at boundary)
     const c3 = await seedConcept(concepts, 'c3', 'C3');
-    await seedMastery(masteryRepo, USER, c3, 20, 15);
+    await seedMastery(masteryRepo, USER, c3, 10, 7);
 
     // ontrack   (mastery 17/20 = 0.85 — exactly at boundary)
     const c4 = await seedConcept(concepts, 'c4', 'C4');
-    await seedMastery(masteryRepo, USER, c4, 20, 17);
+    await seedMastery(masteryRepo, USER, c4, 10, 8);
 
     const ov = await makeService(masteryRepo, concepts).getOverview(USER);
     expect(ov.total_concepts).toBe(4);
@@ -350,13 +350,13 @@ describe('MasteryQueryService.getSubjectBreakdown', () => {
     expect(neuro!.rollupConfidence).toBeCloseTo(0.9, 2);
   });
 
-  it('counts weakConceptCount as concepts with mastery_score < 0.65', async () => {
+  it('counts weakConceptCount as concepts with mastery_score < 0.50', async () => {
     const c1 = await seedConcept(concepts, 'wk-1', 'Weak 1',   undefined, 'Pathology');
     const c2 = await seedConcept(concepts, 'wk-2', 'Boundary', undefined, 'Pathology');
     const c3 = await seedConcept(concepts, 'wk-3', 'Strong',   undefined, 'Pathology');
     await seedMastery(masteryRepo, USER, c1,  2,  0);  // mastery 0.00 → weak
-    await seedMastery(masteryRepo, USER, c2, 20, 12);  // mastery 0.60 → weak (< 0.65)
-    await seedMastery(masteryRepo, USER, c3, 20, 13);  // mastery 0.65 → NOT weak (≥ 0.65)
+    await seedMastery(masteryRepo, USER, c2, 20, 9);
+    await seedMastery(masteryRepo, USER, c3, 20, 10);
     const result = await makeService(masteryRepo, concepts).getSubjectBreakdown(USER);
     const patho = result.find(r => r.subject === 'Pathology');
     expect(patho!.weakConceptCount).toBe(2);

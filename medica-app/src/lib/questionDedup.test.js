@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   getBaseQuestionId,
-  normalizeQuestionStem,
-  getQuestionFingerprint,
   validateUniqueQuestions,
   buildSeenState,
   filterUnseenQuestions,

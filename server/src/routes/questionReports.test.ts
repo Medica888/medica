@@ -146,6 +146,27 @@ describe('POST /api/question-reports', () => {
     expect(stored.fingerprint).toBe('fp_map');
     expect(stored.reason).toBe('off_topic');
   });
+
+  it('normalizes taxonomy aliases before storing a report', async () => {
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    await request(app)
+      .post('/api/question-reports')
+      .send({
+        fingerprint: 'fp_taxonomy',
+        reason: 'off_topic',
+        difficulty: 'NBME',
+        requestedSystem: 'Cardiovascular System',
+        actualSystem: 'Skin',
+      });
+
+    const all = (repos.questionReports as any)._all();
+    expect(all).toHaveLength(1);
+    const stored = all[0];
+    expect(stored.requested_system).toBe('Cardiovascular');
+    expect(stored.actual_system).toBe('Dermatology');
+    expect(stored.difficulty).toBe('NBME Difficult');
+  });
 });
 
 // ── GET /api/question-reports/summary ─────────────────────────────────────────

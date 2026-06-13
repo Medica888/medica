@@ -75,6 +75,46 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
     expect(data.studyPrescription.some(item => item.usmleContentArea === 'Cardiovascular System')).toBe(true)
     expect(data.studyPrescription.some(item => item.physicianTask === 'Patient Care: Pharmacotherapy')).toBe(true)
   })
+
+  it('merges legacy subject and system aliases before computing analytics', () => {
+    vi.mocked(getSessionHistory).mockReturnValue([
+      makeSession(0, {
+        subjectBreakdown: [
+          { name: 'Neuroscience', correct: 2, total: 4, percentage: 50 },
+          { name: 'Neurology', correct: 3, total: 6, percentage: 50 },
+        ],
+        systemBreakdown: [
+          { name: 'Renal', correct: 2, total: 4, percentage: 50 },
+          { name: 'Renal / Urinary', correct: 3, total: 6, percentage: 50 },
+          { name: 'Skin', correct: 1, total: 2, percentage: 50 },
+        ],
+        missedQuestions: [
+          { id: 'n1', subject: 'Neuroscience', system: 'Nervous System & Special Senses' },
+          { id: 'n2', subject: 'Neurology', system: 'Neurology' },
+          { id: 'r1', subject: 'Physiology', system: 'Renal' },
+          { id: 's1', subject: 'Pathology', system: 'Skin' },
+        ],
+      }),
+    ])
+
+    const data = buildAnalyticsData('all', NOW)
+
+    expect(data.subjectBreakdown).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Neurology', correct: 5, total: 10, percentage: 50 }),
+      ]),
+    )
+    expect(data.subjectBreakdown.some(s => s.name === 'Neuroscience')).toBe(false)
+    expect(data.systemBreakdown).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Renal / Urinary', correct: 5, total: 10, percentage: 50 }),
+        expect.objectContaining({ name: 'Dermatology', correct: 1, total: 2, percentage: 50 }),
+      ]),
+    )
+    expect(data.systemBreakdown.some(s => s.name === 'Renal')).toBe(false)
+    expect(data.systemBreakdown.some(s => s.name === 'Skin')).toBe(false)
+    expect(data.mistakeDiagnosis.topSubjects[0].name).toBe('Neurology')
+  })
 })
 
 // ── Test 1: All time includes every valid session ─────────────────────────────
@@ -189,7 +229,7 @@ describe('buildAnalyticsData — system breakdown is range-aware', () => {
     ])
     const monthData = buildAnalyticsData('month', NOW)
     const names = monthData.systemBreakdown.map(s => s.name)
-    expect(names).toContain('Renal')
+    expect(names).toContain('Renal / Urinary')
     expect(names).not.toContain('Neurology')
   })
 })

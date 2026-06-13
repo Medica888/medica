@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CANONICAL_SUBJECTS,
+  CANONICAL_SYSTEMS,
   enrichQuestionWithUsmleTaxonomy,
   inferPhysicianTask,
   inferUsmleContentArea,
+  normalizeQuestionTaxonomyFields,
+  normalizeSubjectLabel,
+  normalizeSystemLabel,
   normalizeUsmleContentArea,
 } from './usmleTaxonomy.js'
 
@@ -11,6 +16,35 @@ describe('USMLE taxonomy mapping', () => {
     expect(normalizeUsmleContentArea('Renal / Urinary')).toBe('Renal & Urinary System')
     expect(normalizeUsmleContentArea('Neurology')).toBe('Nervous System & Special Senses')
     expect(normalizeUsmleContentArea('Biostatistics')).toBe('Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature')
+  })
+
+  it('normalizes subject aliases to one canonical label', () => {
+    expect(normalizeSubjectLabel('Neuroscience')).toBe('Neurology')
+    expect(normalizeSubjectLabel('Behavioral Health')).toBe('Behavioral Science')
+    expect(normalizeSubjectLabel('Cardiology')).toBe('Cardiology')
+    expect(CANONICAL_SUBJECTS).toContain('Neurology')
+  })
+
+  it('normalizes system aliases to one canonical label', () => {
+    expect(normalizeSystemLabel('Cardiovascular System')).toBe('Cardiovascular')
+    expect(normalizeSystemLabel('Nervous System & Special Senses')).toBe('Neurology')
+    expect(normalizeSystemLabel('Skin')).toBe('Dermatology')
+    expect(normalizeSystemLabel('Renal')).toBe('Renal / Urinary')
+    expect(CANONICAL_SYSTEMS).toContain('Dermatology')
+  })
+
+  it('canonicalizes question subject and system without losing USMLE metadata', () => {
+    const question = normalizeQuestionTaxonomyFields({
+      subject: 'Neuroscience',
+      system: 'Nervous System & Special Senses',
+      usmleContentArea: 'cardiology',
+      physicianTask: 'diagnosis',
+    })
+
+    expect(question.subject).toBe('Neurology')
+    expect(question.system).toBe('Neurology')
+    expect(question.usmleContentArea).toBe('Cardiovascular System')
+    expect(question.physicianTask).toBe('Patient Care: Diagnosis')
   })
 
   it('infers content area from question metadata and stem keywords', () => {

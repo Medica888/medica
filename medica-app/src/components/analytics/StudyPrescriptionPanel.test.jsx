@@ -291,7 +291,7 @@ describe('StudyPrescriptionPanel — unified review queue (Phase 5.4)', () => {
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
     setup()
 
-    const rows = screen.getAllByRole('group') // each concept has a role="group" ease row
+    screen.getAllByRole('group') // verify ease rows render for each concept
     // Both concepts rendered; Beta Blockers (due) must appear first
     const allText = document.body.textContent
     const betaPos = allText.indexOf('Beta Blockers')

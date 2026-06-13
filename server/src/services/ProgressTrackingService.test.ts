@@ -18,8 +18,12 @@ async function seedMastery(
   await masteryRepo.upsertMany([{ userId, conceptId, attempted, correct }]);
 }
 
-async function seedConcept(concepts: InMemoryConceptsRepository, slug: string): Promise<string> {
-  const c = await concepts.upsertBySlug(slug, { name: slug, subject: 'S', system: 'S' });
+async function seedConcept(
+  concepts: InMemoryConceptsRepository,
+  slug: string,
+  source: 'legacy' | 'canonical' = 'legacy',
+): Promise<string> {
+  const c = await concepts.upsertBySlug(slug, { name: slug, subject: 'S', system: 'S', source });
   return c.id;
 }
 
@@ -118,7 +122,7 @@ describe('ProgressTrackingService.getProgress', () => {
     expect(p.sessionCount).toBe(2);
   });
 
-  it('priorityConcepts counts mastery_score < 0.65', async () => {
+  it('priorityConcepts counts mastery_score < 0.50', async () => {
     const mastery   = new InMemoryUserConceptMasteryRepository();
     const snapshots = new InMemoryMasterySnapshotsRepository();
     const concepts  = new InMemoryConceptsRepository();
@@ -133,7 +137,7 @@ describe('ProgressTrackingService.getProgress', () => {
     expect(p.priorityConcepts.current).toBe(1);
   });
 
-  it('weakConcepts counts mastery_score < 0.75 (priority + focus)', async () => {
+  it('weakConcepts counts mastery_score < 0.70 (P1 + P2)', async () => {
     const mastery   = new InMemoryUserConceptMasteryRepository();
     const snapshots = new InMemoryMasterySnapshotsRepository();
     const concepts  = new InMemoryConceptsRepository();
@@ -141,7 +145,7 @@ describe('ProgressTrackingService.getProgress', () => {
     const c2 = await seedConcept(concepts, 'wc2'); // focus
     const c3 = await seedConcept(concepts, 'wc3'); // ontrack
     await seedMastery(mastery, USER, c1, 2, 0);    // 0.0  → priority
-    await seedMastery(mastery, USER, c2, 20, 13);  // 0.65 → focus
+    await seedMastery(mastery, USER, c2, 20, 13);  // 0.65 -> focus
     await seedMastery(mastery, USER, c3, 2, 2);    // 1.0  → ontrack
 
     const svc = makeService(mastery, snapshots);
@@ -337,8 +341,9 @@ describe('ProgressTrackingService.getReadiness', () => {
       await seedMastery(mastery, USER, id, 5, 5); // mastery 1.0
     }
     const r = await makeService(mastery, snapshots).getReadiness(USER);
-    // numeric score is still high, but status is capped
-    expect(r.overallReadiness).toBeGreaterThanOrEqual(85);
+    // Concept Readiness penalizes low coverage even when early mastery is perfect.
+    expect(r.overallReadiness).toBeLessThan(85);
+    expect(r.components.coverage).toBeLessThan(20);
     expect(r.status).not.toBe('Exam Ready');
     expect(r.status).not.toBe('Approaching Readiness');
     expect(r.status).toBe('Developing');
@@ -381,6 +386,23 @@ describe('ProgressTrackingService.getReadiness', () => {
     expect(r.status).toBe('Needs Intensive Review');
   });
 
+  it('uses canonical concepts only when computing public Concept Readiness', async () => {
+    const mastery   = new InMemoryUserConceptMasteryRepository();
+    const snapshots = new InMemoryMasterySnapshotsRepository();
+    const concepts  = new InMemoryConceptsRepository();
+    const canonicalId = await seedConcept(concepts, 'canonical-readiness', 'canonical');
+    const legacyId    = await seedConcept(concepts, 'legacy-readiness');
+    await seedMastery(mastery, USER, canonicalId, 10, 10);
+    await seedMastery(mastery, USER, legacyId, 10, 0);
+
+    const r = await new ProgressTrackingService(mastery, snapshots, concepts).getReadiness(USER);
+
+    expect(r.components.mastery).toBe(45);
+    expect(r.components.recentPerformance).toBe(20);
+    expect(r.components.coverage).toBe(1);
+    expect(r.legacyInternal?.components.mastery).toBe(25);
+  });
+
   it('returns Needs Intensive Review for all-zero mastery', async () => {
     const mastery   = new InMemoryUserConceptMasteryRepository();
     const snapshots = new InMemoryMasterySnapshotsRepository();
@@ -394,7 +416,7 @@ describe('ProgressTrackingService.getReadiness', () => {
     expect(r.overallReadiness).toBeLessThan(50);
   });
 
-  it('improving trend yields higher score than declining trend at same mastery', async () => {
+  it('keeps legacy trend-sensitive readiness internal for backward compatibility', async () => {
     const concepts = new InMemoryConceptsRepository();
     const c1 = await seedConcept(concepts, 'trend-cmp');
 
@@ -416,7 +438,8 @@ describe('ProgressTrackingService.getReadiness', () => {
     await snapshotsB.insertBatch([{ userId: USER, conceptId: c1, sessionId: 'B2', masteryScore: 0.5, confidence: 0.4, attemptCount: 4 }]);
     const rB = await svcB.getReadiness(USER);
 
-    expect(rA.overallReadiness).toBeGreaterThan(rB.overallReadiness);
+    expect(rA.overallReadiness).toBe(rB.overallReadiness);
+    expect(rA.legacyInternal?.overallReadiness).toBeGreaterThan(rB.legacyInternal?.overallReadiness ?? 0);
   });
 
   it('distribution sums to total concept count', async () => {

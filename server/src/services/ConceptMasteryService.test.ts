@@ -211,10 +211,10 @@ describe('ConceptMasteryService', () => {
     const ontrack = await seedConcept(concepts, 'srs-ontrack', 'SRS On Track');
 
     await masteryRepo.upsertMany([
-      { userId: USER_A, conceptId: priority, attempted: 9, correct: 5 },
-      { userId: USER_A, conceptId: focus, attempted: 9, correct: 6 },
-      { userId: USER_A, conceptId: reinforced, attempted: 9, correct: 7 },
-      { userId: USER_A, conceptId: ontrack, attempted: 9, correct: 8 },
+      { userId: USER_A, conceptId: priority, attempted: 9, correct: 3 },
+      { userId: USER_A, conceptId: focus, attempted: 9, correct: 5 },
+      { userId: USER_A, conceptId: reinforced, attempted: 3, correct: 2 },
+      { userId: USER_A, conceptId: ontrack, attempted: 9, correct: 7 },
     ]);
     await masteryRepo.upsertMany([
       { userId: USER_A, conceptId: priority, attempted: 1, correct: 1 },
@@ -231,7 +231,7 @@ describe('ConceptMasteryService', () => {
 
   it('persists SRS timestamps on repository rows', async () => {
     const conceptId = await seedConcept(concepts, 'srs-persist', 'SRS Persist');
-    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 4, correct: 3 }]);
+    await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 3, correct: 2 }]);
     await masteryRepo.upsertMany([{ userId: USER_A, conceptId, attempted: 1, correct: 1 }]);
 
     const row = await masteryRepo.findByUserAndConcept(USER_A, conceptId);

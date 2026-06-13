@@ -241,6 +241,102 @@ describe('createQuizSession - USMLE taxonomy', () => {
       expect(q.usmleSubdomain, `${q.id} missing subdomain`).toBeTruthy()
     }
   })
+
+  it('uses canonical subject and system labels when filtering and returning questions', () => {
+    const cardio = createQuizSession({
+      ...baseConfig,
+      system: 'Cardiovascular System',
+      questionCount: 3,
+    })
+
+    expect(cardio.questions).toHaveLength(3)
+    expect(cardio.questions.every(q => q.system === 'Cardiovascular')).toBe(true)
+
+    const neuro = createQuizSession({
+      ...baseConfig,
+      subject: 'Neuroscience',
+      questionCount: 3,
+    })
+
+    expect(neuro.questions).toHaveLength(3)
+    expect(neuro.questions.every(q => q.subject === 'Neurology')).toBe(true)
+  })
+
+  it('filters by exact subject and system intersection when both are selected', () => {
+    const cases = [
+      { subject: 'Pharmacology', system: 'Cardiovascular' },
+      { subject: 'Pathology', system: 'Cardiovascular' },
+      { subject: 'Physiology', system: 'Renal / Urinary' },
+      { subject: 'Microbiology', system: 'Infectious Disease' },
+    ]
+
+    for (const { subject, system } of cases) {
+      const pool = getBankQuestionsForConfig({
+        ...baseConfig,
+        subject,
+        system,
+        questionCount: 10,
+      })
+
+      expect(pool.length, `${subject} + ${system} should have exact local candidates`).toBeGreaterThan(0)
+      expect(pool.every(q => q.subject === subject), `${subject} + ${system} leaked wrong subject`).toBe(true)
+      expect(pool.every(q => q.system === system), `${subject} + ${system} leaked wrong system`).toBe(true)
+    }
+  })
+
+  it('does not silently expand unmatched manual topics to the global bank', () => {
+    const topics = [
+      'banana heart magic',
+      'breast cancers',
+      'patellar dislocations',
+    ]
+
+    for (const topic of topics) {
+      const pool = getBankQuestionsForConfig({
+        ...baseConfig,
+        topic,
+        questionCount: 10,
+      })
+
+      expect(pool, `${topic} should require AI/topic classification instead of global fallback`).toHaveLength(0)
+    }
+  })
+
+  it('does not broaden thin manual topics to system-level local questions', () => {
+    const pool = getBankQuestionsForConfig({
+      ...baseConfig,
+      topic: 'loop diuretics',
+      questionCount: 10,
+    })
+
+    expect(pool.length).toBeGreaterThan(0)
+    expect(pool.length).toBeLessThan(10)
+    expect(pool.every(q => /loop diuretic/i.test([
+      q.topic,
+      q.testedConcept,
+      q.canonicalTopic,
+      q.rawTopic,
+      q.weakSpotCategory,
+    ].join(' ')))).toBe(true)
+  })
+
+  it('does not treat broad taxonomy labels entered as topics as local-bank scopes', () => {
+    const topics = [
+      'Pharmacology',
+      'Cardiovascular',
+      'Cardiovascular System',
+    ]
+
+    for (const topic of topics) {
+      const pool = getBankQuestionsForConfig({
+        ...baseConfig,
+        topic,
+        questionCount: 10,
+      })
+
+      expect(pool, `${topic} should be selected via subject/system controls, not topic scope`).toHaveLength(0)
+    }
+  })
 })
 
 // ─── Test 5: Coach 10Q session has full optionExplanations ───────────────────

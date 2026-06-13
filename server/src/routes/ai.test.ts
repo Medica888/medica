@@ -28,6 +28,7 @@ import type { MedicalReviewResult } from '../lib/questionValidator.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
 import { setRepositories, createInMemoryRepositories, getRepositories } from '../repositories/index.js';
 import { config } from '../config.js';
+import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1255,6 +1256,32 @@ describe('generated question bank', () => {
     });
   });
 
+  it('triggers alias cache refresh after status approval so next requests see the mapping', async () => {
+    const spy = vi.spyOn(taxonomyResolutionService, 'refreshCache');
+
+    const candidate = await getRepositories().taxonomyCandidates.upsertUnknownTopicCandidate({
+      rawLabel: 'ace inhibitor drug group',
+      normalizedGuess: 'ACE Inhibitors',
+      subject: 'Pharmacology',
+      system: 'Cardiovascular',
+      source: 'validation_topic',
+    });
+
+    // Before approval the alias is not in the runtime cache
+    expect(taxonomyResolutionService.resolveTopicAlias('ace inhibitor drug group')).toBeNull();
+
+    await request(app)
+      .patch(`/api/taxonomy-candidates/${candidate.id}/status`)
+      .set('Authorization', authHeader('user-1'))
+      .send({ status: 'mapped_alias', mappedTo: 'ACE Inhibitors' })
+      .expect(200);
+
+    // refreshCache must have been called (fire-and-forget from the route handler)
+    expect(spy).toHaveBeenCalledOnce();
+
+    spy.mockRestore();
+  });
+
   it('returns 404 when updating a missing taxonomy candidate', async () => {
     const res = await request(app)
       .patch('/api/taxonomy-candidates/00000000-0000-0000-0000-000000000000/status')
@@ -1632,7 +1659,8 @@ describe('hybrid question bank fill', () => {
       .expect(200);
 
     expect(res.body.telemetry.taxonomyCandidatesCaptured).toBe(1);
-    const candidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    const allCandidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    const candidates = allCandidates.filter(c => c.type === 'topic');
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({
       rawLabel: 'breast cancers',
@@ -1697,7 +1725,8 @@ describe('hybrid question bank fill', () => {
       .send({ config: { mode: 'practice', questionCount: 2, difficulty: 'Balanced', topic: 'breast cancers' } })
       .expect(200);
 
-    const candidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    const allCandidates = await getRepositories().taxonomyCandidates.findUnknownTopicCandidates();
+    const candidates = allCandidates.filter(c => c.type === 'topic');
     expect(candidates).toHaveLength(1);
     expect(candidates[0].rawLabel).toBe('breast cancers');
     expect(candidates[0].frequency).toBe(2);
