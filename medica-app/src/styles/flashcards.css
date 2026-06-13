@@ -1,0 +1,926 @@
+﻿/* ============================================================
+   FLASHCARDS PAGE  fc-
+   ============================================================ */
+
+/* -- Shell ----------------------------------------------------- */
+.fc-page {
+  flex: 1; display: flex; flex-direction: column;
+  background: var(--bg); overflow: hidden;
+}
+.fc-scroll {
+  flex: 1; overflow-y: auto;
+  padding: 32px 32px 64px;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.fc-scroll::-webkit-scrollbar { width: 4px; }
+.fc-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.fc-content {
+  max-width: 1100px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 20px;
+}
+
+/* -- Page header ----------------------------------------------- */
+.fc-page-hdr {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.fc-page-title { font-size: 22px; font-weight: 700; color: var(--t1); letter-spacing: -.4px; margin: 0; }
+.fc-page-sub   { font-size: 12px; color: var(--t3); margin: 3px 0 0; }
+.fc-page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* -- Action buttons -------------------------------------------- */
+.fc-action-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 18px; border-radius: 10px; border: 1.5px solid var(--border);
+  font-family: 'Poppins', sans-serif; font-size: 12.5px; font-weight: 600;
+  color: var(--t2); background: var(--card);
+  cursor: pointer; transition: all .14s; white-space: nowrap;
+}
+.fc-action-btn:hover { border-color: var(--t3); color: var(--t1); background: var(--hover); }
+.fc-action-btn.primary {
+  background: var(--blue); color: #fff; border-color: var(--blue);
+  box-shadow: 0 2px 8px rgba(23,105,200,.28);
+}
+.fc-action-btn.primary:hover {
+  background: var(--blue-h); border-color: var(--blue-h);
+  box-shadow: 0 4px 14px rgba(23,105,200,.38);
+}
+.fc-action-btn.sm   { padding: 7px 14px; font-size: 12px; }
+.fc-action-btn.wide { width: 100%; }
+.fc-action-btn.copied {
+  background: rgba(15,173,111,.1); border-color: rgba(15,173,111,.35); color: var(--green);
+}
+.fc-action-btn.copied:hover { background: rgba(15,173,111,.15); }
+.fc-action-btn.failed {
+  background: rgba(204,58,58,.08); border-color: rgba(204,58,58,.3); color: var(--red);
+}
+.fc-action-btn.failed:hover { background: rgba(204,58,58,.12); }
+
+/* -- Stats grid ------------------------------------------------ */
+.fc-stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+.fc-stat-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; box-shadow: var(--sh-card);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.fc-stat-num { font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -.8px; color: var(--t1); }
+.fc-stat-lbl { font-size: 10.5px; color: var(--t3); font-weight: 500; }
+
+/* -- Banner ---------------------------------------------------- */
+.fc-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-radius: 10px;
+  background: var(--blue-10); border: 1px solid var(--blue-20);
+  font-size: 13px; color: var(--t2);
+}
+.fc-banner--done {
+  background: rgba(15,173,111,.07); border-color: rgba(15,173,111,.2);
+  color: var(--green);
+}
+.fc-banner-left { display: flex; align-items: center; gap: 8px; }
+
+/* -- Filters --------------------------------------------------- */
+.fc-filters { display: flex; flex-direction: column; gap: 10px; }
+.fc-filters-row { display: flex; gap: 8px; align-items: center; }
+.fc-search-wrap { position: relative; flex: 1; }
+.fc-search-icon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  color: var(--t3); pointer-events: none;
+}
+.fc-search-input {
+  width: 100%; padding: 8px 12px 8px 32px; box-sizing: border-box;
+  border-radius: 9px; border: 1.5px solid var(--border);
+  background: var(--card); color: var(--t1);
+  font-family: 'Poppins', sans-serif; font-size: 12.5px;
+  transition: border-color .14s; outline: none;
+}
+.fc-search-input::placeholder { color: var(--t3); }
+.fc-search-input:focus { border-color: var(--blue); }
+
+.fc-sort-select {
+  padding: 8px 28px 8px 11px; border-radius: 9px;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--t2);
+  font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 500;
+  cursor: pointer; outline: none; transition: border-color .14s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5L5 6.5L8 3.5' stroke='%23A8BFD4' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+  white-space: nowrap; flex-shrink: 0;
+}
+.fc-sort-select:focus { border-color: var(--blue); }
+.dark .fc-sort-select { background-color: var(--card); }
+
+.fc-filter-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.fc-filter-pill {
+  padding: 5px 13px; border-radius: 20px;
+  border: 1.5px solid var(--border); background: var(--card);
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--t3); cursor: pointer; transition: all .14s;
+}
+.fc-filter-pill:hover { border-color: var(--t3); color: var(--t2); }
+.fc-filter-pill.active { border-color: var(--blue); color: var(--blue); background: var(--blue-10); }
+.fc-filter-pill.tag-active { border-color: currentColor; }
+
+/* Keyboard hints */
+.fc-rev-reveal-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.fc-kbd-hint {
+  font-size: 11px; font-weight: 500; color: rgba(244,246,250,.28);
+  letter-spacing: .04em; text-align: center; margin-top: 14px;
+  display: block;
+}
+.fc-ease-key {
+  display: inline-block; margin-top: 6px;
+  font-size: 11px; font-weight: 700; color: var(--t3); font-family: 'Poppins', sans-serif;
+  border: 1.5px solid var(--border); border-radius: 6px;
+  padding: 2px 7px; line-height: 1.4;
+  background: var(--bg);
+}
+
+/* -- Card library ---------------------------------------------- */
+.fc-library { display: flex; flex-direction: column; gap: 6px; }
+.fc-library-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11.5px; color: var(--t3); font-weight: 500;
+  padding: 0 2px; margin-bottom: 4px;
+}
+.fc-clear-filters {
+  background: none; border: none; padding: 0;
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--blue); cursor: pointer; transition: opacity .14s;
+}
+.fc-clear-filters:hover { opacity: .72; }
+.fc-no-results {
+  padding: 32px; text-align: center;
+  font-size: 13px; color: var(--t3);
+}
+
+.fc-card-item {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden; box-shadow: var(--sh-card);
+  transition: box-shadow .14s, border-color .14s;
+}
+.fc-card-item:hover { border-color: var(--blue-20); box-shadow: 0 2px 12px rgba(23,105,200,.08); }
+.fc-card-item.expanded { border-color: var(--blue-20); }
+
+.fc-card-item-btn {
+  width: 100%; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; padding: 14px 14px 14px 0;
+  background: none; border: none; cursor: pointer; text-align: left;
+}
+.fc-card-item-left { display: flex; align-items: stretch; flex: 1; min-width: 0; }
+.fc-card-accent-bar {
+  width: 3px; flex-shrink: 0; border-radius: 0 2px 2px 0;
+  background: var(--accent, var(--blue)); margin-right: 13px;
+  align-self: stretch;
+}
+.fc-card-item-body { flex: 1; min-width: 0; padding-top: 1px; }
+.fc-card-front {
+  font-size: 13.5px; font-weight: 600; color: var(--t1);
+  margin: 0 0 5px; line-height: 1.45;
+}
+.fc-card-back-preview {
+  font-size: 11.8px; color: var(--t3); margin: 0;
+  line-height: 1.5; white-space: normal;
+}
+.fc-card-item-right { display: flex; align-items: flex-start; gap: 8px; flex-shrink: 0; padding-top: 2px; }
+.fc-chevron { color: var(--t3); transition: transform .18s; flex-shrink: 0; }
+.fc-chevron.open { transform: rotate(180deg); }
+
+.fc-card-item-answer { padding: 0 16px 15px 16px; }
+.fc-card-item-divider { height: 1px; background: var(--border); margin-bottom: 12px; }
+.fc-card-back-full { font-size: 13.5px; color: var(--t2); margin: 0; line-height: 1.65; }
+
+/* -- Tag badge / Status pill ----------------------------------- */
+.fc-tag-badge {
+  display: inline-flex; padding: 2px 8px; border-radius: 20px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.fc-status-pill {
+  font-size: 10px; font-weight: 600; text-transform: capitalize;
+  letter-spacing: .2px; flex-shrink: 0;
+}
+
+/* -- Empty state ----------------------------------------------- */
+.fc-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; text-align: center; padding: 60px 32px;
+}
+.fc-empty-icon { color: var(--t3); opacity: .5; }
+.fc-empty-title { font-size: 20px; font-weight: 700; color: var(--t1); margin: 0; }
+.fc-empty-body {
+  font-size: 13.5px; color: var(--t3); max-width: 360px; line-height: 1.65; margin: 0;
+}
+
+/* -- Review mode header ---------------------------------------- */
+.fc-rev-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px; height: 72px; flex-shrink: 0;
+  background: #080F1C; border-bottom: 1px solid rgba(255,255,255,.07);
+  position: relative;
+}
+.fc-rev-hdr-spacer { flex: 1; }
+.fc-rev-exit-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12); background: transparent;
+  font-family: 'Poppins', sans-serif; font-size: 12.5px; font-weight: 500;
+  color: rgba(244,246,250,.55); cursor: pointer; transition: all .14s;
+  flex: 1;
+}
+.fc-rev-exit-btn:hover { border-color: rgba(255,255,255,.24); color: rgba(244,246,250,.9); }
+.fc-rev-hdr-center { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.fc-rev-progress {
+  font-size: 13px; font-weight: 700; color: rgba(244,246,250,.55); line-height: 1;
+  letter-spacing: .04em;
+}
+.fc-rev-topic-label {
+  font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: #4A90D9;
+}
+
+/* -- Review mode body ------------------------------------------ */
+.fc-rev-body {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+  padding: 40px 20px 48px; background: #080F1C;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.1) transparent;
+}
+.fc-rev-body::-webkit-scrollbar { width: 4px; }
+.fc-rev-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
+.fc-rev-bar-wrap {
+  height: 2px; background: rgba(255,255,255,.08); border-radius: 2px;
+  overflow: hidden; margin-bottom: 36px; flex-shrink: 0;
+}
+.fc-rev-bar {
+  height: 100%; background: #2E64C8; border-radius: 2px;
+  transition: width .35s ease;
+}
+.fc-rev-card-wrap { display: flex; align-items: flex-start; justify-content: center; }
+.fc-rev-card {
+  width: min(820px, calc(100vw - 48px)); max-width: 100%;
+  min-height: 380px;
+  background: #0F1E3A; border: 1px solid rgba(255,255,255,.08);
+  border-radius: 20px; overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0,0,0,.45), 0 4px 16px rgba(0,0,0,.3);
+}
+.fc-rev-card-inner { padding: 48px 56px; display: flex; flex-direction: column; }
+.fc-rev-card-meta  { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+.fc-rev-subject {
+  display: inline-flex; align-items: center;
+  height: 26px; padding: 0 11px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; color: rgba(244,246,250,.45);
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+}
+.fc-rev-card-prompt-label {
+  display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #4A90D9; margin-bottom: 12px;
+}
+.fc-rev-card-answer-label {
+  display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #7DD4E8; margin-bottom: 10px;
+}
+.fc-rev-card-anchor {
+  margin: 0 0 18px; padding: 14px 16px; border-radius: 8px;
+  background: rgba(46,100,200,.15); border: 1px solid rgba(46,100,200,.28);
+}
+.fc-rev-card-anchor-label {
+  display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #88B4F0; margin-bottom: 6px;
+}
+.fc-rev-card-anchor-text {
+  font-size: 14px; font-weight: 500; color: rgba(244,246,250,.75); line-height: 1.6; margin: 0;
+}
+.fc-rev-card-trap {
+  margin: 0 0 18px; padding: 14px 16px; border-radius: 8px;
+  background: rgba(109,47,63,.2); border: 1px solid rgba(109,47,63,.4);
+}
+.fc-rev-card-trap-label {
+  display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #E89FAF; margin-bottom: 6px;
+}
+.fc-rev-card-trap-text {
+  font-size: 14px; font-weight: 500; color: rgba(244,246,250,.75); line-height: 1.6; margin: 0;
+}
+.fc-rev-question {
+  font-size: 26px; font-weight: 700; color: #F4F6FA;
+  line-height: 1.5; letter-spacing: -.02em; margin: 0;
+}
+.fc-rev-divider { height: 1px; background: rgba(255,255,255,.07); margin: 40px 0 32px; }
+.fc-rev-answer  { font-size: 18px; font-weight: 600; color: rgba(244,246,250,.88); line-height: 1.7; margin: 0 0 28px; }
+
+/* -- Ease buttons ---------------------------------------------- */
+.fc-ease-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.fc-ease-btn {
+  flex: 1; min-width: 80px; padding: 13px 10px;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.1);
+  font-family: 'Poppins', sans-serif; cursor: pointer; transition: all .14s;
+  background: rgba(255,255,255,.04);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.fc-ease-label { font-size: 13px; font-weight: 700; line-height: 1; }
+.fc-ease-hint  { font-size: 10.5px; font-weight: 500; opacity: .55; line-height: 1; }
+.fc-ease-key {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 3px;
+  font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.06);
+  box-shadow: 0 1px 0 rgba(0,0,0,.5);
+  color: rgba(244,246,250,.6);
+}
+.fc-ease-btn--again { color: #E89FAF; border-color: rgba(109,47,63,.5); }
+.fc-ease-btn--again:hover { background: rgba(109,47,63,.22); border-color: rgba(109,47,63,.75); transform: translateY(-1px); }
+.fc-ease-btn--hard  { color: #D4A84B; border-color: rgba(125,99,56,.5); }
+.fc-ease-btn--hard:hover  { background: rgba(125,99,56,.2);  border-color: rgba(125,99,56,.75); transform: translateY(-1px); }
+.fc-ease-btn--good  { color: #7DD4E8; border-color: rgba(53,92,104,.5); }
+.fc-ease-btn--good:hover  { background: rgba(53,92,104,.22); border-color: rgba(53,92,104,.75); transform: translateY(-1px); }
+.fc-ease-btn--easy  { color: #88B4F0; border-color: rgba(46,100,200,.4); }
+.fc-ease-btn--easy:hover  { background: rgba(46,100,200,.18); border-color: rgba(46,100,200,.7); transform: translateY(-1px); }
+
+/* -- Tag badge inside review card - larger pill ------------------- */
+.fc-rev-card .fc-tag-badge {
+  height: 26px; padding: 0 12px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; display: inline-flex; align-items: center;
+  background: rgba(255,255,255,.07) !important;
+  color: rgba(244,246,250,.55) !important;
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+/* -- Session done screen --------------------------------------- */
+.fc-done-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+.fc-done-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 40px 32px; text-align: center; box-shadow: var(--sh-card);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 360px; width: 100%;
+}
+.fc-done-icon {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: rgba(15,173,111,.1); border: 2px solid var(--green);
+  display: flex; align-items: center; justify-content: center; color: var(--green);
+}
+.fc-done-title { font-size: 20px; font-weight: 700; color: var(--t1); margin: 0; }
+.fc-done-sub   { font-size: 13px; color: var(--t3); margin: 0 0 4px; }
+.fc-done-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+
+/* -- Stat cards - clickable ------------------------------------ */
+.fc-stat-card {
+  cursor: pointer; transition: border-color .14s, background .14s;
+  /* button element reset */
+  font-family: 'Poppins', sans-serif; text-align: center;
+}
+.fc-stat-card:hover   { border-color: var(--blue-20); }
+.fc-stat-card.active  { border-color: var(--blue); background: var(--blue-10); }
+
+/* -- Card metadata line ---------------------------------------- */
+.fc-meta-line {
+  font-size: 10.5px; color: var(--t3); margin: 3px 0 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+
+/* -- Review nav buttons ---------------------------------------- */
+.fc-review-nav {
+  display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 0;
+}
+.fc-review-nav .fc-action-btn.primary {
+  height: 52px; min-width: 220px; border-radius: 12px;
+  font-size: 15px; font-weight: 700;
+  background: #2E64C8; border: none;
+  box-shadow: 0 4px 20px rgba(46,100,200,.4);
+  padding: 0 32px; color: #fff;
+}
+.fc-review-nav .fc-action-btn.primary:hover:not(:disabled) {
+  background: #2558B8;
+  box-shadow: 0 6px 24px rgba(46,100,200,.55);
+  transform: translateY(-1px);
+}
+.fc-review-nav-secondary {
+  display: flex; justify-content: center; gap: 10px; margin-top: 14px;
+}
+.fc-rev-nav-btn {
+  height: 40px; min-width: 90px; padding: 0 18px;
+  border-radius: 9px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05); color: rgba(244,246,250,.5);
+  font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .14s; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.fc-rev-nav-btn:hover:not(:disabled) { border-color: rgba(255,255,255,.24); color: rgba(244,246,250,.85); background: rgba(255,255,255,.08); }
+.fc-rev-nav-btn:disabled { opacity: .25; cursor: default; }
+
+/* -- Session summary grid -------------------------------------- */
+.fc-summary-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  margin: 16px 0 4px; width: 100%;
+}
+.fc-summary-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 6px;
+}
+.fc-summary-num { font-size: 22px; font-weight: 800; line-height: 1; letter-spacing: -.5px; }
+.fc-summary-lbl { font-size: 10.5px; color: var(--t3); font-weight: 500; }
+
+/* -- Clear Deck button ----------------------------------------- */
+.fc-clear-deck-btn {
+  padding: 7px 14px; border-radius: 9px;
+  border: 1.5px solid rgba(204,58,58,.3); background: transparent;
+  color: var(--red, #cc3a3a); font-family: 'Poppins', sans-serif;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .14s;
+  white-space: nowrap;
+}
+.fc-clear-deck-btn:hover { background: rgba(204,58,58,.08); border-color: rgba(204,58,58,.5); }
+
+/* -- Subject/System/Topic filter dropdowns --------------------- */
+.fc-filter-dropdowns {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+
+/* -- Dark mode ------------------------------------------------- */
+.dark .fc-stat-card        { background: var(--card); }
+.dark .fc-stat-card.active { background: rgba(23,105,200,.15); }
+.dark .fc-card-item        { background: var(--card); }
+.dark .fc-rev-card         { background: var(--card); border-color: var(--border); box-shadow: 0 24px 60px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.35); }
+.dark .fc-rev-body         { background: var(--bg); }
+.dark .fc-done-card        { background: var(--card); }
+.dark .fc-rev-hdr          { background: var(--card); }
+.dark .fc-ease-btn         { background: var(--card); }
+.dark .fc-action-btn       { background: var(--card); }
+.dark .fc-search-input     { background: var(--card); }
+.dark .fc-filter-pill      { background: var(--card); }
+.dark .fc-rev-nav-btn      { background: var(--card); border-color: var(--border); }
+.dark .fc-summary-cell     { background: var(--card); }
+.dark .fc-rev-subject      { background: rgba(255,255,255,.06); border-color: var(--border); }
+.dark .fc-rev-divider      { background: var(--border); }
+
+/* -- Responsive ------------------------------------------------ */
+@media (max-width: 600px) {
+  .fc-scroll              { padding: 20px 14px 48px; }
+  .fc-stats-grid          { grid-template-columns: repeat(2, 1fr); }
+  .fc-stat-num            { font-size: 22px; }
+  .fc-page-actions        { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .fc-action-btn.sm       { padding: 6px 10px; font-size: 11px; }
+  .fc-rev-hdr             { height: 64px; padding: 0 14px; }
+  .fc-rev-body            { padding: 28px 12px 32px; }
+  .fc-rev-card            { width: calc(100vw - 24px); border-radius: 18px; min-height: 0; }
+  .fc-rev-card-inner      { padding: 28px 24px; }
+  .fc-rev-question        { font-size: 22px; letter-spacing: -.02em; }
+  .fc-rev-divider         { margin: 28px 0 24px; }
+  .fc-rev-answer          { font-size: 17px; }
+  .fc-ease-row            { gap: 8px; }
+  .fc-ease-btn            { min-width: calc(50% - 4px); flex: none; padding: 12px 8px; }
+  .fc-ease-label          { font-size: 13px; }
+  .fc-banner              { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .fc-review-nav          { gap: 8px; flex-wrap: wrap; }
+  .fc-review-nav .fc-action-btn.primary { min-width: 0; flex: 1; height: 52px; font-size: 15px; border-radius: 14px; }
+  .fc-rev-nav-btn         { height: 48px; min-width: 80px; font-size: 14px; border-radius: 14px; padding: 0 14px; }
+  .fc-rev-topic-label     { max-width: 160px; font-size: 11px; }
+  .fc-summary-grid        { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .fc-summary-num         { font-size: 18px; }
+  .fc-filter-dropdowns    { gap: 6px; }
+  .fc-clear-deck-btn      { font-size: 11px; padding: 6px 10px; }
+}
+
+/* ------------------------------------------------------------------
+   CUSTOM FLASHCARD GROUPS  (fc-custom-groups, fc-bulk, fc-modal)
+   ------------------------------------------------------------------ */
+
+/* -- Custom Groups section ----------------------------------------- */
+.fc-custom-groups {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; box-shadow: var(--sh-card);
+}
+.fc-custom-groups-hdr,
+.fc-custom-groups-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.fc-custom-groups-title {
+  font-size: 11.5px; font-weight: 700; color: var(--t2); letter-spacing: .2px;
+  text-transform: uppercase;
+}
+.fc-custom-groups-actions { display: flex; align-items: center; gap: 8px; }
+.fc-custom-groups-empty {
+  font-size: 12px; color: var(--t3); margin: 0; line-height: 1.5;
+}
+.fc-select-mode-btn {
+  padding: 5px 12px; border-radius: 8px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--t3); cursor: pointer; transition: all .14s; white-space: nowrap;
+}
+.fc-select-mode-btn:hover { border-color: var(--t2); color: var(--t2); }
+.fc-new-group-btn {
+  padding: 5px 12px; border-radius: 8px;
+  border: 1.5px solid var(--blue-20); background: var(--blue-10);
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--blue); cursor: pointer; transition: all .14s; white-space: nowrap;
+}
+.fc-new-group-btn:hover { background: rgba(23,105,200,.15); border-color: var(--blue); }
+
+/* -- Group chip row ------------------------------------------------ */
+.fc-custom-group-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fc-custom-group-chip-wrap { display: flex; align-items: center; gap: 2px; }
+.fc-custom-group-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 20px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--t3); cursor: pointer; transition: all .14s; white-space: nowrap;
+}
+.fc-custom-group-chip:hover { border-color: var(--t3); color: var(--t2); }
+.fc-custom-group-chip.active {
+  border-color: var(--blue); color: var(--blue);
+  background: var(--blue-10);
+}
+.fc-custom-group-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 4px;
+  border-radius: 20px; background: var(--border);
+  font-size: 9.5px; font-weight: 700; color: var(--t3); line-height: 1;
+}
+.fc-custom-group-chip.active .fc-custom-group-count {
+  background: rgba(23,105,200,.2); color: var(--blue);
+}
+
+/* -- Group chip management buttons (rename/delete) ----------------- */
+.fc-group-mgmt-btns {
+  display: flex; align-items: center; gap: 1px;
+  opacity: 0; transition: opacity .14s; pointer-events: none;
+}
+.fc-custom-group-chip-wrap:hover .fc-group-mgmt-btns,
+.fc-custom-group-chip-wrap:focus-within .fc-group-mgmt-btns {
+  opacity: 1; pointer-events: auto;
+}
+.fc-group-mgmt-btn {
+  width: 22px; height: 22px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--card);
+  color: var(--t3); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-family: 'Poppins', sans-serif;
+  transition: all .14s; padding: 0; flex-shrink: 0;
+}
+.fc-group-mgmt-btn:hover { border-color: var(--t3); color: var(--t2); background: var(--hover); }
+.fc-group-mgmt-btn.danger:hover { border-color: rgba(204,58,58,.5); color: var(--red); background: rgba(204,58,58,.07); }
+
+/* -- Bulk action bar ----------------------------------------------- */
+.fc-bulk-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 14px; border-radius: 10px;
+  background: var(--card); border: 1.5px solid var(--blue-20);
+  box-shadow: 0 2px 8px rgba(23,105,200,.08);
+}
+.fc-bulk-count {
+  font-size: 12px; font-weight: 700; color: var(--blue); white-space: nowrap;
+}
+.fc-bulk-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fc-bulk-remove-btn { color: var(--red) !important; border-color: rgba(204,58,58,.35) !important; }
+.fc-bulk-remove-btn:hover { background: rgba(204,58,58,.07) !important; border-color: rgba(204,58,58,.5) !important; }
+
+/* -- Card selection checkbox --------------------------------------- */
+.fc-card-item { position: relative; }
+.fc-card-item.in-select-mode .fc-card-item-btn { padding-left: 40px; }
+.fc-card-select {
+  position: absolute; left: 11px; top: 12px;
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 1.5px solid var(--border); background: var(--card);
+  cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2; transition: all .14s;
+}
+.fc-card-select:hover:not(.checked) { border-color: var(--blue); }
+.fc-card-select.checked { background: var(--blue); border-color: var(--blue); }
+.fc-card-item.selected {
+  border-color: var(--blue-20);
+  background: linear-gradient(135deg, var(--blue-10) 0%, var(--card) 60%);
+}
+
+/* -- Group badges on cards ----------------------------------------- */
+.fc-group-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.fc-group-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px; border-radius: 20px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+  background: rgba(23,105,200,.1); color: var(--blue);
+  border: 1px solid rgba(23,105,200,.2);
+}
+.fc-group-badge-more {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px; border-radius: 20px;
+  font-size: 9.5px; font-weight: 600;
+  background: var(--hover); color: var(--t3); border: 1px solid var(--border);
+}
+
+/* -- Modal overlay ------------------------------------------------- */
+.fc-modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.45); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.fc-group-modal {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.2);
+  display: flex; flex-direction: column; gap: 12px;
+  width: 100%; max-width: 380px;
+}
+.fc-group-modal-title {
+  font-size: 15px; font-weight: 700; color: var(--t1); margin: 0;
+}
+.fc-group-input {
+  width: 100%; padding: 9px 12px; box-sizing: border-box;
+  border-radius: 9px; border: 1.5px solid var(--border);
+  background: var(--bg); color: var(--t1);
+  font-family: 'Poppins', sans-serif; font-size: 13px;
+  transition: border-color .14s; outline: none;
+}
+.fc-group-input::placeholder { color: var(--t3); }
+.fc-group-input:focus { border-color: var(--blue); }
+.fc-group-modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;
+}
+
+/* -- Group picker list --------------------------------------------- */
+.fc-group-picker-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 240px; overflow-y: auto;
+}
+.fc-group-picker-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-radius: 9px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 500;
+  color: var(--t1); cursor: pointer; transition: all .14s; text-align: left;
+}
+.fc-group-picker-item:hover { border-color: var(--blue); background: var(--blue-10); }
+.fc-group-picker-count { font-size: 11px; color: var(--t3); }
+
+/* -- Add confirm toast --------------------------------------------- */
+.fc-add-confirm {
+  position: fixed; bottom: 24px; right: 24px; z-index: 300;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 10px;
+  background: var(--card); border: 1.5px solid rgba(15,173,111,.4);
+  color: var(--green); font-family: 'Poppins', sans-serif;
+  font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0,0,0,.14);
+  animation: fc-confirm-in .2s ease;
+}
+@keyframes fc-confirm-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* -- Dark mode overrides ------------------------------------------- */
+.dark .fc-custom-groups    { background: var(--card); }
+.dark .fc-group-modal      { background: var(--card); }
+.dark .fc-group-input      { background: var(--card); }
+.dark .fc-group-picker-item { background: var(--card); }
+.dark .fc-group-picker-item:hover { background: rgba(23,105,200,.15); }
+.dark .fc-card-item.selected { background: rgba(23,105,200,.08); }
+.dark .fc-add-confirm      { background: var(--card); }
+.dark .fc-new-group-btn    { background: rgba(23,105,200,.15); }
+.dark .fc-bulk-bar         { background: var(--card); }
+.dark .fc-select-mode-btn  { background: var(--card); }
+.dark .fc-custom-group-chip { background: var(--card); }
+.dark .fc-group-mgmt-btn   { background: var(--card); }
+.dark .fc-group-badge      { background: rgba(23,105,200,.15); }
+
+/* -- Responsive ---------------------------------------------------- */
+@media (max-width: 600px) {
+  .fc-custom-groups              { padding: 12px 12px; }
+  .fc-custom-groups-hdr,
+  .fc-custom-groups-header       { flex-wrap: wrap; }
+  .fc-bulk-bar                   { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .fc-bulk-actions               { width: 100%; }
+  .fc-group-modal                { padding: 18px 16px; }
+  .fc-add-confirm                { bottom: 12px; right: 12px; left: 12px; font-size: 12px; }
+}
+
+/* ------------------------------------------------------------------
+   FLASHCARDS PAGE  Phase 6 - Command UI
+   ------------------------------------------------------------------ */
+
+/* -- 1. Command Header --------------------------------------------- */
+.fc-command-header {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-s);
+}
+.fc-command-left {
+  display: flex; align-items: center; gap: 12px;
+}
+.fc-command-icon { display: none; }
+.fc-command-title {
+  font-size: 22px; font-weight: 700; color: var(--t1);
+  letter-spacing: -.4px; margin: 0; line-height: 1.2;
+}
+.fc-command-subtitle {
+  font-size: 12px; color: var(--t3); margin: 3px 0 0; line-height: 1.4;
+}
+.fc-command-kicker { display: none; }
+.fc-header-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 4px;
+}
+
+/* -- 2. Review Queue Card ------------------------------------------ */
+.fc-review-queue {
+  background: #0B1220;
+  border: 1px solid rgba(255,255,255,.07);
+  border-left: 4px solid #2E64C8;
+  border-radius: 14px; padding: 22px 26px;
+}
+.fc-review-queue--done { border-left-color: var(--status-stable); }
+.fc-review-queue-main {
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 24px;
+}
+.fc-review-queue-text { flex: 1; min-width: 0; }
+.fc-review-queue-eyebrow {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .15em;
+  text-transform: uppercase; color: #4A90D9; margin-bottom: 10px;
+}
+.fc-review-queue--done .fc-review-queue-eyebrow { color: #7DD4E8; }
+.fc-review-queue-count {
+  font-size: 22px; font-weight: 800; color: #F4F6FA;
+  letter-spacing: -.5px; line-height: 1.1; margin-bottom: 5px;
+}
+.fc-review-queue-sub {
+  font-size: 12px; color: rgba(244,246,250,.5); margin: 0 0 14px; line-height: 1.55;
+}
+.fc-review-now-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border-radius: 8px;
+  background: #2E64C8; color: #fff; border: none;
+  font-family: 'Poppins', sans-serif; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: background .14s, box-shadow .14s;
+  box-shadow: 0 2px 10px rgba(46,100,200,.35);
+}
+.fc-review-now-btn:hover { background: #2558B8; box-shadow: 0 4px 16px rgba(46,100,200,.5); }
+.fc-review-queue-stats {
+  display: flex; gap: 24px; flex-shrink: 0;
+  padding: 14px 20px;
+  background: rgba(255,255,255,.05);
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+}
+.fc-review-queue-stat {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.fc-rqs-num { font-size: 20px; font-weight: 800; line-height: 1; letter-spacing: -.4px; }
+.fc-rqs-lbl { font-size: 10px; color: rgba(244,246,250,.4); font-weight: 500; }
+
+/* -- 3. Topic Intelligence ----------------------------------------- */
+.fc-topic-intel {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; overflow: hidden; box-shadow: var(--sh-card);
+}
+.fc-topic-intel-header {
+  display: flex; align-items: center; padding: 13px 18px;
+  border-bottom: 1px solid var(--border-s); background: var(--bg);
+}
+.fc-topic-intel-title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--t2);
+}
+.fc-topic-intel-body {
+  padding: 14px 18px; display: flex; flex-direction: column; gap: 16px;
+}
+.fc-topic-section { display: flex; flex-direction: column; gap: 8px; }
+.fc-topic-section-hdr { display: flex; align-items: baseline; gap: 8px; }
+.fc-topic-section-title { font-size: 11.5px; font-weight: 700; color: var(--t1); }
+.fc-topic-section-sub { font-size: 10.5px; color: var(--t3); }
+.fc-topic-row { display: flex; flex-wrap: wrap; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.fc-topic-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  font-family: 'Poppins', sans-serif; font-size: 11.5px; font-weight: 600;
+  color: var(--t2); cursor: pointer; transition: all .14s; white-space: nowrap;
+}
+.fc-topic-chip:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-10); }
+.fc-topic-chip.recent {
+  border-color: rgba(15,173,111,.3); color: var(--green); background: rgba(15,173,111,.06);
+}
+.fc-topic-chip.recent:hover { border-color: var(--green); background: rgba(15,173,111,.12); }
+.fc-topic-chip.active { border-color: var(--blue); background: var(--blue); color: #fff; }
+.fc-topic-chip.recent.active { border-color: var(--green); background: var(--green); color: #fff; }
+.fc-topic-chip-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 17px; height: 15px; padding: 0 4px;
+  border-radius: 20px; background: rgba(0,0,0,.1);
+  font-size: 9px; font-weight: 700; color: inherit; line-height: 1;
+}
+.fc-topic-chip.active .fc-topic-chip-count { background: rgba(255,255,255,.22); }
+
+/* -- 5. Toolbar Card ----------------------------------------------- */
+.fc-toolbar-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 12px 14px;
+  box-shadow: var(--sh-card);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.fc-toolbar-row { display: flex; align-items: center; gap: 8px; }
+.fc-filter-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 9px;
+  border: 1.5px solid var(--border); background: var(--card);
+  font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600;
+  color: var(--t2); cursor: pointer; transition: all .14s;
+  white-space: nowrap; flex-shrink: 0;
+}
+.fc-filter-toggle:hover { border-color: var(--blue); color: var(--blue); }
+.fc-filter-toggle.open { border-color: var(--blue); background: var(--blue-10); color: var(--blue); }
+.fc-filter-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 4px;
+  border-radius: 20px; background: var(--blue); color: #fff;
+  font-size: 9px; font-weight: 700; line-height: 1;
+}
+.fc-active-filter-chips {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 2px;
+}
+.fc-filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600;
+  color: var(--t2); cursor: pointer; transition: all .14s;
+}
+.fc-filter-chip:hover { border-color: rgba(204,58,58,.5); color: var(--red); background: rgba(204,58,58,.05); }
+.fc-clear-all-btn {
+  padding: 4px 10px; border: none; background: none;
+  font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600;
+  color: var(--t4); cursor: pointer; transition: color .14s;
+}
+.fc-clear-all-btn:hover { color: var(--red); }
+.fc-advanced-filters {
+  display: flex; flex-direction: column; gap: 10px;
+  padding-top: 8px; border-top: 1px solid var(--border-s);
+}
+
+/* -- 6. Library Header --------------------------------------------- */
+.fc-library-header {
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 10px; margin-bottom: 6px;
+}
+.fc-library-header-left { display: flex; align-items: center; gap: 8px; }
+.fc-library-title { font-size: 13px; font-weight: 700; color: var(--t1); letter-spacing: -.1px; }
+.fc-library-count {
+  font-size: 11.5px; color: var(--t3); font-weight: 500;
+  padding: 2px 8px; border-radius: 20px; background: var(--border-s);
+}
+
+/* -- Review header center + topic label ---------------------------- */
+.fc-rev-hdr-center {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  pointer-events: none;
+}
+.fc-rev-topic-label {
+  font-size: 13px; font-weight: 600; color: var(--t3);
+  letter-spacing: .1px; text-align: center;
+  max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* -- Session done recommendation text ----------------------------- */
+.fc-done-rec {
+  font-size: 12.5px; color: var(--t3); margin: 0;
+  line-height: 1.55; text-align: center;
+}
+
+/* -- Dark mode overrides ------------------------------------------- */
+.dark .fc-review-queue          { background: var(--card); }
+.dark .fc-review-queue-stats    { background: rgba(255,255,255,.03); border-color: var(--border); }
+.dark .fc-topic-intel           { background: var(--card); }
+.dark .fc-topic-intel-header    { background: rgba(255,255,255,.03); border-bottom-color: var(--border); }
+.dark .fc-topic-chip            { background: var(--card); border-color: var(--border); }
+.dark .fc-topic-chip:hover      { background: var(--blue-10); }
+.dark .fc-topic-chip.recent     { background: rgba(15,173,111,.1); }
+.dark .fc-toolbar-card          { background: var(--card); }
+.dark .fc-filter-toggle         { background: var(--card); border-color: var(--border); }
+.dark .fc-filter-toggle.open    { background: rgba(23,105,200,.15); }
+.dark .fc-filter-chip           { background: var(--card); border-color: var(--border); }
+.dark .fc-command-icon          { background: rgba(23,105,200,.15); border-color: rgba(23,105,200,.25); }
+
+/* -- Responsive ---------------------------------------------------- */
+@media (max-width: 760px) {
+  .fc-review-queue-main   { flex-direction: column; align-items: flex-start; }
+  .fc-review-queue-stats  { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 600px) {
+  .fc-review-queue        { padding: 16px 16px; border-radius: 14px; }
+  .fc-review-queue-count  { font-size: 20px; }
+  .fc-toolbar-card        { padding: 10px 12px; }
+  .fc-toolbar-row         { flex-wrap: wrap; }
+  .fc-topic-intel-body    { padding: 12px 14px; }
+  .fc-library-header      { margin-bottom: 4px; }
+  .fc-header-actions      { gap: 6px; }
+}
+

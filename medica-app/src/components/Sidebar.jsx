@@ -76,6 +76,14 @@ export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue, authU
             <span className="sb-item-icon" aria-hidden="true"><IconGovernance /></span>
             <span className="sb-item-label">Governance</span>
           </button>
+          <button
+            className={`sb-item${activeNav === 'admin-taxonomy' ? ' active' : ''}`}
+            onClick={() => onNav('admin-taxonomy')}
+            aria-current={activeNav === 'admin-taxonomy' ? 'page' : undefined}
+          >
+            <span className="sb-item-icon" aria-hidden="true"><IconTaxonomy /></span>
+            <span className="sb-item-label">Taxonomy</span>
+          </button>
         </div>
       )}
 
@@ -169,6 +177,21 @@ function IconGovernance() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 1.5L14 4v4c0 3.5-2.8 6-6 7.5C2.8 14 0 11.5 0 8V4l6-2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
       <path d="M5.5 8l1.8 1.8L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function IconTaxonomy() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="3" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+      <circle cx="3" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+      <circle cx="3" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M4.5 4h2.5a1 1 0 0 1 1 1v.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M4.5 12h2.5a1 1 0 0 0 1-1v-.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M8 5.5v5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M8 8h3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="13" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
     </svg>
   )
 }

@@ -10,7 +10,7 @@ export function getAuthToken() {
   return _token;
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, options = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
 
@@ -18,6 +18,7 @@ async function request(method, path, body) {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: options.signal,
   });
 
   if (res.status === 204) return null;
@@ -123,6 +124,16 @@ export const mastery = {
 export const generate = {
   flashcards: (count = 10, config = {}) =>
     request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
+  questions: ({ config, exclude } = {}, options = {}) =>
+    request('POST', '/api/generate-questions', {
+      config,
+      ...(exclude ? { exclude } : {}),
+    }, options),
+};
+
+// â”€â”€ Question Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+export const questionReports = {
+  create: (payload) => request('POST', '/api/question-reports', payload),
 };
 
 // ── Governance (admin) ────────────────────────────────────────────────────
@@ -143,6 +154,23 @@ export const governance = {
     request('GET', '/api/generated-question-bank/metrics'),
   updateStatus: (id, status) =>
     request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/status`, { status }),
+};
+
+// ── Taxonomy Candidates (admin) ───────────────────────────────────────────
+export const taxonomyCandidates = {
+  list: ({ status, limit = 100, page = 1 } = {}) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('limit', String(limit));
+    params.set('page', String(page));
+    return request('GET', `/api/taxonomy-candidates?${params}`);
+  },
+  updateStatus: (id, status, { mappedTo, note } = {}) =>
+    request('PATCH', `/api/taxonomy-candidates/${encodeURIComponent(id)}/status`, {
+      status,
+      ...(mappedTo !== undefined ? { mappedTo } : {}),
+      ...(note !== undefined ? { note } : {}),
+    }),
 };
 
 // ── Token persistence helpers ─────────────────────────────────────────────

@@ -28,6 +28,7 @@ const SettingsPage = lazy(() => import('./components/settings/SettingsPage'))
 const AdminReviewQueue = lazy(() => import('./components/admin/AdminReviewQueue'))
 const AdminReviewDetail = lazy(() => import('./components/admin/AdminReviewDetail'))
 const AdminGovernanceDashboard = lazy(() => import('./components/admin/AdminGovernanceDashboard'))
+const AdminTaxonomyReview      = lazy(() => import('./components/admin/AdminTaxonomyReview'))
 
 const MOCK_FALLBACK_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_ALLOW_MOCK_FALLBACK === 'true'
 const LOCAL_HARD_BANK_COUNTS = {
@@ -39,6 +40,7 @@ function isHardMedicalReviewConfig(config) {
   return ['NBME Difficult', 'UWorld Challenge'].includes(config?.difficulty)
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function shouldUseValidatedLocalFallback(aiErr, config) {
   if (!isHardMedicalReviewConfig(config)) return false
 
@@ -53,6 +55,7 @@ export function shouldUseValidatedLocalFallback(aiErr, config) {
   return available >= (config?.questionCount || 0)
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function shouldEnterLocalFallback(mockFallbackAllowed, useValidatedLocalFallback) {
   return Boolean(mockFallbackAllowed || useValidatedLocalFallback)
 }
@@ -102,7 +105,7 @@ export default function App() {
   useEffect(() => {
     const token = restoreToken()
     if (!token) return
-    setAuthUser({ restored: true })
+    setAuthUser({ restored: true }) // eslint-disable-line react-hooks/set-state-in-effect
     auth.me()
       .then(({ user, isAdmin }) => setAuthUser({ ...user, isAdmin: !!isAdmin }))
       .catch(() => { clearToken(); setAuthUser(null) })
@@ -134,6 +137,7 @@ export default function App() {
       settings:           'Settings',
       'admin-review':     'Review Queue',
       'admin-governance': 'Governance',
+      'admin-taxonomy':   'Taxonomy Candidates',
     }
     return map[activeNav] || 'Medica'
   }, [activeNav])
@@ -200,8 +204,8 @@ export default function App() {
     setGenerationError(null)
     setQuizPhase('loading')
 
-    let aiGenerationError = null
-    let useValidatedLocalFallback = false
+    let aiGenerationError
+    let useValidatedLocalFallback
 
     try {
       const questions = await aiModule.generateAIQuestions(config, seenState)
@@ -365,12 +369,15 @@ export default function App() {
       return <SettingsPage authUser={authUser} onLogin={handleLogin} onLogout={handleLogout} />
     }
 
-    if (activeNav === 'admin-review' || activeNav === 'admin-governance') {
+    if (activeNav === 'admin-review' || activeNav === 'admin-governance' || activeNav === 'admin-taxonomy') {
       if (!authUser?.isAdmin) {
         return <Phase1Placeholder activeNav="dashboard" />
       }
       if (activeNav === 'admin-governance') {
         return <AdminGovernanceDashboard />
+      }
+      if (activeNav === 'admin-taxonomy') {
+        return <AdminTaxonomyReview />
       }
       if (adminDetailId) {
         return (
