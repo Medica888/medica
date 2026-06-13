@@ -3,9 +3,10 @@ import { getFlashcards, markFlashcardReviewed, clearFlashcards, appendFlashcards
 import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
 import AdaptiveGenerateCTA from './AdaptiveGenerateCTA'
+import FlashcardCommandHeader from './FlashcardCommandHeader'
 import FlashcardEmptyState from './FlashcardEmptyState'
 import { TagBadge, StatusPill } from './FlashcardBadges'
-import { IconBrain, IconClock, IconFilter, IconGroup, IconMedicaShield } from './FlashcardIcons'
+import { IconBrain, IconClock, IconFilter, IconGroup } from './FlashcardIcons'
 import { ActiveFlashcardReview, FlashcardSessionComplete } from './FlashcardReviewViews'
 import {
   STATUS_DISPLAY,
@@ -419,54 +420,16 @@ export default function FlashcardsPage({ onNavigate }) {
         <div className="fc-content">
 
           {/* 1. Command Header */}
-          <header className="fc-command-header">
-            <div className="fc-command-left">
-              <div className="fc-command-icon" aria-hidden="true"><IconMedicaShield/></div>
-              <div>
-                <h1 className="fc-command-title">Clinical Reinforcement</h1>
-                <p className="fc-command-subtitle">
-                  {cards.length} item{cards.length !== 1 ? 's' : ''} / {dueCount} due today
-                </p>
-                <span className="fc-command-kicker">Reinforcement Library</span>
-              </div>
-            </div>
-            <div className="fc-header-actions">
-              <button type="button"
-                className={`fc-action-btn sm${copyMsg === 'copied' ? ' copied' : copyMsg === 'failed' ? ' failed' : ''}`}
-                onClick={handleCopyAll} disabled={processedCards.length === 0}
-                title="Copy visible items as text" aria-label="Copy visible items to clipboard"
-              >
-                {copyMsg === 'copied' ? 'Copied' : copyMsg === 'failed' ? 'Failed' : (
-                  <><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                    <rect x="4" y="3.5" width="6.5" height="7.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M4 3V2a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 12h4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                  </svg>Copy</>
-                )}
-              </button>
-              <button type="button" className="fc-action-btn sm"
-                onClick={handleExportCSV} disabled={processedCards.length === 0}
-                title="Export as CSV" aria-label="Export visible items as CSV"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M6 1v7.5M3.5 6L6 8.5 8.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M1.5 9.5v1a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5v-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
-                Export
-              </button>
-              <button type="button" className="fc-action-btn primary sm"
-                onClick={() => doStartReview(processedCards, true)} disabled={processedCards.length === 0}
-                aria-label={`Start reinforcement of ${processedCards.length} items`}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M2 6.5L5 9.5L10 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Start Reinforcement
-              </button>
-              <button type="button" className="fc-clear-deck-btn" onClick={handleClearDeck}
-                title="Delete all reinforcement items and groups" aria-label="Clear all reinforcement items"
-              >Clear Reinforcement</button>
-            </div>
-          </header>
+          <FlashcardCommandHeader
+            totalCount={cards.length}
+            dueCount={dueCount}
+            visibleCount={processedCards.length}
+            copyMsg={copyMsg}
+            onCopyAll={handleCopyAll}
+            onExportCSV={handleExportCSV}
+            onStartReview={() => doStartReview(processedCards, true)}
+            onClearDeck={handleClearDeck}
+          />
 
           {/* Adaptive AI generation strip */}
           {showAdaptiveCTA && (

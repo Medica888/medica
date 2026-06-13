@@ -3,9 +3,6 @@
    QUIZ V2 — Drawers, Highlighting, Submit Confirm
    ================================================================ */
 
-/* ── Footer layout update: submit on left side ──────────────────── */
-.exam-footer-left { display: flex; align-items: center; gap: 8px; }
-
 /* ── Utility button active state ────────────────────────────────── */
 .exam-util-btn.active {
   border-color: var(--blue); color: var(--blue); background: var(--blue-10);

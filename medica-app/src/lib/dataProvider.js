@@ -107,12 +107,24 @@ export function getSessions() {
  * Written to localStorage first; backend is best-effort.
  */
 export async function saveFlashcards(cards) {
-  appendFlashcards(cards);
+  const incomingCards = Array.isArray(cards) ? cards : [];
+  const beforeKeys = new Set(getFlashcards().map(_flashcardIdentity));
+  const added = appendFlashcards(incomingCards);
+  const savedCards = getFlashcards().filter((card) => !beforeKeys.has(_flashcardIdentity(card)));
+  const result = {
+    added,
+    skipped: Math.max(incomingCards.length - added, 0),
+    total: incomingCards.length,
+    backendAttempted: false,
+    backendSynced: false,
+  };
 
-  if (!USE_BACKEND) return;
+  if (!USE_BACKEND || !added || !api.getAuthToken?.() || savedCards.length === 0) {
+    return result;
+  }
 
   try {
-    const mapped = cards.map((c) => ({
+    const mapped = savedCards.map((c) => ({
       source_question_id: c.sourceQuestionId ?? c.id,
       type: c.type ?? 'Recall',
       front: c.front,
@@ -120,10 +132,14 @@ export async function saveFlashcards(cards) {
       tag: c.tag ?? '',
       review_status: c.reviewStatus ?? 'new',
     }));
+    result.backendAttempted = true;
     await api.flashcards.createMany(mapped);
+    result.backendSynced = true;
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard save failed:', err.message);
   }
+
+  return result;
 }
 
 export async function setFlashcardStatus(id, status) {
@@ -189,4 +205,11 @@ function _arrayToRecord(arr) {
     );
   }
   return arr;
+}
+
+function _flashcardIdentity(card) {
+  const source = card?.sourceQuestionId ?? card?.source_question_id ?? '';
+  const tag = card?.tag ?? '';
+  const front = (card?.front ?? '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${source}::${tag}::${front}`;
 }

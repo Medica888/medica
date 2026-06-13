@@ -285,7 +285,7 @@
   background: var(--card); border-top: 1px solid var(--border);
   gap: 12px;
 }
-.exam-footer-left   { display: flex; align-items: center; }
+.exam-footer-left   { display: flex; align-items: center; gap: 8px; }
 .exam-footer-center { flex: 1; display: flex; align-items: center; justify-content: center; }
 .exam-footer-right  { display: flex; align-items: center; gap: 8px; }
 .exam-foot-counter {
