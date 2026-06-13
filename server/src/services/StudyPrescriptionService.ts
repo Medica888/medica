@@ -6,18 +6,19 @@ import type {
 } from '../types/index.js';
 import {
   MIN_FOR_ADAPTIVE, sortByWeakness, adaptiveDisabledReason,
-  TIER_WEAK as TIER_PRIORITY_MAX,
-  TIER_MEDIUM as TIER_FOCUS_MAX,
-  TIER_REINFORCED as TIER_REINFORCED_MAX,
 } from './adaptiveMasteryUtils.js';
 
+const P1_MAX = 0.50;
+const P2_MAX = 0.70;
+const P3_MAX = 0.80;
+
 // Readiness-aware list caps.
-// Struggling users get more priority concepts; prepared users shift toward focus/reinforced.
-const CAPS_BY_STATUS: Record<ReadinessStatus, { priority: number; focus: number; reinforced: number }> = {
-  'Needs Intensive Review': { priority: 10, focus: 5,  reinforced: 2  },
-  'Developing':             { priority: 8,  focus: 6,  reinforced: 5  },  // legacy defaults
-  'Approaching Readiness':  { priority: 6,  focus: 8,  reinforced: 6  },
-  'Exam Ready':             { priority: 4,  focus: 8,  reinforced: 8  },
+// Struggling users get more P1 concepts; prepared users shift toward P2/P3.
+const CAPS_BY_STATUS: Record<ReadinessStatus, { p1: number; p2: number; p3: number }> = {
+  'Needs Intensive Review': { p1: 10, p2: 5, p3: 2 },
+  'Developing':             { p1: 8,  p2: 6, p3: 5 },
+  'Approaching Readiness':  { p1: 6,  p2: 8, p3: 6 },
+  'Exam Ready':             { p1: 4,  p2: 8, p3: 8 },
 };
 
 // Per-concept time/question/flashcard multipliers — fixed regardless of readiness
@@ -37,6 +38,9 @@ const MIN_PER_REVIEW     = 3;
 const RANDOM_PRESCRIPTION: StudyPrescription = {
   strategy:              'random',
   enabled:               false,
+  p1:                    [],
+  p2:                    [],
+  p3:                    [],
   priority:              [],
   focus:                 [],
   reinforced:            [],
@@ -116,23 +120,23 @@ function conceptPhysicianTask(concept: Concept): string {
 // windowed recent count. Thresholds here are calibrated for cumulative totals.
 function makeRecommendation(
   row:  UserConceptMastery,
-  tier: 'priority' | 'focus' | 'reinforced',
+  tier: 'p1' | 'p2' | 'p3',
 ): string {
-  if (tier === 'priority') {
+  if (tier === 'p1') {
     if (row.recent_incorrect_count >= 5) return 'Persistent weak area — review core mechanisms';
     if (row.recent_incorrect_count >= 3) return 'Recurring errors — address weak points before they solidify';
     if (row.confidence_score < 0.4)      return 'Build foundational understanding — review core mechanisms';
     if (row.mastery_score === 0)          return 'Never answered correctly — start from basics';
-    return 'Below passing threshold — prioritize in next session';
+    return 'P1 concept - rebuild before the next mixed session';
   }
-  if (tier === 'focus') {
+  if (tier === 'p2') {
     if (row.recent_incorrect_count >= 4) return 'Recurring errors — address weak points with targeted practice';
     return 'Developing — reinforce with targeted practice questions';
   }
   return 'Solid understanding — maintain with spaced review';
 }
 
-function toConcept(row: UserConceptMastery, name: string, tier: 'priority' | 'focus' | 'reinforced', subject?: string): PrescriptionConcept {
+function toConcept(row: UserConceptMastery, name: string, tier: 'p1' | 'p2' | 'p3', subject?: string): PrescriptionConcept {
   return {
     name,
     subject,
@@ -156,9 +160,9 @@ interface PrescriptionBuild {
 }
 
 function tierFor(score: number): ReviewTier {
-  if (score < TIER_PRIORITY_MAX)   return 'priority';
-  if (score < TIER_FOCUS_MAX)      return 'focus';
-  if (score < TIER_REINFORCED_MAX) return 'reinforced';
+  if (score < P1_MAX) return 'p1';
+  if (score < P2_MAX) return 'p2';
+  if (score < P3_MAX) return 'p3';
   return 'ontrack';
 }
 
@@ -166,13 +170,13 @@ function tierFor(score: number): ReviewTier {
 // flagging every concept that has ever been answered wrong even once.
 function dailyReason(row: UserConceptMastery): string {
   if (row.next_review_at && row.next_review_at.getTime() <= Date.now()) return 'Due for spaced review';
-  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count >= 3 && row.confidence_score < 0.5) {
+  if (row.mastery_score < P1_MAX && row.recent_incorrect_count >= 3 && row.confidence_score < 0.5) {
     return 'Low mastery, low confidence, and accumulated wrong answers';
   }
-  if (row.mastery_score < TIER_PRIORITY_MAX && row.recent_incorrect_count >= 3) {
+  if (row.mastery_score < P1_MAX && row.recent_incorrect_count >= 3) {
     return 'Low mastery with accumulated wrong answers';
   }
-  if (row.mastery_score < TIER_PRIORITY_MAX) return 'Low mastery needs targeted review';
+  if (row.mastery_score < P1_MAX) return 'Low mastery needs targeted review';
   if (row.confidence_score < 0.5) return 'Developing concept with low confidence';
   if (row.recent_incorrect_count >= 3) return 'Wrong answers recorded — reinforce with practice';
   if (row.recent_incorrect_count > 0)  return 'Recent wrong answers — reinforce to prevent regression';
@@ -185,12 +189,12 @@ function summarizeDailyPlan(reviews: DailyPlanConceptReview[]): string {
   const areas    = [...new Set(reviews.flatMap((r) => r.usmleContentArea ? [r.usmleContentArea] : []))];
   const tasks    = [...new Set(reviews.flatMap((r) => r.physicianTask    ? [r.physicianTask]    : []))];
   const primary  = subjects.slice(0, 2).join(' and ');
-  const priorityCount = reviews.filter((r) => r.priority === 'priority').length;
+  const priorityCount = reviews.filter((r) => r.priority === 'p1' || r.priority === 'priority').length;
   // Use richer summary only when taxonomy is unambiguous (single area + single task)
   if (areas.length === 1 && tasks.length === 1 && priorityCount > 0) {
     const areaLabel = areas[0]!.replace(/ System$/i, '').replace(/ & Special Senses$/i, '');
     const taskLabel = tasks[0]!.replace(/^Patient Care:\s*/i, '').replace(/^Medical Knowledge:\s*/i, '');
-    return `Focus today on ${areaLabel.toLowerCase()} ${taskLabel.toLowerCase()} — priority items need attention.`;
+    return `Focus today on ${areaLabel.toLowerCase()} ${taskLabel.toLowerCase()} - P1 items need attention.`;
   }
   if (primary && priorityCount > 0) return `Focus today on weak ${primary} concepts.`;
   if (primary) return `Reinforce developing ${primary} concepts today.`;
@@ -288,9 +292,9 @@ export class StudyPrescriptionService {
     const fetched    = await this.concepts.findManyById(sorted.map((r) => r.concept_id));
     const conceptMap = new Map(fetched.map((c) => [c.id, c]));
 
-    const priority:   PrescriptionConcept[] = [];
-    const focus:      PrescriptionConcept[] = [];
-    const reinforced: PrescriptionConcept[] = [];
+    const p1: PrescriptionConcept[] = [];
+    const p2: PrescriptionConcept[] = [];
+    const p3: PrescriptionConcept[] = [];
     const candidates: PrescriptionBuild['candidates'] = [];
 
     for (const row of sorted) {
@@ -301,32 +305,35 @@ export class StudyPrescriptionService {
       const tier = tierFor(row.mastery_score);
       candidates.push({ row, concept, tier });
 
-      if (tier === 'priority') {
-        if (priority.length < caps.priority) priority.push(toConcept(row, name, 'priority', concept?.subject));
-      } else if (tier === 'focus') {
-        if (focus.length < caps.focus) focus.push(toConcept(row, name, 'focus', concept?.subject));
-      } else if (tier === 'reinforced') {
-        if (reinforced.length < caps.reinforced) reinforced.push(toConcept(row, name, 'reinforced', concept?.subject));
+      if (tier === 'p1') {
+        if (p1.length < caps.p1) p1.push(toConcept(row, name, 'p1', concept?.subject));
+      } else if (tier === 'p2') {
+        if (p2.length < caps.p2) p2.push(toConcept(row, name, 'p2', concept?.subject));
+      } else if (tier === 'p3') {
+        if (p3.length < caps.p3) p3.push(toConcept(row, name, 'p3', concept?.subject));
       }
     }
 
-    const estimatedStudyTime    = priority.length * MIN_PER_PRIORITY +
-                                  focus.length    * MIN_PER_FOCUS    +
-                                  reinforced.length * MIN_PER_REINFORCED;
+    const estimatedStudyTime    = p1.length * MIN_PER_PRIORITY +
+                                  p2.length * MIN_PER_FOCUS +
+                                  p3.length * MIN_PER_REINFORCED;
     const recommendedQuestions  = Math.min(
-      priority.length * Q_PER_PRIORITY + focus.length * Q_PER_FOCUS, 40,
+      p1.length * Q_PER_PRIORITY + p2.length * Q_PER_FOCUS, 40,
     );
     const recommendedFlashcards = Math.min(
-      priority.length * FC_PER_PRIORITY + focus.length * FC_PER_FOCUS + reinforced.length * FC_PER_REINFORCED, 30,
+      p1.length * FC_PER_PRIORITY + p2.length * FC_PER_FOCUS + p3.length * FC_PER_REINFORCED, 30,
     );
 
     return {
       rx: {
         strategy:  'adaptive',
         enabled:   true,
-        priority,
-        focus,
-        reinforced,
+        p1,
+        p2,
+        p3,
+        priority: p1,
+        focus: p2,
+        reinforced: p3,
         estimatedStudyTime,
         recommendedQuestions,
         recommendedFlashcards,
@@ -337,8 +344,8 @@ export class StudyPrescriptionService {
 }
 
 function tierRank(tier: ReviewTier): number {
-  if (tier === 'priority') return 0;
-  if (tier === 'focus') return 1;
-  if (tier === 'reinforced') return 2;
+  if (tier === 'p1' || tier === 'priority') return 0;
+  if (tier === 'p2' || tier === 'focus') return 1;
+  if (tier === 'p3' || tier === 'reinforced') return 2;
   return 3;
 }

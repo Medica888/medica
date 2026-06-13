@@ -1,5 +1,5 @@
 import { normalizeSubject, normalizeSystem } from '../medicaTaxonomy.js';
-import { lookupConcept } from '../medicaConceptTaxonomy.js';
+import { resolveConceptAlias } from '../../services/TaxonomyResolutionService.js';
 import type { ValidationQuestion, ValidatorResult } from './validationTypes.js';
 
 /**
@@ -26,7 +26,7 @@ export function validateConcept(question: ValidationQuestion): ValidatorResult {
     return noopPass('subject_or_system_unresolved');
   }
 
-  const found = lookupConcept(raw);
+  const found = resolveConceptAlias(raw);
 
   // ── Unknown concept — WARN (beta discovery mode) ──────────────────────────
   if (!found) {
@@ -56,7 +56,9 @@ export function validateConcept(question: ValidationQuestion): ValidatorResult {
       expected: found.canonical,
       detected: raw.trim(),
       confidence: 0.8,
-      reasons: ['concept_alias_used'],
+      reasons: found.aliasSource === 'runtime_alias'
+        ? ['concept_alias_used', 'runtime_alias_used']
+        : ['concept_alias_used'],
     };
   }
 

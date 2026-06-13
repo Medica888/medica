@@ -141,6 +141,7 @@ export interface TaxonomyCandidate {
   frequency: number;
   exampleQuestionFingerprint: string | null;
   source: string;
+  type: 'topic' | 'concept';
   status: TaxonomyCandidateStatus;
   metadata: Record<string, unknown>;
   createdAt?: Date | string;
@@ -156,6 +157,7 @@ export interface ITaxonomyCandidatesRepository {
     system: string;
     exampleQuestionFingerprint?: string | null;
     source?: string;
+    type?: 'topic' | 'concept';
     metadata?: Record<string, unknown>;
   }): Promise<TaxonomyCandidate>;
 

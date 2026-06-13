@@ -1,6 +1,7 @@
 import { getSessionHistory, getLastPracticeResults, getLastCoachResults, getFlashcards } from './storage'
 import { normalizeTopicForAnalytics } from './topicNormalizer.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
+import { normalizeSubjectLabel, normalizeSystemLabel } from './usmleTaxonomy.js'
 
 export { getRangeStartDate }
 
@@ -194,9 +195,10 @@ function _aggregateSubjects(sessions) {
   const map = {}
   for (const s of sessions) {
     for (const bd of (s.subjectBreakdown || [])) {
-      if (!map[bd.name]) map[bd.name] = { correct: 0, total: 0 }
-      map[bd.name].correct += bd.correct
-      map[bd.name].total   += bd.total
+      const name = normalizeSubjectLabel(bd.name) || 'Unknown'
+      if (!map[name]) map[name] = { correct: 0, total: 0 }
+      map[name].correct += bd.correct
+      map[name].total   += bd.total
     }
   }
   return Object.entries(map)
@@ -213,9 +215,10 @@ function _aggregateSystems(sessions) {
   const map = {}
   for (const s of sessions) {
     for (const bd of (s.systemBreakdown || [])) {
-      if (!map[bd.name]) map[bd.name] = { correct: 0, total: 0 }
-      map[bd.name].correct += bd.correct
-      map[bd.name].total   += bd.total
+      const name = normalizeSystemLabel(bd.name) || 'Unknown'
+      if (!map[name]) map[name] = { correct: 0, total: 0 }
+      map[name].correct += bd.correct
+      map[name].total   += bd.total
     }
   }
   return Object.entries(map)
@@ -302,17 +305,21 @@ function _diagnoseMistakes(sessions) {
   for (const s of sessions) {
     totalAttempted += (s.total || 0)
     for (const bd of (s.subjectBreakdown || [])) {
-      subjectAttempted[bd.name] = (subjectAttempted[bd.name] || 0) + bd.total
+      const name = normalizeSubjectLabel(bd.name) || 'Unknown'
+      subjectAttempted[name] = (subjectAttempted[name] || 0) + bd.total
     }
     for (const bd of (s.systemBreakdown || [])) {
-      systemAttempted[bd.name] = (systemAttempted[bd.name] || 0) + bd.total
+      const name = normalizeSystemLabel(bd.name) || 'Unknown'
+      systemAttempted[name] = (systemAttempted[name] || 0) + bd.total
     }
     for (const q of (s.missedQuestions || [])) {
       totalMissed++
-      if (q.subject) subjectMisses[q.subject] = (subjectMisses[q.subject] || 0) + 1
-      if (q.system)  systemMisses[q.system]   = (systemMisses[q.system]   || 0) + 1
+      const subject = normalizeSubjectLabel(q.subject)
+      const system = normalizeSystemLabel(q.system)
+      if (subject) subjectMisses[subject] = (subjectMisses[subject] || 0) + 1
+      if (system)  systemMisses[system]   = (systemMisses[system]   || 0) + 1
       if (q.id) {
-        if (!questionInfo[q.id]) questionInfo[q.id] = { subject: q.subject, system: q.system, count: 0 }
+        if (!questionInfo[q.id]) questionInfo[q.id] = { subject, system, count: 0 }
         questionInfo[q.id].count++
       }
     }
@@ -351,7 +358,10 @@ function _diagnoseMistakes(sessions) {
     const half = Math.ceil(sessions.length / 2)
     for (let i = 0; i < half; i++) {
       for (const q of (sessions[i].missedQuestions || [])) {
-        if ((type === 'subject' ? q.subject : q.system) === name) recentMisses++
+        const area = type === 'subject'
+          ? normalizeSubjectLabel(q.subject)
+          : normalizeSystemLabel(q.system)
+        if (area === name) recentMisses++
       }
     }
     const recentRatio   = missedCount > 0 ? recentMisses / missedCount : 0.5
@@ -696,7 +706,10 @@ function _detectRepeatedMistakes(sessions) {
     for (const q of (s.missedQuestions || [])) {
       if (!q.id) continue
       counts[q.id] = (counts[q.id] || 0) + 1
-      if (!info[q.id]) info[q.id] = { subject: q.subject || '', system: q.system || '' }
+      if (!info[q.id]) info[q.id] = {
+        subject: normalizeSubjectLabel(q.subject) || '',
+        system: normalizeSystemLabel(q.system) || '',
+      }
     }
   }
   return Object.entries(counts)
@@ -752,9 +765,13 @@ function _detectImprovingTopics(sessions) {
     const map = {}
     for (const s of arr) {
       for (const bd of [...(s.subjectBreakdown || []), ...(s.systemBreakdown || [])]) {
-        if (!map[bd.name]) map[bd.name] = { correct: 0, total: 0 }
-        map[bd.name].correct += bd.correct
-        map[bd.name].total   += bd.total
+        const name = (s.subjectBreakdown || []).includes(bd)
+          ? normalizeSubjectLabel(bd.name)
+          : normalizeSystemLabel(bd.name)
+        if (!name) continue
+        if (!map[name]) map[name] = { correct: 0, total: 0 }
+        map[name].correct += bd.correct
+        map[name].total   += bd.total
       }
     }
     return map

@@ -1,9 +1,12 @@
 import { useMasteryConcept, useTopicReadiness, useConceptReviews } from '../../hooks/useMastery'
 
 const TIER_META = {
-  priority:   { label: 'Priority',   color: 'var(--status-critical)' },
-  focus:      { label: 'Focus',      color: 'var(--status-warn)'     },
-  reinforced: { label: 'Reinforced', color: 'var(--status-stable)'   },
+  p1:         { label: 'P1',         color: 'var(--status-critical)' },
+  p2:         { label: 'P2',         color: 'var(--status-warn)'     },
+  p3:         { label: 'P3',         color: 'var(--status-stable)'   },
+  priority:   { label: 'P1',         color: 'var(--status-critical)' },
+  focus:      { label: 'P2',         color: 'var(--status-warn)'     },
+  reinforced: { label: 'P3',         color: 'var(--status-stable)'   },
   ontrack:    { label: 'On Track',   color: 'var(--blue)'            },
 }
 

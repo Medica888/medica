@@ -69,7 +69,6 @@ export default function QuizBuilder({ onStart, generationError = null }) {
       const effectiveConfig = normalizeQuizConfigForGeneration(isStandardized
         ? { ...config, ...LOCKED_CONFIG }
         : config)
-      console.log("[QUIZBUILDER CONFIG BEFORE GENERATE]", effectiveConfig)
       const base = normalizeGenerationConfig({
         ...effectiveConfig,
         topic:         effectiveConfig.topic.trim(),
@@ -95,7 +94,7 @@ export default function QuizBuilder({ onStart, generationError = null }) {
         setIsGenerating(false)
         setTimeout(() => setSaved(false), 5000)
       }
-    } catch (err) {
+    } catch {
       setError('Something went wrong. Please try again.')
       setIsGenerating(false)
     }

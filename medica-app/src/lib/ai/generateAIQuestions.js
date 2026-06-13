@@ -1,5 +1,5 @@
 import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } from '../questionDedup.js'
-import { getAuthToken } from '../apiClient.js'
+import { generate } from '../apiClient.js'
 import { getQuestionCorrectLetter } from '../answerNormalize.js'
 import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
 import { normalizeQuizConfigForGeneration } from '../quizTypes.js'
@@ -162,32 +162,12 @@ export function formatGenerationErrorMessage(err, config) {
 }
 
 async function _attempt(config, exclude, signal) {
-  const body = { config }
-  if (exclude) body.exclude = exclude
-
-  const headers = { 'Content-Type': 'application/json' }
-  const token = getAuthToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const res = await fetch('/api/generate-questions', {
-    method: 'POST',
-    headers,
-    body:   JSON.stringify(body),
-    signal,
-  })
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || `Server error ${res.status}`)
-  }
-
-  const data = await res.json()
+  const data = await generate.questions({ config, exclude }, { signal })
   if (!Array.isArray(data.questions) || data.questions.length === 0) {
     throw new Error('Server returned empty question array')
   }
 
   if (data.telemetry) {
-    console.log('[generateAIQuestions] server telemetry:', data.telemetry)
     attachGenerationTelemetry(data.questions, data.telemetry)
   }
 
@@ -267,9 +247,6 @@ function _getReusableTrustedQuestions(config, seenState) {
     console.warn(`[generateAIQuestions] purged ${rejected} stale trusted question(s) that failed re-validation`)
   }
 
-  if (valid.length > 0) {
-    console.log(`[generateAIQuestions] reused ${valid.length} trusted generated question(s)`)
-  }
   return valid.map(q => enrichQuestionWithUsmleTaxonomy(q, config))
 }
 
@@ -293,9 +270,6 @@ function _getBankCandidates(config, seenState) {
   const trustedQs = _getReusableTrustedQuestions(config, seenState)
 
   const { unique } = _dedupQuestions([...validBankQs, ...trustedQs])
-  if (unique.length > 0) {
-    console.log(`[generateAIQuestions] bank candidates: ${validBankQs.length} static + ${trustedQs.length} trusted = ${unique.length} unique`)
-  }
   return unique
 }
 

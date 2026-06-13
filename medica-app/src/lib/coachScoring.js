@@ -1,6 +1,6 @@
 import { analyzeWeakSpots } from './weakSpotAnalysis'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js'
-import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
+import { enrichQuestionWithUsmleTaxonomy, normalizeQuestionTaxonomyFields } from './usmleTaxonomy.js'
 
 function _isCorrect(userAnswer, q) {
   return normalizeAnswerLetter(userAnswer) === getQuestionCorrectLetter(q)
@@ -21,7 +21,8 @@ export function calculateCoachResults(session) {
   // Subject breakdown
   const subjectMap = {}
   for (const q of questions) {
-    const s = q.subject || 'Unknown'
+    const normalized = normalizeQuestionTaxonomyFields(q)
+    const s = normalized.subject || 'Unknown'
     if (!subjectMap[s]) subjectMap[s] = { correct: 0, total: 0 }
     subjectMap[s].total++
     if (_isCorrect(answers[q.id], q)) subjectMap[s].correct++
@@ -36,7 +37,8 @@ export function calculateCoachResults(session) {
   // System breakdown
   const systemMap = {}
   for (const q of questions) {
-    const s = q.system || 'Unknown'
+    const normalized = normalizeQuestionTaxonomyFields(q)
+    const s = normalized.system || 'Unknown'
     if (!systemMap[s]) systemMap[s] = { correct: 0, total: 0 }
     systemMap[s].total++
     if (_isCorrect(answers[q.id], q)) systemMap[s].correct++
@@ -71,11 +73,12 @@ export function calculateCoachResults(session) {
   const missedQuestions = questions
     .filter(q => !_isCorrect(answers[q.id], q))
     .map(q => {
-      const tagged = enrichQuestionWithUsmleTaxonomy(q)
+      const normalized = normalizeQuestionTaxonomyFields(q)
+      const tagged = enrichQuestionWithUsmleTaxonomy(normalized)
       return {
         id: q.id,
-        subject: q.subject || '',
-        system: q.system || '',
+        subject: normalized.subject || '',
+        system: normalized.system || '',
         difficulty: q.difficulty || '',
         weakSpotCategory: q.weakSpotCategory || '',
         testedConcept: q.testedConcept || '',

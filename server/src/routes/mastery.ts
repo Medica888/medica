@@ -58,7 +58,7 @@ router.get('/adaptive-flashcards-preview', async (req: AuthRequest, res: Respons
     const { userConceptMastery, concepts, masterySnapshots } = getRepositories();
     // Fetch rows once — shared between readiness computation and plan builder
     const rows  = await userConceptMastery.findByUserId(req.userId!);
-    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots)
+    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots, concepts)
       .getReadiness(req.userId!, rows);
     const plan = await new AdaptiveFlashcardService(userConceptMastery, concepts)
       .buildAdaptiveFlashcardPlan(req.userId!, score, rows);
@@ -81,7 +81,7 @@ router.get('/adaptive-preview', async (req: AuthRequest, res: Response) => {
     const { userConceptMastery, concepts, masterySnapshots } = getRepositories();
     // Fetch rows once — shared between readiness computation and blueprint builder
     const rows  = await userConceptMastery.findByUserId(req.userId!);
-    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots)
+    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots, concepts)
       .getReadiness(req.userId!, rows);
     const bp = await new AdaptiveExamService(userConceptMastery, concepts)
       .buildAdaptivePreview(req.userId!, score, rows);
@@ -134,7 +134,7 @@ router.get('/daily-plan', async (req: AuthRequest, res: Response) => {
   try {
     const { userConceptMastery, concepts, masterySnapshots } = getRepositories();
     const rows  = await userConceptMastery.findByUserId(req.userId!);
-    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots)
+    const score = await new ProgressTrackingService(userConceptMastery, masterySnapshots, concepts)
       .getReadiness(req.userId!, rows);
     const plan = await new StudyPrescriptionService(userConceptMastery, concepts)
       .getDailyPlan(req.userId!, score, rows);
@@ -190,7 +190,7 @@ router.get('/timeline', async (req: AuthRequest, res: Response) => {
 router.get('/readiness', async (req: AuthRequest, res: Response) => {
   try {
     const { userConceptMastery, masterySnapshots, concepts } = getRepositories();
-    const progressSvc     = new ProgressTrackingService(userConceptMastery, masterySnapshots);
+    const progressSvc     = new ProgressTrackingService(userConceptMastery, masterySnapshots, concepts);
     const prescriptionSvc = new StudyPrescriptionService(userConceptMastery, concepts);
     const querySvc        = new MasteryQueryService(userConceptMastery, concepts, new ConceptHierarchyService(concepts));
 
@@ -204,10 +204,18 @@ router.get('/readiness', async (req: AuthRequest, res: Response) => {
       querySvc.getStrongest(req.userId!, 5, 1, rows),
     ]);
 
+    const readinessComponents = {
+      mastery:           score.components.mastery,
+      coverage:          score.components.coverage ?? 0,
+      diversity:         score.components.diversity ?? 0,
+      recentPerformance: score.components.recentPerformance ?? 0,
+    };
+
     res.json({
       overallReadiness:     score.overallReadiness,
+      readinessMetric:      score.label ?? 'Concept Readiness',
       status:               score.status,
-      components:           score.components,
+      components:           readinessComponents,
       distribution:         score.distribution,
       strongestAreas:       strongest.map(e => ({ name: e.concept.name, masteryScore: e.mastery.mastery_score, tier: e.tier })),
       weakestAreas:         weakest.map(e  => ({ name: e.concept.name,  masteryScore: e.mastery.mastery_score, tier: e.tier })),
@@ -225,7 +233,7 @@ router.get('/readiness/topic/:id', async (req: AuthRequest, res: Response) => {
   if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Concept not found' });
   try {
     const { userConceptMastery, masterySnapshots, concepts } = getRepositories();
-    const progressSvc = new ProgressTrackingService(userConceptMastery, masterySnapshots);
+    const progressSvc = new ProgressTrackingService(userConceptMastery, masterySnapshots, concepts);
     const [topicScore, conceptDetail] = await Promise.all([
       progressSvc.getTopicReadiness(req.userId!, id),
       new MasteryQueryService(userConceptMastery, concepts, new ConceptHierarchyService(concepts))

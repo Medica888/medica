@@ -20,6 +20,7 @@ function mapRow(row: Record<string, unknown>): TaxonomyCandidate {
     frequency: Number(row.frequency || 0),
     exampleQuestionFingerprint: row.exampleQuestionFingerprint == null ? null : String(row.exampleQuestionFingerprint),
     source: String(row.source || ''),
+    type: (row.type === 'concept' ? 'concept' : 'topic') as 'topic' | 'concept',
     status: row.status as TaxonomyCandidateStatus,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
     createdAt: row.createdAt as Date | string | undefined,
@@ -38,14 +39,15 @@ export class PgTaxonomyCandidatesRepository implements ITaxonomyCandidatesReposi
     system: string;
     exampleQuestionFingerprint?: string | null;
     source?: string;
+    type?: 'topic' | 'concept';
     metadata?: Record<string, unknown>;
   }): Promise<TaxonomyCandidate> {
     const rawLabel = data.rawLabel.trim();
     const rawLabelKey = keyFor(rawLabel);
     const res = await this.pool.query<Record<string, unknown>>(
       `INSERT INTO taxonomy_candidates
-         (raw_label_key, raw_label, normalized_guess, subject, system, example_question_fingerprint, source, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         (raw_label_key, raw_label, normalized_guess, subject, system, type, example_question_fingerprint, source, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
        ON CONFLICT (raw_label_key) DO UPDATE
          SET normalized_guess = COALESCE(NULLIF(EXCLUDED.normalized_guess, ''), taxonomy_candidates.normalized_guess),
              subject = COALESCE(NULLIF(EXCLUDED.subject, ''), taxonomy_candidates.subject),
@@ -65,6 +67,7 @@ export class PgTaxonomyCandidatesRepository implements ITaxonomyCandidatesReposi
                  frequency,
                  example_question_fingerprint AS "exampleQuestionFingerprint",
                  source,
+                 type,
                  status,
                  metadata,
                  created_at AS "createdAt",
@@ -76,6 +79,7 @@ export class PgTaxonomyCandidatesRepository implements ITaxonomyCandidatesReposi
         data.normalizedGuess,
         data.subject,
         data.system,
+        data.type ?? 'topic',
         data.exampleQuestionFingerprint ?? null,
         data.source || 'unknown_topic',
         JSON.stringify(data.metadata ?? {}),
@@ -112,6 +116,7 @@ export class PgTaxonomyCandidatesRepository implements ITaxonomyCandidatesReposi
               frequency,
               example_question_fingerprint AS "exampleQuestionFingerprint",
               source,
+              type,
               status,
               metadata,
               created_at AS "createdAt",
@@ -148,6 +153,7 @@ export class PgTaxonomyCandidatesRepository implements ITaxonomyCandidatesReposi
                  frequency,
                  example_question_fingerprint AS "exampleQuestionFingerprint",
                  source,
+                 type,
                  status,
                  metadata,
                  created_at AS "createdAt",

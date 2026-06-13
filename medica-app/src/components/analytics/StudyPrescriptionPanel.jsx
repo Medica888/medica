@@ -4,10 +4,13 @@ import { useDailyStudyPlan, useDueReviews, useReviewStats, useStudyPrescription 
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
-  ontrack:    { label: 'On Track',   sub: 'Maintain with spaced review',    badgeClass: 'an-subj-badge--ontrack',    borderColor: 'var(--blue)'            },
-  priority:   { label: 'Priority',   sub: 'Below passing threshold',        badgeClass: 'an-subj-badge--priority',   borderColor: 'var(--status-critical)' },
-  focus:      { label: 'Focus',      sub: 'Developing — close to threshold', badgeClass: 'an-subj-badge--focus',      borderColor: 'var(--status-warn)'     },
-  reinforced: { label: 'Reinforced', sub: 'Solid — maintain with review',   badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)'   },
+  ontrack:    { label: 'On Track', sub: 'Maintain with spaced review', badgeClass: 'an-subj-badge--ontrack', borderColor: 'var(--blue)' },
+  p1:         { label: 'P1',       sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
+  p2:         { label: 'P2',       sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
+  p3:         { label: 'P3',       sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
+  priority:   { label: 'P1',       sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
+  focus:      { label: 'P2',       sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
+  reinforced: { label: 'P3',       sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
 }
 
 const EASE_META = [
@@ -29,7 +32,7 @@ function previewInterval(current, ease) {
 
 function MasteryPct({ score }) {
   const pct   = Math.round((score ?? 0) * 100)
-  const color = pct < 65 ? 'var(--status-critical)' : pct < 75 ? 'var(--status-warn)' : pct < 85 ? 'var(--status-stable)' : 'var(--blue)'
+  const color = pct < 50 ? 'var(--status-critical)' : pct < 70 ? 'var(--status-warn)' : pct < 80 ? 'var(--status-stable)' : 'var(--blue)'
   return (
     <span className="spp-pct" style={{ color }} title={`${pct}% mastery`}>
       {pct}%
@@ -100,7 +103,7 @@ function StatPill({ icon, value, label }) {
   )
 }
 
-const TIER_RANK = { priority: 0, focus: 1, reinforced: 2, ontrack: 3 }
+const TIER_RANK = { p1: 0, priority: 0, p2: 1, focus: 1, p3: 2, reinforced: 2, ontrack: 3 }
 
 function DailyPlanSummary({ plan, dueData }) {
   const [dismissed,        setDismissed]        = useState(() => new Set())
@@ -239,7 +242,7 @@ function DailyPlanSummary({ plan, dueData }) {
                   </div>
                   {errorMsg && <span className="spp-ease-error" role="alert">{errorMsg}</span>}
                 </div>
-                <span className={`an-subj-badge an-subj-badge--${item.priority}`}>
+                <span className={`an-subj-badge ${TIER_CONFIG[item.priority]?.badgeClass ?? 'an-subj-badge--focus'}`}>
                   {TIER_CONFIG[item.priority]?.label ?? item.priority}
                 </span>
               </div>
@@ -389,7 +392,10 @@ export default function StudyPrescriptionPanel() {
     )
   }
 
-  const hasContent = rx.priority.length + rx.focus.length + rx.reinforced.length > 0
+  const p1Items = rx.p1 ?? rx.priority ?? []
+  const p2Items = rx.p2 ?? rx.focus ?? []
+  const p3Items = rx.p3 ?? rx.reinforced ?? []
+  const hasContent = p1Items.length + p2Items.length + p3Items.length > 0
 
   return (
     <div className="an-intel-card spp-panel">
@@ -413,18 +419,18 @@ export default function StudyPrescriptionPanel() {
 
       {hasContent ? (
         <div className="spp-tiers">
-          <TierSection tier="priority"   items={rx.priority}   />
-          <TierSection tier="focus"      items={rx.focus}      />
-          <TierSection tier="reinforced" items={rx.reinforced} />
+          <TierSection tier="p1" items={p1Items} />
+          <TierSection tier="p2" items={p2Items} />
+          <TierSection tier="p3" items={p3Items} />
         </div>
       ) : (
         <p className="an-intel-muted">
-          All tracked concepts are on track (≥85% mastery) — no urgent study priorities.
+          All tracked concepts are on track (80%+ mastery) - no urgent study priorities.
         </p>
       )}
 
       <p className="spp-footnote">
-        Estimates: priority ×5 min · focus ×3 min · reinforced ×2 min per concept
+        Estimates: P1 x5 min - P2 x3 min - P3 x2 min per concept
       </p>
     </div>
   )

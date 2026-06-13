@@ -39,9 +39,9 @@ function toMastery(row: MasteryRow): UserConceptMastery {
 const INSERT_INTERVAL_SQL = `
   CASE
     WHEN r < a THEN 1
-    WHEN a > 0 AND (r::numeric / a) < 0.65 THEN 1
-    WHEN a > 0 AND (r::numeric / a) < 0.75 THEN 2
-    WHEN a > 0 AND (r::numeric / a) < 0.85 THEN 4
+    WHEN a > 0 AND (r::numeric / a) < 0.50 THEN 1
+    WHEN a > 0 AND (r::numeric / a) < 0.70 THEN 2
+    WHEN a > 0 AND (r::numeric / a) < 0.80 THEN 4
     ELSE 7
   END
 `;
@@ -51,13 +51,13 @@ const MASTERY_INTERVAL_SQL = `
   CASE
     WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
          ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
-          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.65 THEN 1
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.50 THEN 1
     WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
          ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
-          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.75 THEN 2
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.70 THEN 2
     WHEN (user_concept_mastery.attempts + EXCLUDED.attempts) > 0 AND
          ((user_concept_mastery.correct + EXCLUDED.correct)::numeric /
-          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.85 THEN 4
+          (user_concept_mastery.attempts + EXCLUDED.attempts)) < 0.80 THEN 4
     ELSE 7
   END
 `;

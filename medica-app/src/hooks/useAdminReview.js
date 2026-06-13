@@ -15,6 +15,7 @@ export function useReviewQueue({ status, sort = 'priority', page = 1, limit = 50
       .finally(() => setLoading(false))
   }, [status, sort, page, limit])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch() }, [fetch])
 
   return { data, loading, error, refetch: fetch }
@@ -26,6 +27,7 @@ export function useReviewDetail(id) {
   const [error,   setError]   = useState(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!id) { setLoading(false); return }
     setLoading(true)
     setError(null)
@@ -53,6 +55,7 @@ export function useReviewHistory(id) {
       .finally(() => setLoading(false))
   }, [id])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch() }, [fetch])
 
   return { data, loading, error, refetch: fetch }

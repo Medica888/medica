@@ -26,8 +26,8 @@ function buildFocusText(weak: string[], medium: string[]): string {
     'ADAPTIVE FOCUS — PERSONALIZED REINFORCEMENT:',
     "Based on this user's performance history, prioritize these concepts in question selection:",
   ];
-  if (weak.length > 0)   lines.push(`Priority (needs most work): ${weak.slice(0, 8).join(', ')}`);
-  if (medium.length > 0) lines.push(`Developing (needs reinforcement): ${medium.slice(0, 5).join(', ')}`);
+  if (weak.length > 0)   lines.push(`P1 (needs most work): ${weak.slice(0, 8).join(', ')}`);
+  if (medium.length > 0) lines.push(`P2 (needs reinforcement): ${medium.slice(0, 5).join(', ')}`);
   lines.push('Aim for at least 50–60% of questions to directly test one of these concepts.');
   lines.push('Each target concept should be tested from a unique clinical angle.');
   return lines.join('\n');
@@ -53,7 +53,7 @@ export class AdaptiveExamService {
    * slug concepts are excluded since they lack a stable canonical name for
    * question targeting via getQuestionsByConcept().
    */
-  async getWeakConceptCandidates(userId: string, threshold = 0.6): Promise<string[]> {
+  async getWeakConceptCandidates(userId: string, threshold = 0.5): Promise<string[]> {
     const rows = await this.mastery.findByUserId(userId);
     const weakIds = rows
       .filter((r) => r.mastery_score < threshold)

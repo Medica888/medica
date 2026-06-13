@@ -6,11 +6,27 @@ import { validate } from '../middleware/validate.js';
 import { createQuestionReportSchema, type CreateQuestionReportInput } from '../schemas/questionReport.js';
 import { getRepositories } from '../repositories/index.js';
 import { QuestionReportService } from '../services/QuestionReportService.js';
+import { normalizeDifficulty, normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
 
 const router = Router();
 
 function getService(): QuestionReportService {
   return new QuestionReportService(getRepositories().questionReports);
+}
+
+function normalizeNullableSubject(value: string | null): string | null {
+  if (!value) return null;
+  return normalizeSubject(value);
+}
+
+function normalizeNullableSystem(value: string | null): string | null {
+  if (!value) return null;
+  return normalizeSystem(value);
+}
+
+function normalizeNullableDifficulty(value: string | null): string | null {
+  if (!value) return null;
+  return normalizeDifficulty(value);
 }
 
 // ─── POST /api/question-reports ───────────────────────────────────────────────
@@ -28,12 +44,12 @@ router.post('/', optionalAuth, validate(createQuestionReportSchema), async (req:
       reason:             body.reason,
       source:             body.source ?? null,
       mode:               body.mode ?? null,
-      difficulty:         body.difficulty ?? null,
-      requested_subject:  body.requestedSubject ?? null,
-      requested_system:   body.requestedSystem ?? null,
+      difficulty:         normalizeNullableDifficulty(body.difficulty),
+      requested_subject:  normalizeNullableSubject(body.requestedSubject),
+      requested_system:   normalizeNullableSystem(body.requestedSystem),
       requested_topic:    body.requestedTopic ?? null,
-      actual_subject:     body.actualSubject ?? null,
-      actual_system:      body.actualSystem ?? null,
+      actual_subject:     normalizeNullableSubject(body.actualSubject),
+      actual_system:      normalizeNullableSystem(body.actualSystem),
       actual_topic:       body.actualTopic ?? null,
       tested_concept:     body.testedConcept ?? null,
       usmle_content_area: body.usmleContentArea ?? null,

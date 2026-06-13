@@ -7,6 +7,7 @@ function useApiCall(fetcher, deps = []) {
   const [error,   setError]   = useState(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!getAuthToken()) { setLoading(false); return }
     let cancelled = false
     setLoading(true); setError(null)

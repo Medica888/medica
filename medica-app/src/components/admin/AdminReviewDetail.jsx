@@ -33,7 +33,7 @@ function fmtDate(dateStr) {
 function parseOptions(body) {
   const raw = body?.options
   if (!Array.isArray(raw)) return []
-  return raw.map((opt, i) => {
+  return raw.map((opt) => {
     const text = String(opt || '')
     // Strip leading 'A. ', 'B. ' etc if present
     return text.replace(/^[A-E]\.\s*/, '') || text

@@ -1,6 +1,7 @@
 import { resolveFlashcardTopicMetadata, slugifyTopic } from './topicIntelligence.js'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js'
 import { validateClinicalCard } from './flashcardValidator.js'
+import { normalizeSubjectLabel, normalizeSystemLabel } from './usmleTaxonomy.js'
 
 /**
  * @typedef {{
@@ -138,6 +139,7 @@ const STEM_VAGUE_RE = /\b(this patient|this individual|this person|this child|th
  * USMLE stems end with the question sentence. Returns '' if the question
  * is too vague (context-dependent) or too long for a standalone flashcard.
  */
+// eslint-disable-next-line no-unused-vars
 function extractStemQuestion(stem) {
   if (!stem) return ''
   // Collect all question-mark sentences
@@ -383,8 +385,8 @@ export function generateFlashcardsFromWrongQuestions(session, sourceMode) {
           ? q.testedConcept.split(' — ')[0].trim()
           : q.testedConcept || q.weakSpotCategory || '')
 
-    const subjectVal = q.subject || topicMeta.subject || ''
-    const systemVal  = q.system  || topicMeta.system  || ''
+    const subjectVal = normalizeSubjectLabel(q.subject || topicMeta.subject || '')
+    const systemVal  = normalizeSystemLabel(q.system  || topicMeta.system  || '')
     const builtSlug  = topicGroup
       ? [subjectVal, systemVal, topicGroup]
           .filter(v => v && v !== 'General')

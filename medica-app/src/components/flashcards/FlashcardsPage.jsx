@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { getFlashcards, markFlashcardReviewed, clearFlashcards, getClinicalPrompt, getCoreMechanism, appendFlashcards } from '../../lib/storage'
 import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
@@ -9,6 +9,7 @@ import {
   getFlashcardGroups, createFlashcardGroup, renameFlashcardGroup, deleteFlashcardGroup,
   addCardsToGroup, removeCardsFromGroup, clearAllFlashcardGroups,
 } from '../../lib/flashcardGroups.js'
+import { normalizeSubjectLabel, normalizeSystemLabel } from '../../lib/usmleTaxonomy.js'
 
 const TAG_COLORS = {
   Recall:    { background: 'var(--blue-10)',      color: 'var(--blue)'   },
@@ -322,8 +323,8 @@ export default function FlashcardsPage({ onNavigate }) {
     let r = cards
     if (filterStatus     !== 'all') r = r.filter(c => getCardStatus(c) === filterStatus)
     if (filterTag        !== 'all') r = r.filter(c => c.tag     === filterTag)
-    if (filterSubject    !== 'all') r = r.filter(c => c.subject === filterSubject)
-    if (filterSystem     !== 'all') r = r.filter(c => c.system  === filterSystem)
+    if (filterSubject    !== 'all') r = r.filter(c => normalizeSubjectLabel(c.subject) === normalizeSubjectLabel(filterSubject))
+    if (filterSystem     !== 'all') r = r.filter(c => normalizeSystemLabel(c.system) === normalizeSystemLabel(filterSystem))
     if (filterTopicGroup !== 'all') r = r.filter(c => matchesTopicGroup(c, filterTopicGroup))
     if (activeGroupId !== 'all') {
       const group = groups.find(g => g.id === activeGroupId)
@@ -376,12 +377,12 @@ export default function FlashcardsPage({ onNavigate }) {
     setReviewMode(true)
   }
 
-  const handleEase = (ease) => {
+  const handleEase = useCallback((ease) => {
     setReviewSummary(prev => ({ ...prev, [ease]: prev[ease] + 1 }))
     markFlashcardReviewed(reviewCards[reviewIndex].id, ease)
     if (reviewIndex < reviewCards.length - 1) { setReviewIndex(i => i + 1); setFlipped(false) }
     else { setSessionDone(true); refresh() }
-  }
+  }, [reviewCards, reviewIndex])
 
   const exitReview = () => {
     setReviewMode(false); setSessionDone(false); setReviewIndex(0); setFlipped(false); refresh()
@@ -408,7 +409,7 @@ export default function FlashcardsPage({ onNavigate }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [reviewMode, sessionDone, flipped, reviewIndex, reviewCards])
+  }, [reviewMode, sessionDone, flipped, reviewIndex, reviewCards, handleEase])
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 

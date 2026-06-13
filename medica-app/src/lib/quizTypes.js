@@ -1,3 +1,5 @@
+import { CANONICAL_SUBJECTS, CANONICAL_SYSTEMS } from './usmleTaxonomy.js'
+
 /**
  * @typedef {'exam'|'practice'|'coach'} QuizMode
  *
@@ -43,16 +45,13 @@
  */
 
 export const SUBJECTS = [
-  'All Subjects', 'Anatomy', 'Physiology', 'Pathology',
-  'Pharmacology', 'Biochemistry', 'Genetics', 'Microbiology',
-  'Immunology', 'Behavioral Science', 'Biostatistics', 'Ethics',
+  'All Subjects',
+  ...CANONICAL_SUBJECTS,
 ]
 
 export const SYSTEMS = [
-  'All Systems', 'Cardiovascular', 'Respiratory', 'Renal / Urinary',
-  'Gastrointestinal', 'Endocrine', 'Reproductive', 'Neurology',
-  'Psychiatry', 'Musculoskeletal', 'Dermatology', 'Hematology',
-  'Oncology', 'Immunology', 'Infectious Disease', 'Multisystem',
+  'All Systems',
+  ...CANONICAL_SYSTEMS,
 ]
 
 export const SYSTEM_LABELS = {

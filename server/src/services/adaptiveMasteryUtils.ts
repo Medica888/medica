@@ -7,9 +7,9 @@
 import type { IConceptsRepository } from '../repositories/interfaces.js';
 import type { UserConceptMastery } from '../types/index.js';
 
-export const TIER_WEAK        = 0.65;
-export const TIER_MEDIUM      = 0.75;
-export const TIER_REINFORCED  = 0.85;
+export const TIER_WEAK        = 0.50;
+export const TIER_MEDIUM      = 0.70;
+export const TIER_REINFORCED  = 0.80;
 export const MIN_FOR_ADAPTIVE = 20;
 
 /** Single reason string for all "not enough data" early-returns. */
@@ -18,9 +18,9 @@ export function adaptiveDisabledReason(rowCount: number): string {
 }
 
 export interface ConceptBuckets {
-  weak:   string[];
-  medium: string[];
-  strong: string[];
+  weak:   string[]; // P1, mastery < 50%
+  medium: string[]; // P2, 50-70%
+  strong: string[]; // P3/on-track, mastery >= 70%
 }
 
 /** Sorts rows weakest-first; breaks ties by highest recent_incorrect_count. */

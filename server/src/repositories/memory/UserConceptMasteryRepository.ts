@@ -10,9 +10,9 @@ function computeScores(attempts: number, correct: number) {
 }
 
 function masteryBasedInterval(masteryScore: number): number {
-  if (masteryScore < 0.65) return 1;
-  if (masteryScore < 0.75) return 2;
-  if (masteryScore < 0.85) return 4;
+  if (masteryScore < 0.50) return 1;
+  if (masteryScore < 0.70) return 2;
+  if (masteryScore < 0.80) return 4;
   return 7;
 }
 

@@ -71,6 +71,7 @@ const SYSTEM_INFERENCE = [
  * @param {string} [subject]
  * @returns {string}
  */
+// eslint-disable-next-line no-unused-vars
 export function inferSystemFromTopic(topic, subject) {
   if (!topic) return ''
   const n = _norm(topic)

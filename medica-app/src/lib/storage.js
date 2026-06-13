@@ -1,7 +1,13 @@
-import { enrichQuestionWithUsmleTaxonomy } from './usmleTaxonomy.js'
+﻿import {
+  enrichQuestionWithUsmleTaxonomy,
+  normalizeQuestionTaxonomyFields,
+  normalizeSubjectLabel,
+  normalizeSystemLabel,
+} from './usmleTaxonomy.js'
 import { validateClinicalCard } from './flashcardValidator.js'
 import { getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
+import { questionReports } from './apiClient.js'
 
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
@@ -79,7 +85,7 @@ export function saveQuestionReport(question, reason, context = {}) {
     const reports = getQuestionReports()
     const fingerprint = getQuestionFingerprint(question)
     const now = new Date().toISOString()
-    const taggedQuestion = enrichQuestionWithUsmleTaxonomy(question, context)
+    const taggedQuestion = enrichQuestionWithUsmleTaxonomy(normalizeQuestionTaxonomyFields(question), context)
     const report = {
       id: `${question.id}:${reason}`,
       questionId: String(question.id),
@@ -98,7 +104,7 @@ export function saveQuestionReport(question, reason, context = {}) {
     const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
     localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
-    // Best-effort backend sync — fire-and-forget, never blocks the UI
+    // Best-effort backend sync â€” fire-and-forget, never blocks the UI
     _postReportToBackend(report, question, context)
     return report
   } catch {
@@ -108,7 +114,7 @@ export function saveQuestionReport(question, reason, context = {}) {
 
 /**
  * Fire-and-forget: mirrors the local report to the backend so cross-user
- * quarantine thresholds can accumulate.  Silently swallows all errors —
+ * quarantine thresholds can accumulate.  Silently swallows all errors â€”
  * localStorage is the primary store; backend is best-effort.
  *
  * Only runs when VITE_USE_BACKEND_API === 'true' (i.e. the backend is reachable).
@@ -116,34 +122,29 @@ export function saveQuestionReport(question, reason, context = {}) {
  */
 function _postReportToBackend(report, question, context) {
   if (typeof window === 'undefined') return
-  if (typeof fetch === 'undefined') return
-  // Env guard — mirrors the convention used in generateAIQuestions.js
+  // Env guard - mirrors the convention used in generateAIQuestions.js
   try {
     if (import.meta.env?.VITE_USE_BACKEND_API !== 'true') return
   } catch {
     return
   }
-  fetch('/api/question-reports', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fingerprint:      report.fingerprint,
-      reason:           report.reason,
-      questionId:       question?.id ?? null,
-      stemPreview:      String(question?.stem || '').slice(0, 100) || null,
-      testedConcept:    report.testedConcept || null,
-      source:           context?.source ?? null,
-      mode:             report.mode || null,
-      difficulty:       question?.difficulty ?? null,
-      requestedSubject: context?.subject ?? null,
-      requestedSystem:  context?.system ?? null,
-      requestedTopic:   context?.topic ?? null,
-      actualSubject:    report.subject || null,
-      actualSystem:     report.system || null,
-      usmleContentArea: report.usmleContentArea || null,
-      physicianTask:    report.physicianTask || null,
-    }),
-  }).catch(() => { /* silently ignore — local save is primary */ })
+  questionReports.create({
+    fingerprint:      report.fingerprint,
+    reason:           report.reason,
+    questionId:       question?.id ?? null,
+    stemPreview:      String(question?.stem || '').slice(0, 100) || null,
+    testedConcept:    report.testedConcept || null,
+    source:           context?.source ?? null,
+    mode:             report.mode || null,
+    difficulty:       question?.difficulty ?? null,
+    requestedSubject: context?.subject ?? null,
+    requestedSystem:  context?.system ?? null,
+    requestedTopic:   context?.topic ?? null,
+    actualSubject:    report.subject || null,
+    actualSystem:     report.system || null,
+    usmleContentArea: report.usmleContentArea || null,
+    physicianTask:    report.physicianTask || null,
+  }).catch(() => { /* silently ignore - local save is primary */ })
 }
 
 export function subscribeQuestionReports(listener) {
@@ -270,6 +271,16 @@ function _matchesRequestedValue(requested, actual, allLabel) {
   return String(actual || '').toLowerCase() === String(requested).toLowerCase()
 }
 
+function _matchesRequestedSubject(requested, actual) {
+  if (!requested || requested === 'All Subjects') return true
+  return normalizeSubjectLabel(actual) === normalizeSubjectLabel(requested)
+}
+
+function _matchesRequestedSystem(requested, actual) {
+  if (!requested || requested === 'All Systems') return true
+  return normalizeSystemLabel(actual) === normalizeSystemLabel(requested)
+}
+
 function _matchesRequestedTopic(config, question) {
   const requested = config.clinicalFocus || config.topic || ''
   if (!String(requested).trim()) return true
@@ -285,8 +296,8 @@ export function getTrustedGeneratedQuestionsForConfig(config = {}) {
   const trusted = getTrustedGeneratedQuestions()
   return trusted.filter(q => {
     if (q.mode && config.mode && q.mode !== config.mode) return false
-    return _matchesRequestedValue(config.subject, q.subject, 'All Subjects')
-      && _matchesRequestedValue(config.system, q.system, 'All Systems')
+    return _matchesRequestedSubject(config.subject, q.subject)
+      && _matchesRequestedSystem(config.system, q.system)
       && _matchesRequestedValue(config.difficulty, q.difficulty, 'Balanced')
       && _matchesRequestedTopic(config, q)
   })
@@ -295,11 +306,11 @@ export function getTrustedGeneratedQuestionsForConfig(config = {}) {
 /**
  * Removes questions from trusted storage whose id or fingerprint is in `staleIds`.
  * Called when re-validation under updated rules finds a previously-trusted question
- * no longer meets quality standards — the stale entry is purged so the AI fill
+ * no longer meets quality standards â€” the stale entry is purged so the AI fill
  * step regenerates a fresh replacement on the next session.
  *
- * @param {Set<string>} staleIds  — set of id or fingerprint strings to remove
- * @returns {number}              — count of entries removed
+ * @param {Set<string>} staleIds  â€” set of id or fingerprint strings to remove
+ * @returns {number}              â€” count of entries removed
  */
 export function purgeStaleQuestionsFromTrusted(staleIds) {
   if (!staleIds?.size || typeof window === 'undefined') return 0
@@ -329,7 +340,7 @@ export function appendTrustedGeneratedQuestions(questions, config = {}) {
     const additions = []
 
     for (const rawQuestion of questions) {
-      const q = enrichQuestionWithUsmleTaxonomy(rawQuestion, config)
+      const q = enrichQuestionWithUsmleTaxonomy(normalizeQuestionTaxonomyFields(rawQuestion), config)
       const fingerprint = getQuestionFingerprint(q)
       if (!fingerprint || fingerprint === '||' || seen.has(fingerprint)) continue
       seen.add(fingerprint)
@@ -604,3 +615,4 @@ export function clearSessionHistory() {
     localStorage.removeItem(SESSION_HISTORY_KEY)
   } catch { /* ignore */ }
 }
+

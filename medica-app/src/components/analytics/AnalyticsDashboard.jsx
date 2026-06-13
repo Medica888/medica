@@ -20,9 +20,9 @@ const RANGE_NOTE = {
 }
 
 const SUBJECT_STATUS = (pct) => {
-  if (pct < 65) return { label: 'Priority',   variant: 'priority' }
-  if (pct < 75) return { label: 'Focus',       variant: 'focus' }
-  if (pct < 85) return { label: 'Reinforced',  variant: 'reinforced' }
+  if (pct < 50) return { label: 'P1',          variant: 'priority' }
+  if (pct < 70) return { label: 'P2',          variant: 'focus' }
+  if (pct < 80) return { label: 'P3',          variant: 'reinforced' }
   return              { label: 'On track',     variant: 'ontrack' }
 }
 
@@ -33,12 +33,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
   const data = useMemo(() => buildAnalyticsData(range), [range])
 
   // reportsVersion bumps whenever a report is saved; drives the memo below
-  const [reportsVersion, setReportsVersion] = useState(0)
+  const [, setReportsVersion] = useState(0)
   useEffect(() => subscribeQuestionReports(() => setReportsVersion(v => v + 1)), [])
-  const reportAnalytics = useMemo(
-    () => getQuestionReportAnalytics(range),
-    [range, reportsVersion],
-  )
+  const reportAnalytics = getQuestionReportAnalytics(range)
 
   const rdHook       = useReadiness()
   const progressHook = useMasteryProgress()
@@ -408,7 +405,7 @@ function ReportQualityCard({ analytics }) {
 }
 
 function TrendBars({ pct, variant }) {
-  const filled = pct >= 85 ? 4 : pct >= 75 ? 3 : pct >= 65 ? 2 : 1
+  const filled = pct >= 80 ? 4 : pct >= 70 ? 3 : pct >= 50 ? 2 : 1
   const colors = { priority: '#6D2F3F', focus: '#7D6338', reinforced: '#355C68', ontrack: '#2E64C8' }
   const color = colors[variant] || '#2E64C8'
   return (
@@ -443,30 +440,26 @@ const READINESS_STATUS_COLOR = {
 function ReadinessCard({ localPct, localRows, rdHook }) {
   const rd = rdHook.data
 
-  // Derive trend direction from the trend contribution component.
-  // components.trend ∈ [0,15]; midpoint 7.5 = stable.
-  const trendVal = rd?.components?.trend ?? 7.5
-  const trendDir = trendVal > 8 ? 'up' : trendVal < 7 ? 'down' : 'flat'
-  const trendGlyph = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→'
-
   // Normalize weighted contributions back to 0–100 for bar display
   const compRows = rd ? [
-    { label: 'Mastery',      value: Math.round(rd.components.mastery     / 50 * 100) },
-    { label: 'Confidence',   value: Math.round(rd.components.confidence  / 20 * 100) },
-    { label: 'Consistency',  value: Math.round(rd.components.consistency / 15 * 100) },
+    { label: 'Mastery',            value: Math.round((rd.components.mastery ?? 0) / 45 * 100) },
+    { label: 'Coverage',           value: Math.round((rd.components.coverage ?? 0) / 20 * 100) },
+    { label: 'Diversity',          value: Math.round((rd.components.diversity ?? 0) / 15 * 100) },
+    { label: 'Recent performance', value: Math.round((rd.components.recentPerformance ?? 0) / 20 * 100) },
   ] : localRows
 
   const displayPct   = rd ? rd.overallReadiness : localPct
   const statusLabel  = rd?.status ?? null
   const statusColor  = statusLabel ? (READINESS_STATUS_COLOR[statusLabel] ?? '#2E64C8') : null
+  const metricLabel  = rd?.readinessMetric ?? 'Concept Readiness'
   const totalConcepts = rd ? (rd.distribution.priority + rd.distribution.focus + rd.distribution.reinforced + rd.distribution.ontrack) : null
 
   return (
     <div className="an-readiness-card">
-      <div className="an-readiness-label">EXAM READINESS</div>
+      <div className="an-readiness-label">{metricLabel.toUpperCase()}</div>
       <div className="an-readiness-pct">
         {displayPct}<span className="an-readiness-pct-unit">%</span>
-        <span className="an-readiness-ready"> ready</span>
+        <span className="an-readiness-ready"> readiness</span>
       </div>
 
       {statusLabel && (
@@ -477,9 +470,6 @@ function ReadinessCard({ localPct, localRows, rdHook }) {
             aria-label={`Readiness status: ${statusLabel}`}
           >
             {statusLabel}
-          </span>
-          <span className={`ptp-delta ptp-delta--${trendDir}`} aria-label={`Trend: ${trendDir}`}>
-            {trendGlyph}
           </span>
         </div>
       )}

@@ -1,6 +1,6 @@
 import type { IConceptsRepository } from '../repositories/interfaces.js';
 import { isConceptUsable, slugifyConcept } from '../services/ConceptMappingService.js';
-import { lookupConcept } from './medicaConceptTaxonomy.js';
+import { resolveConceptAlias } from '../services/TaxonomyResolutionService.js';
 
 /**
  * Slugifies and upserts a single canonical concept name into the concepts table
@@ -12,14 +12,15 @@ export async function canonicalConceptToMasteryKey(
   tx?: unknown,
 ): Promise<string | null> {
   if (!isConceptUsable(concept)) return null;
-  const slug = slugifyConcept(concept.trim());
-  const taxonomy = lookupConcept(concept);
+  const resolved = resolveConceptAlias(concept);
+  const canonicalName = resolved?.canonical ?? concept.trim();
+  const slug = slugifyConcept(canonicalName);
   const row = await conceptsRepo.upsertBySlug(
     slug,
     {
-      name:    concept.trim(),
-      subject: taxonomy?.subject ?? '',
-      system:  taxonomy?.system  ?? '',
+      name:    canonicalName,
+      subject: resolved?.subject ?? '',
+      system:  resolved?.system  ?? '',
       source:  'canonical',
     },
     tx,
@@ -40,7 +41,8 @@ export async function canonicalConceptsToMasteryKeys(
   const ids: string[] = [];
   for (const concept of concepts) {
     if (!isConceptUsable(concept)) continue;
-    const slug = slugifyConcept(concept.trim());
+    const resolved = resolveConceptAlias(concept);
+    const slug = slugifyConcept(resolved?.canonical ?? concept.trim());
     if (seenSlugs.has(slug)) continue;
     seenSlugs.add(slug);
     const id = await canonicalConceptToMasteryKey(concept, conceptsRepo, tx);

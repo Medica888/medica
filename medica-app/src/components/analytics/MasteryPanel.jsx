@@ -4,15 +4,18 @@ import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useMasteryS
 import ConceptDetailModal from './ConceptDetailModal'
 
 const TIER_META = {
-  priority:   { label: 'Priority',   color: 'var(--status-critical)' },
-  focus:      { label: 'Focus',      color: 'var(--status-warn)'     },
-  reinforced: { label: 'Reinforced', color: 'var(--status-stable)'   },
+  p1:         { label: 'P1',         color: 'var(--status-critical)' },
+  p2:         { label: 'P2',         color: 'var(--status-warn)'     },
+  p3:         { label: 'P3',         color: 'var(--status-stable)'   },
+  priority:   { label: 'P1',         color: 'var(--status-critical)' },
+  focus:      { label: 'P2',         color: 'var(--status-warn)'     },
+  reinforced: { label: 'P3',         color: 'var(--status-stable)'   },
   ontrack:    { label: 'On Track',   color: 'var(--blue)'            },
 }
 
 function MasteryBar({ score }) {
   const pct   = Math.round((score ?? 0) * 100)
-  const color = pct < 65 ? 'var(--status-critical)' : pct < 75 ? 'var(--status-warn)' : pct < 85 ? 'var(--status-stable)' : 'var(--blue)'
+  const color = pct < 50 ? 'var(--status-critical)' : pct < 70 ? 'var(--status-warn)' : pct < 80 ? 'var(--status-stable)' : 'var(--blue)'
   return (
     <div className="mp-bar-wrap" title={`${pct}%`}>
       <div className="mp-bar" style={{ width: `${pct}%`, background: color }} />
@@ -272,14 +275,14 @@ export default function MasteryPanel() {
 
         {/* ── Row 2: Weakest concepts ──────────────────────────────── */}
         <div className="an-intel-card mp-concept-card mp-weak-card">
-          <div className="an-intel-card-title">Priority Concepts</div>
+          <div className="an-intel-card-title">P1 Concepts</div>
           <div className="an-intel-card-sub">Needs reinforcement — sorted weakest first</div>
           {weakest.loading ? (
             <div className="mp-skeleton-rows">{[0,1,2,3,4].map(i => <SkeletonRow key={i} />)}</div>
           ) : !weakest.data?.concepts?.length ? (
             <p className="an-intel-muted">
               {ov?.total_concepts > 0
-                ? 'All tracked concepts are performing at Focus level or above.'
+                ? 'All tracked concepts are performing at P2 level or above.'
                 : 'No weak concepts identified yet.'}
             </p>
           ) : (
@@ -322,10 +325,10 @@ export default function MasteryPanel() {
         {!(subjects.error?.status === 401 || subjects.error?.status === 403) && (
           <div className="mp-row">
 
-            {/* Weak subjects — tier is priority / focus / reinforced */}
+            {/* Weak subjects */}
             <div className="an-intel-card mp-concept-card">
               <div className="an-intel-card-title">Weak Subjects</div>
-              <div className="an-intel-card-sub">Below exam-ready threshold — click to drill down</div>
+              <div className="an-intel-card-sub">Below 80% mastery - click to drill down</div>
               {subjects.loading ? (
                 <div className="mp-skeleton-rows">{[0,1,2].map(i => <SkeletonRow key={i} />)}</div>
               ) : (
@@ -340,7 +343,7 @@ export default function MasteryPanel() {
             {/* Strong subjects — tier is ontrack */}
             <div className="an-intel-card mp-concept-card">
               <div className="an-intel-card-title">Strong Subjects</div>
-              <div className="an-intel-card-sub">Mastery ≥ 85% — click to drill down</div>
+              <div className="an-intel-card-sub">Mastery 80%+ - click to drill down</div>
               {subjects.loading ? (
                 <div className="mp-skeleton-rows">{[0,1,2].map(i => <SkeletonRow key={i} />)}</div>
               ) : (

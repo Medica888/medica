@@ -1,4 +1,4 @@
-import type { IUserConceptMasteryRepository, IMasterySnapshotsRepository } from '../repositories/interfaces.js';
+import type { IUserConceptMasteryRepository, IMasterySnapshotsRepository, IConceptsRepository } from '../repositories/interfaces.js';
 import type {
   MasteryProgress, MasteryTrendPoint, MasterySnapshot,
   ReadinessScore, ReadinessStatus, TopicReadiness, MasteryTierDistribution,
@@ -77,6 +77,7 @@ export class ProgressTrackingService {
   constructor(
     private mastery:   IUserConceptMasteryRepository,
     private snapshots: IMasterySnapshotsRepository,
+    private concepts?: IConceptsRepository,
   ) {}
 
   /**
@@ -211,6 +212,7 @@ export class ProgressTrackingService {
     const empty: ReadinessScore = {
       overallReadiness: 0,
       status:           'Needs Intensive Review',
+      label:            'Concept Readiness',
       components:       { mastery: 0, confidence: 0, trend: 0, consistency: 0 },
       distribution:     { priority: 0, focus: 0, reinforced: 0, ontrack: 0 },
     };
@@ -255,7 +257,7 @@ export class ProgressTrackingService {
         ? 'Developing'
         : rawStatus;
 
-    return {
+    const legacyInternal = {
       overallReadiness,
       status,
       components: {
@@ -264,7 +266,80 @@ export class ProgressTrackingService {
         trend:       round4(cTrend * 100),
         consistency: round4(cConsistency * 100),
       },
+    };
+
+    let readinessRows = rows;
+    let canonicalConcepts: Array<{ id: string; subject: string; system: string }> = [];
+    if (this.concepts) {
+      const fetched = await this.concepts.findManyById(rows.map((r) => r.concept_id));
+      canonicalConcepts = fetched
+        .filter((concept) => concept.source === 'canonical')
+        .map((concept) => ({ id: concept.id, subject: concept.subject, system: concept.system }));
+      const canonicalIds = new Set(canonicalConcepts.map((concept) => concept.id));
+      readinessRows = rows.filter((row) => canonicalIds.has(row.concept_id));
+    }
+    if (!readinessRows.length) {
+      return {
+        overallReadiness: 0,
+        status: 'Needs Intensive Review',
+        label: 'Concept Readiness',
+        components: {
+          mastery: 0,
+          confidence: 0,
+          trend: 0,
+          consistency: 0,
+          coverage: 0,
+          diversity: 0,
+          recentPerformance: 0,
+        },
+        distribution: dist,
+        legacyInternal,
+      };
+    }
+
+    const readinessConcepts = canonicalConcepts.length > 0
+      ? canonicalConcepts
+      : rows.map((row) => ({ id: row.concept_id, subject: '', system: '' }));
+
+    const readinessN = readinessRows.length;
+    const readinessMastery = readinessRows.reduce((sum, row) => sum + row.mastery_score, 0) / readinessN;
+    const totalAttempts = readinessRows.reduce((sum, row) => sum + row.attempts, 0);
+    const totalCorrect = readinessRows.reduce((sum, row) => sum + row.correct, 0);
+    const recentPerformance = totalAttempts > 0 ? totalCorrect / totalAttempts : readinessMastery;
+    const coverage = Math.min(1, readinessN / MIN_CONCEPTS_FOR_READINESS);
+    const uniqueSubjects = new Set(readinessConcepts.map((concept) => concept.subject).filter(Boolean)).size;
+    const uniqueSystems = new Set(readinessConcepts.map((concept) => concept.system).filter(Boolean)).size;
+    const diversity = this.concepts
+      ? (Math.min(1, uniqueSubjects / 4) * 0.5 + Math.min(1, uniqueSystems / 6) * 0.5)
+      : Math.min(1, readinessN / MIN_CONCEPTS_FOR_READINESS);
+
+    const conceptReadinessRaw =
+      readinessMastery * 0.45 +
+      recentPerformance * 0.20 +
+      coverage * 0.20 +
+      diversity * 0.15;
+    const conceptReadiness = Math.min(100, Math.max(0, Math.round(conceptReadinessRaw * 100)));
+    const conceptRawStatus = readinessStatus(conceptReadiness);
+    const conceptStatus: ReadinessStatus =
+      readinessN < MIN_CONCEPTS_FOR_READINESS && conceptRawStatus !== 'Needs Intensive Review'
+        ? 'Developing'
+        : conceptRawStatus;
+
+    return {
+      overallReadiness: conceptReadiness,
+      status: conceptStatus,
+      label: 'Concept Readiness',
+      components: {
+        mastery: round4(readinessMastery * 45),
+        confidence: round4(legacyInternal.components.confidence),
+        trend: round4(legacyInternal.components.trend),
+        consistency: round4(legacyInternal.components.consistency),
+        coverage: round4(coverage * 20),
+        diversity: round4(diversity * 15),
+        recentPerformance: round4(recentPerformance * 20),
+      },
       distribution: dist,
+      legacyInternal,
     };
   }
 

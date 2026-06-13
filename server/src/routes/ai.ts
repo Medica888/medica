@@ -39,6 +39,7 @@ import {
 } from '../lib/medicaTaxonomy.js';
 import { lookupTopic, normalizeTopic } from '../lib/medicaTopicTaxonomy.js';
 import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js';
+import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 
@@ -174,6 +175,11 @@ router.patch(
         res.status(404).json({ error: 'Taxonomy candidate not found', code: 'TAXONOMY_CANDIDATE_NOT_FOUND' });
         return;
       }
+
+      // Refresh alias cache so approved mappings take effect immediately
+      taxonomyResolutionService.refreshCache(getRepositories().taxonomyCandidates).catch(err => {
+        console.warn('[taxonomy-candidates/status] cache refresh failed:', (err as Error).message);
+      });
 
       res.json({ candidate });
     } catch (err) {
@@ -823,6 +829,35 @@ async function captureUnknownTopicCandidates(params: {
     });
   }
 
+  return captured;
+}
+
+async function captureUnknownConceptCandidates(params: {
+  unknownConcepts: Array<{ concept: string; topic: string; subject: string; system: string }>;
+  questions: Record<string, any>[];
+  config: Record<string, any>;
+}): Promise<number> {
+  const repo = getRepositories().taxonomyCandidates;
+  const seen = new Set<string>();
+  let captured = 0;
+  for (const unknown of params.unknownConcepts) {
+    const rawLabel = sanitizeTopic(unknown.concept);
+    if (!rawLabel) continue;
+    const k = norm(rawLabel);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    await repo.upsertUnknownTopicCandidate({
+      rawLabel,
+      normalizedGuess: rawLabel,
+      subject: unknown.subject || String(params.config.subject || ''),
+      system: unknown.system || String(params.config.system || ''),
+      exampleQuestionFingerprint: firstQuestionFingerprint(params.questions, unknown.concept),
+      source: 'validation_concept',
+      type: 'concept',
+      metadata: { validatorReason: 'concept_unknown', relatedTopic: unknown.topic },
+    });
+    captured++;
+  }
   return captured;
 }
 
@@ -2074,17 +2109,27 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       await getRepositories().questions.markUsedByExternalIds(returnedBankFingerprints).catch(() => {});
     }
     const generatedBankSaved = await _saveGeneratedQuestionsToBank(allQuestions, config).catch(() => 0);
-    const taxonomyCandidatesCaptured = generatedBankSaved > 0
-      ? await captureUnknownTopicCandidates({
-        topicIntake,
-        unknownTopics: totalUnknownTopics,
-        questions: allQuestions,
-        config,
-      }).catch(err => {
-        console.warn('[generate-questions] taxonomy candidate capture skipped:', (err as Error).message);
-        return 0;
-      })
-      : 0;
+    const [taxonomyCandidatesCaptured, conceptCandidatesCaptured] = generatedBankSaved > 0
+      ? await Promise.all([
+          captureUnknownTopicCandidates({
+            topicIntake,
+            unknownTopics: totalUnknownTopics,
+            questions: allQuestions,
+            config,
+          }).catch(err => {
+            console.warn('[generate-questions] taxonomy candidate capture skipped:', (err as Error).message);
+            return 0;
+          }),
+          captureUnknownConceptCandidates({
+            unknownConcepts: totalUnknownConcepts,
+            questions: allQuestions,
+            config,
+          }).catch(err => {
+            console.warn('[generate-questions] concept candidate capture skipped:', (err as Error).message);
+            return 0;
+          }),
+        ])
+      : [0, 0];
 
     const telemetry = {
       // Backward-compatible existing fields
@@ -2115,6 +2160,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       topicFailures:                 totalTopicFailures,
       unknownTopics:                 totalUnknownTopics,
       taxonomyCandidatesCaptured,
+      conceptCandidatesCaptured,
       conceptPasses:                 totalConceptPasses,
       conceptWarnings:               totalConceptWarnings,
       conceptFailures:               totalConceptFailures,

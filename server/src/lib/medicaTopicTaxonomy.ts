@@ -40,6 +40,11 @@ function key(s: string): string {
   return s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '');
 }
 
+/** Exported alias of the internal key() function for use by TaxonomyAliasService. */
+export function taxonomyKey(s: string): string {
+  return key(s);
+}
+
 // ── Taxonomy data ─────────────────────────────────────────────────────────────
 
 const TOPIC_TAXONOMY: Readonly<Record<string, Readonly<Record<string, readonly TopicEntry[]>>>> = {

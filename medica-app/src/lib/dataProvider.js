@@ -10,6 +10,7 @@
 
 import * as api from './apiClient.js';
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js';
+import { normalizeQuestionTaxonomyFields } from './usmleTaxonomy.js';
 import {
   saveCompletedSession,
   getSessionHistory,
@@ -40,29 +41,32 @@ export async function saveSession(results, sessionWithAnswers) {
     const questions = sessionWithAnswers?.questions ?? [];
     const answers   = sessionWithAnswers?.answers   ?? {};
 
-    const mapQuestion = (q) => ({
-      id:               q.id,
-      text:             q.stem ?? '',
-      options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
-      correct_answer:   getQuestionCorrectLetter(q),
-      explanation:      q.explanation      ?? '',
-      subject:          q.subject          ?? '',
-      system:           q.system           ?? '',
-      difficulty:       q.difficulty       ?? '',
-      pearl:            q.pearl            ?? '',
-      testedConcept:    q.testedConcept    ?? '',
-      weakSpotCategory: q.weakSpotCategory ?? '',
-      topic:            q.topic            ?? '',
-      canonicalTopic:   q.canonicalTopic   ?? '',
-      topicSlug:        q.topicSlug        ?? '',
-      topicSource:      q.topicSource      ?? '',
-      usmleContentArea: q.usmleContentArea ?? '',
-      usmleSubdomain:   q.usmleSubdomain   ?? '',
-      physicianTask:    q.physicianTask    ?? '',
-      questionAngle:    q.questionAngle    ?? '',
-      commonTrap:       q.commonTrap       ?? '',
-      memoryAnchor:     q.memoryAnchor     ?? '',
-    });
+    const mapQuestion = (q) => {
+      const normalized = normalizeQuestionTaxonomyFields(q);
+      return {
+        id:               q.id,
+        text:             q.stem ?? '',
+        options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
+        correct_answer:   getQuestionCorrectLetter(q),
+        explanation:      q.explanation      ?? '',
+        subject:          normalized.subject ?? '',
+        system:           normalized.system  ?? '',
+        difficulty:       q.difficulty       ?? '',
+        pearl:            q.pearl            ?? '',
+        testedConcept:    q.testedConcept    ?? '',
+        weakSpotCategory: q.weakSpotCategory ?? '',
+        topic:            q.topic            ?? '',
+        canonicalTopic:   q.canonicalTopic   ?? '',
+        topicSlug:        q.topicSlug        ?? '',
+        topicSource:      q.topicSource      ?? '',
+        usmleContentArea: normalized.usmleContentArea ?? '',
+        usmleSubdomain:   q.usmleSubdomain   ?? '',
+        physicianTask:    normalized.physicianTask    ?? '',
+        questionAngle:    q.questionAngle    ?? '',
+        commonTrap:       q.commonTrap       ?? '',
+        memoryAnchor:     q.memoryAnchor     ?? '',
+      };
+    };
 
     const payload = {
       mode,

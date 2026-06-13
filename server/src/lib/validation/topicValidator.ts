@@ -1,5 +1,5 @@
 import { normalizeSubject, normalizeSystem } from '../medicaTaxonomy.js';
-import { lookupTopic } from '../medicaTopicTaxonomy.js';
+import { resolveTopicAlias } from '../../services/TaxonomyResolutionService.js';
 import type { ValidationQuestion, ValidatorResult } from './validationTypes.js';
 
 /**
@@ -26,7 +26,7 @@ export function validateTopic(question: ValidationQuestion): ValidatorResult {
     return noopPass('subject_or_system_unresolved');
   }
 
-  const found = lookupTopic(raw);
+  const found = resolveTopicAlias(raw);
 
   // ── Unknown topic — WARN (beta discovery mode) ────────────────────────────
   if (!found) {
@@ -55,7 +55,9 @@ export function validateTopic(question: ValidationQuestion): ValidatorResult {
       expected: `${found.canonical} in ${subject} + ${system}`,
       detected: found.canonical,
       confidence: found.wasAlias ? 0.85 : 0.95,
-      reasons: found.wasAlias ? ['topic_alias_used'] : [],
+      reasons: found.wasAlias
+        ? [found.aliasSource === 'runtime_alias' ? 'runtime_alias_used' : 'topic_alias_used']
+        : [],
     };
   }
 

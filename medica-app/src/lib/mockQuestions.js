@@ -1,10 +1,18 @@
 import { shuffleQuestionOptions } from './questionNormalizer.js'
 import { getQuestionCorrectLetter } from './answerNormalize.js'
 import { isStandardized40QuestionBlock, normalizeQuizConfigForGeneration } from './quizTypes.js'
-import { enrichQuestionWithUsmleTaxonomy, PHYSICIAN_TASKS, USMLE_CONTENT_AREAS } from './usmleTaxonomy.js'
+import {
+  enrichQuestionWithUsmleTaxonomy,
+  normalizeQuestionTaxonomyFields,
+  normalizeSubjectLabel,
+  normalizeSystemLabel,
+  PHYSICIAN_TASKS,
+  USMLE_CONTENT_AREAS,
+} from './usmleTaxonomy.js'
 import {
   resolveGenerationScope,
   normalizeGenerationConfig,
+  isEmptySelection,
   isSpecificScope,
   isQuestionInScope,
   detectDuplicateQuestions,
@@ -39,7 +47,7 @@ export function normalizeQuestion(q) {
   }))
   // Support q.correctAnswer (AI-generated) or q.correct (mock), numeric or letter
   const correct = getQuestionCorrectLetter(q) || 'A'
-  return enrichQuestionWithUsmleTaxonomy({ ...q, options: opts, correct })
+  return enrichQuestionWithUsmleTaxonomy(normalizeQuestionTaxonomyFields({ ...q, options: opts, correct }))
 }
 
 // Only these questions have full optionExplanations for Coach Mode.
@@ -50,7 +58,7 @@ export const QUESTION_BANK = [
   ...BALANCED_QUESTIONS,
   ...NBME_QUESTIONS,
   ...UWORLD_QUESTIONS,
-]
+].map(normalizeQuestionTaxonomyFields)
 
 export function getQuestionBankDifficultyStats() {
   return QUESTION_BANK.reduce((acc, q) => {
@@ -293,7 +301,8 @@ export function ensureQuestionCount(questions, config) {
 /**
  * Builds a filtered, deduped pool from the mock bank using scope resolution.
  * For specific scopes (topic/clinicalFocus/coachSpecificTopic), filters with
- * isQuestionInScope and expands to system → subject → global when < 2 results.
+ * isQuestionInScope only. It never expands a user-typed topic to broader local
+ * system/subject/global banks; backend AI should fill exact-scope shortfalls.
  * For system/subject scopes, applies exact field match. For global, uses all questions.
  *
  * @param {import('./quizTypes').QuizConfig} config
@@ -314,32 +323,26 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
   let expandedScope = false
   const originalScopeType = scope.scopeType
   let expandedScopeTo = null
+  const hasSubjectFilter = Boolean(scope.subject && !isEmptySelection(scope.subject))
+  const hasSystemFilter = Boolean(scope.system && !isEmptySelection(scope.system))
 
-  if (isSpecificScope(scope)) {
-    const inScope = bank.filter(q => isQuestionInScope(q, scope))
-    if (inScope.length >= 2) {
-      pool = inScope
-    } else {
+  if (!isSpecificScope(scope) && hasSubjectFilter && hasSystemFilter) {
+    pool = bank.filter(q =>
+      normalizeSubjectLabel(q.subject) === normalizeSubjectLabel(scope.subject) &&
+      normalizeSystemLabel(q.system) === normalizeSystemLabel(scope.system)
+    )
+
+  } else if (isSpecificScope(scope)) {
+    pool = bank.filter(q => isQuestionInScope(q, scope))
+    if (pool.length < normalizedConfig.questionCount) {
       expandedScope = true
-      const sysPool = scope.system ? bank.filter(q => q.system === scope.system) : []
-      const subPool = scope.subject ? bank.filter(q => q.subject === scope.subject) : []
-
-      if (sysPool.length >= 2) {
-        pool = sysPool
-        expandedScopeTo = 'system'
-      } else if (subPool.length >= 2) {
-        pool = subPool
-        expandedScopeTo = 'subject'
-      } else {
-        pool = bank
-        expandedScopeTo = 'global'
-      }
+      expandedScopeTo = 'none'
     }
   } else if (scope.scopeType === 'system') {
-    const filtered = bank.filter(q => q.system === scope.scopeText)
+    const filtered = bank.filter(q => normalizeSystemLabel(q.system) === normalizeSystemLabel(scope.scopeText))
     if (filtered.length >= 2) pool = filtered
   } else if (scope.scopeType === 'subject') {
-    const filtered = bank.filter(q => q.subject === scope.scopeText)
+    const filtered = bank.filter(q => normalizeSubjectLabel(q.subject) === normalizeSubjectLabel(scope.scopeText))
     if (filtered.length >= 2) pool = filtered
   }
 

@@ -179,9 +179,9 @@ export interface PaginatedResult<T> {
 }
 
 // ── Mastery read DTOs ─────────────────────────────────────────────────────────
-// Tier thresholds match AnalyticsDashboard.jsx SUBJECT_STATUS (mastery_score = pct/100)
+// Mastery overview keeps legacy buckets; Study Prescription uses p1/p2/p3.
 
-export type MasteryTier = 'priority' | 'focus' | 'reinforced' | 'ontrack';
+export type MasteryTier = 'p1' | 'p2' | 'p3' | 'ontrack' | 'priority' | 'focus' | 'reinforced';
 
 export interface MasteryTierDistribution {
   priority:   number;
@@ -219,9 +219,9 @@ export interface AdaptiveBlueprint {
   strategy:        AdaptiveStrategy;
   enabled:         boolean;
   reason?:         string;
-  weakConcepts:    string[]; // concept names, mastery_score < 0.65
-  mediumConcepts:  string[]; // concept names, 0.65 ≤ mastery_score < 0.75
-  strongConcepts:  string[]; // concept names, mastery_score ≥ 0.75
+  weakConcepts:    string[]; // concept names, P1 mastery_score < 0.50
+  mediumConcepts:  string[]; // concept names, P2 0.50 <= mastery_score < 0.70
+  strongConcepts:  string[]; // concept names, P3/on-track mastery_score >= 0.70
   targetConcepts:  string[]; // allocated for this session: 50% weak + 30% medium
   promptFocusText: string;   // injected into AI generation prompt (server-internal)
 }
@@ -253,10 +253,10 @@ export interface MasteryTrendPoint {
   date:            string;    // ISO timestamp
   avgMastery:      number;
   totalConcepts:   number;
-  priorityCount:   number;    // mastery < 0.65
-  focusCount:      number;    // 0.65 ≤ mastery < 0.75
-  reinforcedCount: number;    // 0.75 ≤ mastery < 0.85
-  ontrkCount:      number;    // mastery ≥ 0.85
+  priorityCount:   number;    // mastery < 0.50
+  focusCount:      number;    // 0.50 <= mastery < 0.70
+  reinforcedCount: number;    // 0.70 <= mastery < 0.80
+  ontrkCount:      number;    // mastery >= 0.80
 }
 
 // ── Exam readiness engine ─────────────────────────────────────────────────────
@@ -271,13 +271,27 @@ export type ReadinessStatus =
 export interface ReadinessScore {
   overallReadiness: number;         // 0–100
   status:           ReadinessStatus;
+  label?:           'Concept Readiness';
   components: {
-    mastery:     number;            // actual contribution 0–50
-    confidence:  number;            // 0–20
-    trend:       number;            // 0–15
-    consistency: number;            // 0–15
+    mastery:     number;
+    confidence:  number;
+    trend:       number;
+    consistency: number;
+    coverage?: number;
+    diversity?: number;
+    recentPerformance?: number;
   };
   distribution: MasteryTierDistribution;
+  legacyInternal?: {
+    overallReadiness: number;
+    status: ReadinessStatus;
+    components: {
+      mastery: number;
+      confidence: number;
+      trend: number;
+      consistency: number;
+    };
+  };
 }
 
 /** Topic-level readiness from ProgressTrackingService.getTopicReadiness(). */
@@ -297,7 +311,7 @@ export interface SubjectRollup {
   rollupMastery:    number;      // 0–1 attempt-weighted avg mastery across subject concepts
   rollupConfidence: number;      // 0–1 attempt-weighted avg confidence
   totalAttempts:    number;      // Σ attempts across all concepts in this subject
-  weakConceptCount: number;      // concepts where mastery_score < 0.65 (priority tier)
+  weakConceptCount: number;      // concepts where mastery_score < 0.50 (P1)
   tier:             MasteryTier; // derived from rollupMastery via masteryTier()
 }
 
@@ -317,9 +331,12 @@ export interface StudyPrescription {
   strategy:              'adaptive' | 'random';
   enabled:               boolean;
   reason?:               string;
-  priority:              PrescriptionConcept[]; // mastery < 0.65
-  focus:                 PrescriptionConcept[]; // 0.65 ≤ mastery < 0.75
-  reinforced:            PrescriptionConcept[]; // 0.75 ≤ mastery < 0.85  (≥0.85 excluded)
+  p1:                    PrescriptionConcept[];
+  p2:                    PrescriptionConcept[];
+  p3:                    PrescriptionConcept[];
+  priority:              PrescriptionConcept[]; // legacy alias for p1
+  focus:                 PrescriptionConcept[]; // legacy alias for p2
+  reinforced:            PrescriptionConcept[]; // legacy alias for p3
   estimatedStudyTime:    number;                // minutes; coefficients: 5/3/2 per concept
   recommendedQuestions:  number;                // capped at 40
   recommendedFlashcards: number;                // capped at 30

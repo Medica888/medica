@@ -38,6 +38,107 @@ export const PHYSICIAN_TASKS = [
 export const DEFAULT_PHYSICIAN_TASK = 'Medical Knowledge: Applying Foundational Science Concepts'
 export const DEFAULT_CONTENT_AREA = 'Multisystem Processes & Disorders'
 
+export const CANONICAL_SUBJECTS = [
+  'Anatomy',
+  'Physiology',
+  'Pathology',
+  'Pharmacology',
+  'Biochemistry',
+  'Genetics',
+  'Microbiology',
+  'Immunology',
+  'Behavioral Science',
+  'Biostatistics',
+  'Ethics',
+  'Cardiology',
+  'Endocrinology',
+  'Neurology',
+]
+
+export const CANONICAL_SYSTEMS = [
+  'Cardiovascular',
+  'Respiratory',
+  'Renal / Urinary',
+  'Gastrointestinal',
+  'Endocrine',
+  'Reproductive',
+  'Neurology',
+  'Psychiatry',
+  'Musculoskeletal',
+  'Dermatology',
+  'Hematology',
+  'Oncology',
+  'Immunology',
+  'Infectious Disease',
+  'Multisystem',
+]
+
+const SUBJECT_ALIASES = new Map([
+  ['behavioral health', 'Behavioral Science'],
+  ['behavioural science', 'Behavioral Science'],
+  ['behavioral sciences', 'Behavioral Science'],
+  ['psychology', 'Behavioral Science'],
+  ['population health', 'Biostatistics'],
+  ['epidemiology', 'Biostatistics'],
+  ['statistics', 'Biostatistics'],
+  ['medical ethics', 'Ethics'],
+  ['molecular biology', 'Biochemistry'],
+  ['neuroscience', 'Neurology'],
+  ['neuro', 'Neurology'],
+  ['cardiovascular physiology', 'Cardiology'],
+  ['cardiovascular pathology', 'Cardiology'],
+  ['cardiovascular pharmacology', 'Cardiology'],
+  ['endocrine physiology', 'Endocrinology'],
+  ['endocrine pathology', 'Endocrinology'],
+  ['endocrine pharmacology', 'Endocrinology'],
+])
+
+const SYSTEM_ALIASES = new Map([
+  ['cardiovascular system', 'Cardiovascular'],
+  ['cardiology', 'Cardiovascular'],
+  ['cardio', 'Cardiovascular'],
+  ['heart', 'Cardiovascular'],
+  ['vascular', 'Cardiovascular'],
+  ['pulmonary', 'Respiratory'],
+  ['respiratory system', 'Respiratory'],
+  ['renal', 'Renal / Urinary'],
+  ['renal urinary', 'Renal / Urinary'],
+  ['renal and urinary', 'Renal / Urinary'],
+  ['renal & urinary system', 'Renal / Urinary'],
+  ['urinary', 'Renal / Urinary'],
+  ['nephrology', 'Renal / Urinary'],
+  ['gi', 'Gastrointestinal'],
+  ['gastrointestinal system', 'Gastrointestinal'],
+  ['endocrine system', 'Endocrine'],
+  ['endocrinology', 'Endocrine'],
+  ['reproductive system', 'Reproductive'],
+  ['female reproductive', 'Reproductive'],
+  ['male reproductive', 'Reproductive'],
+  ['pregnancy childbirth and the puerperium', 'Reproductive'],
+  ['female and transgender reproductive system and breast', 'Reproductive'],
+  ['male and transgender reproductive system', 'Reproductive'],
+  ['nervous system', 'Neurology'],
+  ['nervous system and special senses', 'Neurology'],
+  ['neurologic', 'Neurology'],
+  ['neuroscience', 'Neurology'],
+  ['behavioral health', 'Psychiatry'],
+  ['behavioral science', 'Psychiatry'],
+  ['mental health', 'Psychiatry'],
+  ['skin', 'Dermatology'],
+  ['skin and subcutaneous tissue', 'Dermatology'],
+  ['musculoskeletal system', 'Musculoskeletal'],
+  ['blood', 'Hematology'],
+  ['blood and lymphoreticular system', 'Hematology'],
+  ['hematology oncology', 'Hematology'],
+  ['hematology / oncology', 'Hematology'],
+  ['heme', 'Hematology'],
+  ['immune system', 'Immunology'],
+  ['infectious diseases', 'Infectious Disease'],
+  ['microbiology', 'Infectious Disease'],
+  ['multisystem processes and disorders', 'Multisystem'],
+  ['general principles', 'Multisystem'],
+])
+
 const CONTENT_ALIASES = new Map([
   ['human development', 'Human Development'],
   ['development', 'Human Development'],
@@ -163,6 +264,32 @@ export function normalizePhysicianTask(value) {
   const exact = PHYSICIAN_TASKS.find(task => _norm(task) === _norm(raw))
   if (exact) return exact
   return TASK_ALIASES.get(_norm(raw)) || ''
+}
+
+export function normalizeSubjectLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const exact = CANONICAL_SUBJECTS.find(subject => _norm(subject) === _norm(raw))
+  if (exact) return exact
+  return SUBJECT_ALIASES.get(_norm(raw)) || raw
+}
+
+export function normalizeSystemLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const exact = CANONICAL_SYSTEMS.find(system => _norm(system) === _norm(raw))
+  if (exact) return exact
+  return SYSTEM_ALIASES.get(_norm(raw)) || raw
+}
+
+export function normalizeQuestionTaxonomyFields(question = {}) {
+  return {
+    ...question,
+    subject: normalizeSubjectLabel(question.subject),
+    system: normalizeSystemLabel(question.system),
+    usmleContentArea: normalizeUsmleContentArea(question.usmleContentArea) || question.usmleContentArea || '',
+    physicianTask: normalizePhysicianTask(question.physicianTask) || question.physicianTask || '',
+  }
 }
 
 export function inferUsmleContentArea(question = {}, config = {}) {

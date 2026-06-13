@@ -3,6 +3,13 @@
  * Used by mockQuestions.js (ESM) and the TypeScript backend.
  */
 
+import {
+  CANONICAL_SUBJECTS,
+  CANONICAL_SYSTEMS,
+  normalizeSubjectLabel,
+  normalizeSystemLabel,
+} from './usmleTaxonomy.js'
+
 // ─── Empty-selection detection ────────────────────────────────────────────────
 
 const EMPTY_SELECTIONS = new Set([
@@ -160,6 +167,17 @@ function _normInfer(s) {
   return String(s || '').toLowerCase().trim()
 }
 
+function isBareTaxonomyLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return false
+  const subject = normalizeSubjectLabel(raw)
+  const system = normalizeSystemLabel(raw)
+  return (
+    CANONICAL_SUBJECTS.some(label => _normInfer(label) === _normInfer(subject)) ||
+    CANONICAL_SYSTEMS.some(label => _normInfer(label) === _normInfer(system))
+  )
+}
+
 /**
  * Infers the most likely subject from a raw topic string.
  * @param {string} rawTopic
@@ -182,6 +200,7 @@ export function inferSubjectFromTopic(rawTopic) {
  * @param {string} [subject]
  * @returns {string} System name or ''
  */
+// eslint-disable-next-line no-unused-vars
 export function inferSystemFromTopic(rawTopic, subject) {
   if (!rawTopic) return ''
   const n = _normInfer(rawTopic)
@@ -205,8 +224,8 @@ export function inferSystemFromTopic(rawTopic, subject) {
 export function normalizeGenerationConfig(config) {
   if (!config) return {}
 
-  const subject = isEmptySelection(config.subject) ? '' : (config.subject || '')
-  const system  = isEmptySelection(config.system)  ? '' : (config.system  || '')
+  const subject = isEmptySelection(config.subject) ? '' : normalizeSubjectLabel(config.subject)
+  const system  = isEmptySelection(config.system)  ? '' : normalizeSystemLabel(config.system)
   const rawTopic = ((config.rawTopic || config.topic || '')).trim()
 
   let inferredSubject = subject
@@ -263,8 +282,8 @@ export function resolveGenerationScope(config) {
   const sub = String(subject       || '').trim()
 
   const base = {
-    subject:        isEmptySelection(sub) ? '' : sub,
-    system:         isEmptySelection(sys) ? '' : sys,
+    subject:        isEmptySelection(sub) ? '' : normalizeSubjectLabel(sub),
+    system:         isEmptySelection(sys) ? '' : normalizeSystemLabel(sys),
     rawTopic:       rt || t,
     canonicalTopic: String(canonicalTopic || '').trim() || t,
     topicSlug:      String(topicSlug      || '').trim(),
@@ -274,8 +293,8 @@ export function resolveGenerationScope(config) {
   if (cf) return { ...base, scopeType: 'clinicalFocus', scopeText: cf, topic: cf, priorityReason: 'clinicalFocus overrides all other scope selectors' }
   if (rt) return { ...base, scopeType: 'manualTopic',   scopeText: rt, topic: rt, priorityReason: 'rawTopic from topic intelligence (user-typed topic)' }
   if (t)  return { ...base, scopeType: 'selectedTopic', scopeText: t,  topic: t,  priorityReason: 'topic field from config (user-selected topic)' }
-  if (sys && !isEmptySelection(sys)) return { ...base, scopeType: 'system',  scopeText: sys, topic: '', priorityReason: 'system selected in config' }
-  if (sub && !isEmptySelection(sub)) return { ...base, scopeType: 'subject', scopeText: sub, topic: '', priorityReason: 'subject selected in config' }
+  if (sys && !isEmptySelection(sys)) return { ...base, scopeType: 'system',  scopeText: normalizeSystemLabel(sys), topic: '', priorityReason: 'system selected in config' }
+  if (sub && !isEmptySelection(sub)) return { ...base, scopeType: 'subject', scopeText: normalizeSubjectLabel(sub), topic: '', priorityReason: 'subject selected in config' }
 
   return {
     ...base,
@@ -301,9 +320,9 @@ export function isSpecificScope(scope) {
  *
  * Primary fields (q.topic, q.testedConcept, q.canonicalTopic, q.rawTopic, q.weakSpotCategory):
  *   full bidirectional substring match.
- * Secondary fields (q.system, q.subject):
- *   forward-only match (field ⊆ needle or field === needle), preventing broad subject labels
- *   like "Pharmacology" from matching a narrower needle like "Oncology Pharmacology".
+ * Subject/system scopes are handled before this helper is called. Specific topic
+ * scopes intentionally do not match q.subject or q.system, because a broad label
+ * like "Pharmacology" in the topic field must not become a subject-bank selector.
  *
  * @param {object} q
  * @param {{ scopeType: string, scopeText: string, subject: string, system: string }} scope
@@ -312,18 +331,12 @@ export function isQuestionInScope(q, scope) {
   if (!isSpecificScope(scope)) return true
 
   const needle = _norm(scope.scopeText)
+  if (isBareTaxonomyLabel(scope.scopeText)) return false
 
   const primary = [q.topic, q.testedConcept, q.canonicalTopic, q.rawTopic, q.weakSpotCategory]
     .map(f => _norm(f || '')).filter(Boolean)
 
-  // system/subject: only forward (field included in needle), never reverse
-  const secondary = [q.system, q.subject]
-    .map(f => _norm(f || '')).filter(Boolean)
-
-  return (
-    primary.some(f => f.includes(needle) || (f.length >= 5 && needle.includes(f))) ||
-    secondary.some(f => f === needle || f.includes(needle))
-  )
+  return primary.some(f => f.includes(needle) || (f.length >= 5 && needle.includes(f)))
 }
 
 /**

@@ -24,11 +24,11 @@ function buildFocusText(weakTargets: string[], mediumTargets: string[] = []): st
     'ADAPTIVE FLASHCARD FOCUS — PERSONALIZED REINFORCEMENT:',
     "Based on this user's exam history, generate flashcards focused primarily on these weak concepts:",
   ];
-  if (weakTargets.length > 0) lines.push(`Priority: ${weakTargets.join(', ')}`);
+  if (weakTargets.length > 0) lines.push(`P1: ${weakTargets.join(', ')}`);
   lines.push('Generate 60–80% of cards testing one of these concepts directly.');
   lines.push('Each concept should be tested from a unique clinical angle (mechanism, adverse effect, diagnosis, etc.).');
   if (mediumTargets.length > 0) {
-    lines.push(`Reinforcement: ${mediumTargets.join(', ')}`);
+    lines.push(`P2: ${mediumTargets.join(', ')}`);
     lines.push('Include remaining cards for these reinforcement concepts to maintain progress.');
   }
   return lines.join('\n');

@@ -1,6 +1,5 @@
 import type {
   UserConceptMastery,
-  MasteryTier,
   MasteryOverview,
   EnrichedConceptMastery,
   ConceptMasteryDetail,
@@ -8,24 +7,22 @@ import type {
 } from '../types/index.js';
 import type { IUserConceptMasteryRepository, IConceptsRepository } from '../repositories/interfaces.js';
 import type { ConceptHierarchyService } from './ConceptHierarchyService.js';
-import {
-  TIER_WEAK as TIER_PRIORITY,
-  TIER_MEDIUM as TIER_FOCUS,
-  TIER_REINFORCED,
-} from './adaptiveMasteryUtils.js';
-
 const DEFAULT_LIMIT        = 10;
 const DEFAULT_MIN_ATTEMPTS = 2;
 const CONFIDENT_THRESHOLD  = 5; // attempts needed for confidence_score to saturate
+type LegacyMasteryTier = 'priority' | 'focus' | 'reinforced' | 'ontrack';
+const P1_MAX = 0.50;
+const P2_MAX = 0.70;
+const P3_MAX = 0.80;
 
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
 
-export function masteryTier(masteryScore: number): MasteryTier {
-  if (masteryScore < TIER_PRIORITY)   return 'priority';
-  if (masteryScore < TIER_FOCUS)      return 'focus';
-  if (masteryScore < TIER_REINFORCED) return 'reinforced';
+export function masteryTier(masteryScore: number): LegacyMasteryTier {
+  if (masteryScore < P1_MAX) return 'priority';
+  if (masteryScore < P2_MAX) return 'focus';
+  if (masteryScore < P3_MAX) return 'reinforced';
   return 'ontrack';
 }
 
@@ -120,7 +117,7 @@ export class MasteryQueryService {
    * Groups all mastery rows by concept.subject and computes:
    *   rollupMastery    = Σ(mastery_score    × attempts) / Σ(attempts)
    *   rollupConfidence = Σ(confidence_score × attempts) / Σ(attempts)
-   * weakConceptCount counts rows where mastery_score < TIER_PRIORITY (0.65).
+   * weakConceptCount counts rows where mastery_score is P1 (< 0.50).
    * Returns sorted by rollupMastery ASC (weakest subjects first).
    */
   async getSubjectBreakdown(
@@ -150,13 +147,13 @@ export class MasteryQueryService {
         existing.masteryWeightedSum += row.mastery_score    * w;
         existing.confWeightedSum    += row.confidence_score * w;
         existing.totalAttempts      += w;
-        if (row.mastery_score < TIER_PRIORITY) existing.weakConceptCount++;
+        if (row.mastery_score < P1_MAX) existing.weakConceptCount++;
       } else {
         acc.set(subject, {
           masteryWeightedSum: row.mastery_score    * w,
           confWeightedSum:    row.confidence_score * w,
           totalAttempts:      w,
-          weakConceptCount:   row.mastery_score < TIER_PRIORITY ? 1 : 0,
+          weakConceptCount:   row.mastery_score < P1_MAX ? 1 : 0,
         });
       }
     }
@@ -198,7 +195,7 @@ export class MasteryQueryService {
     const fetched    = await this.concepts.findManyById(rows.map((r) => r.concept_id));
     const conceptMap = new Map(fetched.map((c) => [c.id, c]));
     return rows
-      .map((row) => {
+      .map((row): EnrichedConceptMastery | null => {
         const concept = conceptMap.get(row.concept_id);
         return concept ? { concept, mastery: row, tier: masteryTier(row.mastery_score) } : null;
       })

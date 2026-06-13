@@ -19,6 +19,7 @@ export class InMemoryTaxonomyCandidatesRepository implements ITaxonomyCandidates
     system: string;
     exampleQuestionFingerprint?: string | null;
     source?: string;
+    type?: 'topic' | 'concept';
     metadata?: Record<string, unknown>;
   }): Promise<TaxonomyCandidate> {
     const rawLabel = data.rawLabel.trim();
@@ -52,6 +53,7 @@ export class InMemoryTaxonomyCandidatesRepository implements ITaxonomyCandidates
       frequency: 1,
       exampleQuestionFingerprint: data.exampleQuestionFingerprint ?? null,
       source: data.source || 'unknown_topic',
+      type: data.type ?? 'topic',
       status: 'pending',
       metadata: data.metadata ?? {},
       createdAt: now,
