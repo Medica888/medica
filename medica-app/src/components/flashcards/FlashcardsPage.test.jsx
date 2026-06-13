@@ -46,9 +46,8 @@ afterEach(() => {
   localStorage.clear()
 })
 
-// ── Deck view ─────────────────────────────────────────────────────────────────
-
-describe('FlashcardsPage — deck view labels', () => {
+// Deck view
+describe('FlashcardsPage - deck view labels', () => {
   it('shows "Clinical Reinforcement" as the page title', () => {
     seedCards()
     render(<FlashcardsPage />)
@@ -80,9 +79,8 @@ describe('FlashcardsPage — deck view labels', () => {
   })
 })
 
-// ── Active review ─────────────────────────────────────────────────────────────
-
-describe('FlashcardsPage — review mode', () => {
+// Active review
+describe('FlashcardsPage - review mode', () => {
   it('shows a high-yield recall label on the card front', () => {
     seedCards()
     render(<FlashcardsPage />)
@@ -105,9 +103,8 @@ describe('FlashcardsPage — review mode', () => {
   })
 })
 
-// ── Ease buttons after reveal ──────────────────────────────────────────────────
-
-describe('FlashcardsPage — ease buttons after reveal', () => {
+// Ease buttons after reveal
+describe('FlashcardsPage - ease buttons after reveal', () => {
   function enterReviewAndReveal() {
     seedCards()
     render(<FlashcardsPage />)
@@ -132,7 +129,7 @@ describe('FlashcardsPage — ease buttons after reveal', () => {
 
   it('shows "Unstable" ease button', () => {
     enterReviewAndReveal()
-    // "Unstable" appears in ease buttons and in the stats row — getAll works
+    // "Unstable" appears in ease buttons and in the stats row - getAll works
     const hits = screen.getAllByText('Unstable')
     expect(hits.length).toBeGreaterThan(0)
   })
@@ -150,13 +147,12 @@ describe('FlashcardsPage — ease buttons after reveal', () => {
 
   it('shows keyboard hint with renamed labels', () => {
     enterReviewAndReveal()
-    expect(screen.getByText('1 Relearn · 2 Unstable · 3 Reinforced · 4 Mastered')).toBeInTheDocument()
+    expect(screen.getByText('1 Relearn / 2 Unstable / 3 Reinforced / 4 Mastered')).toBeInTheDocument()
   })
 })
 
-// ── Keyboard shortcuts ─────────────────────────────────────────────────────────
-
-describe('FlashcardsPage — keyboard shortcuts', () => {
+// Keyboard shortcuts
+describe('FlashcardsPage - keyboard shortcuts', () => {
   it('Space reveals the mechanism', () => {
     seedCards()
     render(<FlashcardsPage />)
@@ -176,9 +172,8 @@ describe('FlashcardsPage — keyboard shortcuts', () => {
   })
 })
 
-// ── Memory anchor and common trap rendering ────────────────────────────────────
-
-describe('FlashcardsPage — memory anchor and trap rendering', () => {
+// Memory anchor and common trap rendering
+describe('FlashcardsPage - memory anchor and trap rendering', () => {
   it('shows "Memory Anchor" label and text after reveal when card has memoryAnchor', () => {
     const cardWithAnchor = { ...sampleCard, memoryAnchor: 'FURO = Furosemide Urges Renal Output' }
     seedCards([cardWithAnchor])
@@ -217,9 +212,8 @@ describe('FlashcardsPage — memory anchor and trap rendering', () => {
   })
 })
 
-// ── Session done ───────────────────────────────────────────────────────────────
-
-describe('FlashcardsPage — session done screen', () => {
+// Session done
+describe('FlashcardsPage - session done screen', () => {
   function completeSession() {
     seedCards()
     render(<FlashcardsPage />)
@@ -244,9 +238,8 @@ describe('FlashcardsPage — session done screen', () => {
   })
 })
 
-// ── Terminology — no legacy flashcard/deck/anki copy ──────────────────────────
-
-describe('FlashcardsPage — no legacy terminology in deck view', () => {
+// Terminology - no legacy flashcard/deck/anki copy
+describe('FlashcardsPage - no legacy terminology in deck view', () => {
   it('does not render "Anki" anywhere in the deck view', () => {
     seedCards()
     render(<FlashcardsPage />)
@@ -269,9 +262,8 @@ describe('FlashcardsPage — no legacy terminology in deck view', () => {
   })
 })
 
-// ── Backward compatibility — old front/back-only cards ────────────────────────
-
-describe('FlashcardsPage — backward compat: front/back-only cards', () => {
+// Backward compatibility - old front/back-only cards
+describe('FlashcardsPage - backward compat: front/back-only cards', () => {
   it('renders front text for a card that has only front/back (no clinicalPrompt)', () => {
     const legacyCard = {
       ...sampleCard,
@@ -304,11 +296,10 @@ describe('FlashcardsPage — backward compat: front/back-only cards', () => {
   })
 })
 
-// ── Long pearl text — no truncation ───────────────────────────────────────────
-
-describe('FlashcardsPage — long pearl text is never lost', () => {
+// Long pearl text - no truncation
+describe('FlashcardsPage - long pearl text is never lost', () => {
   const LONG_PEARL = 'ACE inhibitors block conversion of angiotensin I to angiotensin II, reducing aldosterone, ' +
-    'decreasing sodium retention, lowering preload and afterload, and causing bradykinin accumulation — ' +
+    'decreasing sodium retention, lowering preload and afterload, and causing bradykinin accumulation - ' +
     'which explains both the dry cough and angioedema adverse effects seen clinically.'
 
   it('renders full long pearl text in review card after reveal (no truncation)', () => {
@@ -322,7 +313,7 @@ describe('FlashcardsPage — long pearl text is never lost', () => {
     render(<FlashcardsPage />)
     fireEvent.click(screen.getByText('Reinforce Now'))
     fireEvent.click(screen.getByText('Reveal Mechanism'))
-    // The full text must be present — not truncated
+    // The full text must be present - not truncated
     expect(screen.getByText(LONG_PEARL)).toBeInTheDocument()
   })
 
@@ -365,9 +356,8 @@ describe('FlashcardsPage — long pearl text is never lost', () => {
   })
 })
 
-// ── Rating buttons — updated hints, same handlers ────────────────────────────
-
-describe('FlashcardsPage — updated rating button hints', () => {
+// Rating buttons - updated hints, same handlers
+describe('FlashcardsPage - updated rating button hints', () => {
   function enterReviewAndReveal() {
     seedCards()
     render(<FlashcardsPage />)
@@ -409,7 +399,7 @@ describe('FlashcardsPage — updated rating button hints', () => {
   it('clicking Reinforced button still calls the handler and advances session', () => {
     enterReviewAndReveal()
     fireEvent.click(screen.getByRole('button', { name: 'Reinforced: I knew it' }))
-    // Session done (single card) — shows Reinforcement Complete
+    // Session done (single card) - shows Reinforcement Complete
     expect(screen.getByText('Reinforcement Complete')).toBeInTheDocument()
   })
 
@@ -420,9 +410,8 @@ describe('FlashcardsPage — updated rating button hints', () => {
   })
 })
 
-// ── Keyboard shortcut keycap labels ──────────────────────────────────────────
-
-describe('FlashcardsPage — keyboard shortcut keycap labels', () => {
+// Keyboard shortcut keycap labels
+describe('FlashcardsPage - keyboard shortcut keycap labels', () => {
   function enterReviewAndReveal() {
     seedCards()
     render(<FlashcardsPage />)
@@ -445,13 +434,12 @@ describe('FlashcardsPage — keyboard shortcut keycap labels', () => {
 
   it('shows keyboard hint line with all four labels', () => {
     enterReviewAndReveal()
-    expect(screen.getByText('1 Relearn · 2 Unstable · 3 Reinforced · 4 Mastered')).toBeInTheDocument()
+    expect(screen.getByText('1 Relearn / 2 Unstable / 3 Reinforced / 4 Mastered')).toBeInTheDocument()
   })
 })
 
-// ── Progress label ─────────────────────────────────────────────────────────────
-
-describe('FlashcardsPage — progress label in review', () => {
+// Progress label
+describe('FlashcardsPage - progress label in review', () => {
   it('shows "Card 1 of 1" format in review header', () => {
     seedCards()
     render(<FlashcardsPage />)
@@ -464,7 +452,7 @@ describe('FlashcardsPage — progress label in review', () => {
     render(<FlashcardsPage />)
     fireEvent.click(screen.getByText('Reinforce Now'))
     // sampleCard has subject='Pharmacology', system='Renal', topicGroup='Loop Diuretics'
-    expect(screen.getByText('Pharmacology · Renal · Loop Diuretics')).toBeInTheDocument()
+    expect(screen.getByText('Pharmacology / Renal / Loop Diuretics')).toBeInTheDocument()
   })
 
   it('shows "Card 2 of 3" after advancing past first card', () => {

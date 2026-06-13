@@ -1,7 +1,21 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { getFlashcards, markFlashcardReviewed, clearFlashcards, getClinicalPrompt, getCoreMechanism, appendFlashcards } from '../../lib/storage'
+import { getFlashcards, markFlashcardReviewed, clearFlashcards, appendFlashcards } from '../../lib/storage'
 import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
+import AdaptiveGenerateCTA from './AdaptiveGenerateCTA'
+import FlashcardEmptyState from './FlashcardEmptyState'
+import { TagBadge, StatusPill } from './FlashcardBadges'
+import { IconBrain, IconClock, IconFilter, IconGroup, IconMedicaShield } from './FlashcardIcons'
+import { ActiveFlashcardReview, FlashcardSessionComplete } from './FlashcardReviewViews'
+import {
+  STATUS_DISPLAY,
+  TAG_COLORS,
+  cardAnswer,
+  conceptPrompt,
+  getCardStatus,
+  isFlashcardDue,
+  sortFlashcards,
+} from './flashcardDisplay'
 import {
   getTopicGroup, getConceptFromTopic, getQuestionAngle, getTopicGroupOptions, matchesTopicGroup,
 } from '../../lib/flashcardTopicHelpers.js'
@@ -11,180 +25,8 @@ import {
 } from '../../lib/flashcardGroups.js'
 import { normalizeSubjectLabel, normalizeSystemLabel } from '../../lib/usmleTaxonomy.js'
 
-const TAG_COLORS = {
-  Recall:    { background: 'var(--blue-10)',      color: 'var(--blue)'   },
-  Mechanism: { background: 'rgba(107,63,189,.1)', color: 'var(--purple)' },
-  Trap:      { background: 'rgba(204,58,58,.1)',  color: 'var(--red)'    },
-  Mnemonic:  { background: 'rgba(224,123,32,.1)', color: 'var(--orange)' },
-  Pearl:     { background: 'rgba(15,173,111,.1)', color: 'var(--green)'  },
-}
-
-function conceptPrompt(card) {
-  const concept = card?.testedConcept || card?.concept || card?.topicGroup || card?.weakSpotCategory || ''
-  const currentPrompt = getClinicalPrompt(card)
-  const shouldRepairPrompt =
-    card?.generationMethod === 'stemExtraction' ||
-    /\b(which management approach|most appropriate next|most likely mechanism for (?:his|her|this|the)|best explains|which of the following)\b/i.test(currentPrompt)
-
-  if (!concept || !shouldRepairPrompt) return currentPrompt
-  const dash = concept.indexOf(' — ')
-  if (dash > -1) {
-    const left = concept.slice(0, dash).trim()
-    const right = concept.slice(dash + 3).trim()
-    if (left && right) return `In ${left}, what clinical mechanism explains ${right}?`
-  }
-  return `What clinical mechanism explains ${concept}?`
-}
-
-function cardAnswer(card) {
-  return getCoreMechanism(card)
-}
-
-const STATUS_COLOR = {
-  new:      '#2E64C8',
-  learning: 'var(--status-warn)',
-  mastered: 'var(--status-stable)',
-}
-
-const CARD_PROMPT_LABEL = {
-  Recall:   'High-Yield Recall',
-  Pearl:    'High-Yield Pearl',
-  Trap:     'Critical Distinction',
-  Mnemonic: 'Memory Anchor',
-}
-
-const CARD_ANSWER_LABEL = {
-  Pearl: 'High-Yield Pearl',
-  Trap:  'Critical Distinction',
-}
-
-const EASE_META = [
-  { ease: 'again', label: 'Relearn',    hint: 'I missed it',      cls: 'again', color: 'var(--status-critical)' },
-  { ease: 'hard',  label: 'Unstable',   hint: 'I guessed / weak', cls: 'hard',  color: 'var(--status-warn)'     },
-  { ease: 'good',  label: 'Reinforced', hint: 'I knew it',        cls: 'good',  color: 'var(--status-stable)'   },
-  { ease: 'easy',  label: 'Mastered',   hint: 'automatic',        cls: 'easy',  color: '#2E64C8'                },
-]
-
-const getCardStatus = (card) => card.reviewStatus || 'new'
-
-function isFlashcardDue(card) {
-  const s = card.reviewStatus
-  if (s === 'mastered') {
-    if (!card.nextReview) return false
-    const d = new Date(card.nextReview)
-    if (isNaN(d.getTime())) return false
-    return d <= new Date()
-  }
-  return true
-}
-
-function sortFlashcards(arr, mode) {
-  const copy = [...arr]
-  switch (mode) {
-    case 'due': {
-      const STATUS_ORDER = { learning: 0, new: 1, mastered: 4 }
-      return copy.sort((a, b) => {
-        const ao = a.reviewStatus == null ? 2 : (STATUS_ORDER[a.reviewStatus] ?? 3)
-        const bo = b.reviewStatus == null ? 2 : (STATUS_ORDER[b.reviewStatus] ?? 3)
-        if (ao !== bo) return ao - bo
-        const at = a.reviewedAt ? new Date(a.reviewedAt).getTime() : 0
-        const bt = b.reviewedAt ? new Date(b.reviewedAt).getTime() : 0
-        return at - bt
-      })
-    }
-    case 'newest':
-      return copy.sort((a, b) => {
-        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
-        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
-        return bt - at
-      })
-    case 'weakest': {
-      const RANK = { learning: 1, new: 2, mastered: 4 }
-      return copy.sort((a, b) => {
-        const ar = a.weakSpotCategory ? 0 : (RANK[getCardStatus(a)] ?? 3)
-        const br = b.weakSpotCategory ? 0 : (RANK[getCardStatus(b)] ?? 3)
-        if (ar !== br) return ar - br
-        const ac = a.sourceMode === 'coach' ? 0 : 1
-        const bc = b.sourceMode === 'coach' ? 0 : 1
-        return ac - bc
-      })
-    }
-    case 'topic':
-      return copy.sort((a, b) => {
-        const cmp = getTopicGroup(a).localeCompare(getTopicGroup(b))
-        if (cmp !== 0) return cmp
-        return getConceptFromTopic(a).localeCompare(getConceptFromTopic(b))
-      })
-    case 'subject':
-      return copy.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''))
-    case 'status': {
-      const ORDER = { new: 0, learning: 1, mastered: 2 }
-      return copy.sort((a, b) => (ORDER[getCardStatus(a)] ?? 0) - (ORDER[getCardStatus(b)] ?? 0))
-    }
-    default:
-      return copy
-  }
-}
-
-function TagBadge({ tag }) {
-  const style = TAG_COLORS[tag] ?? TAG_COLORS.Recall
-  return <span className="fc-tag-badge" style={style}>{tag || 'Recall'}</span>
-}
-
-const STATUS_DISPLAY = { new: 'New', learning: 'Unstable', mastered: 'Mastered' }
-
-function StatusPill({ status }) {
-  const key     = getCardStatus({ reviewStatus: status })
-  const display = STATUS_DISPLAY[key] ?? 'New'
-  return (
-    <span className="fc-status-pill" style={{ color: STATUS_COLOR[key] ?? 'var(--blue)' }}>
-      {display}
-    </span>
-  )
-}
-
-// ── SVG icons ─────────────────────────────────────────────────────
-const IconMedicaShield = () => (
-  <svg width="20" height="23" viewBox="0 0 28 32" fill="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="fc-shield-lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#2A82E0" />
-        <stop offset="1" stopColor="#1250A0" />
-      </linearGradient>
-    </defs>
-    <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#fc-shield-lg)" />
-    <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" stroke="rgba(255,255,255,.15)" strokeWidth=".6" fill="none" />
-    <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white" />
-    <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white" />
-    <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-    <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-  </svg>
-)
-const IconClock = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M7 4.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-)
-const IconBrain = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-    <path d="M7 2C4.8 2 3 3.8 3 6c0 1.2.5 2.3 1.3 3H4v1.5h6V9h-.3C10.5 8.3 11 7.2 11 6c0-2.2-1.8-4-4-4Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-  </svg>
-)
-const IconGroup = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-    <path d="M2 10c0-1.7 1.3-3 3-3h4c1.7 0 3 1.3 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <circle cx="7" cy="4" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
-  </svg>
-)
-const IconFilter = () => (
-  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-    <path d="M2 3.5h9M4 6.5h5M6 9.5h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-  </svg>
-)
-
 export default function FlashcardsPage({ onNavigate }) {
-  // ── Core state ───────────────────────────────────────────────────
+  // Core state
   const [cards, setCards]             = useState(() => getFlashcards())
   const [reviewMode, setReviewMode]   = useState(false)
   const [reviewCards, setReviewCards] = useState([])
@@ -193,7 +35,7 @@ export default function FlashcardsPage({ onNavigate }) {
   const [sessionDone, setSessionDone] = useState(false)
   const [reviewSummary, setReviewSummary] = useState({ again: 0, hard: 0, good: 0, easy: 0 })
 
-  // ── Filter / sort state ───────────────────────────────────────────
+  // Filter / sort state
   const [expandedId, setExpandedId]             = useState(null)
   const [filterStatus, setFilterStatus]         = useState('all')
   const [filterTag, setFilterTag]               = useState('all')
@@ -205,7 +47,7 @@ export default function FlashcardsPage({ onNavigate }) {
   const [filterOpen, setFilterOpen]             = useState(false)
   const [copyMsg, setCopyMsg]                   = useState(null)
 
-  // ── Custom groups state ───────────────────────────────────────────
+  // Custom groups state
   const [groups, setGroups]                   = useState(() => getFlashcardGroups())
   const [activeGroupId, setActiveGroupId]     = useState('all')
   const [selectMode, setSelectMode]           = useState(false)
@@ -218,7 +60,7 @@ export default function FlashcardsPage({ onNavigate }) {
   const [renameGroupName, setRenameGroupName] = useState('')
   const [addConfirmMsg, setAddConfirmMsg]     = useState(null)
 
-  // ── Adaptive AI flashcard generation ──────────────────────────────
+  // Adaptive AI flashcard generation
   const [aiGenState, setAiGenState] = useState('idle') // 'idle' | 'loading' | 'done' | 'error'
   const [aiGenMsg,   setAiGenMsg]   = useState(null)
   const adaptivePlan = useAdaptiveFlashcardsPreview()
@@ -235,7 +77,7 @@ export default function FlashcardsPage({ onNavigate }) {
         setAiGenState('done')
         setAiGenMsg(`${added} reinforcement card${added !== 1 ? 's' : ''} added`)
       } else {
-        setAiGenState('error'); setAiGenMsg('No cards returned — try again')
+        setAiGenState('error'); setAiGenMsg('No cards returned - try again')
       }
     } catch (err) {
       setAiGenState('error')
@@ -245,13 +87,13 @@ export default function FlashcardsPage({ onNavigate }) {
 
   const showAdaptiveCTA = getAuthToken() && import.meta.env.VITE_USE_BACKEND === 'true'
 
-  // ── Derived counts ────────────────────────────────────────────────
+  // Derived counts
   const newCount      = cards.filter(c => getCardStatus(c) === 'new').length
   const learningCount = cards.filter(c => getCardStatus(c) === 'learning').length
   const masteredCount = cards.filter(c => getCardStatus(c) === 'mastered').length
   const dueCount      = cards.filter(isFlashcardDue).length
 
-  // ── Computed filter options ───────────────────────────────────────
+  // Computed filter options
   const allTags     = useMemo(() => { const s = new Set(); cards.forEach(c => c.tag && s.add(c.tag)); return [...s] }, [cards])
   const allSubjects = useMemo(() => [...new Set(cards.map(c => c.subject).filter(Boolean))].sort(), [cards])
   const allSystems  = useMemo(() => [...new Set(cards.map(c => c.system).filter(Boolean))].sort(),  [cards])
@@ -260,7 +102,7 @@ export default function FlashcardsPage({ onNavigate }) {
     return opts.sort((a, b) => b.count - a.count || a.topicGroup.localeCompare(b.topicGroup))
   }, [cards])
 
-  // ── Card groups map ────────────────────────────────────────────────
+  // Card groups map
   const cardGroupsMap = useMemo(() => {
     const map = {}
     groups.forEach(g => g.cardIds.forEach(id => {
@@ -270,7 +112,7 @@ export default function FlashcardsPage({ onNavigate }) {
     return map
   }, [groups])
 
-  // ── Topic intelligence ────────────────────────────────────────────
+  // Topic intelligence
   const weakTopics = useMemo(() => {
     const counts = {}
     cards.filter(c => getCardStatus(c) === 'new' || getCardStatus(c) === 'learning').forEach(c => {
@@ -301,7 +143,7 @@ export default function FlashcardsPage({ onNavigate }) {
     return result
   }, [cards])
 
-  // ── Active filter chips ───────────────────────────────────────────
+  // Active filter chips
   const activeFilterChips = useMemo(() => {
     const chips = []
     if (filterStatus !== 'all') chips.push({ key: 'status', label: STATUS_DISPLAY[filterStatus] ?? filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1), onRemove: () => setFilterStatus('all') })
@@ -318,7 +160,7 @@ export default function FlashcardsPage({ onNavigate }) {
 
   const activeFilterCount = activeFilterChips.length
 
-  // ── Processed cards pipeline ──────────────────────────────────────
+  // Processed cards pipeline
   const processedCards = useMemo(() => {
     let r = cards
     if (filterStatus     !== 'all') r = r.filter(c => getCardStatus(c) === filterStatus)
@@ -367,7 +209,7 @@ export default function FlashcardsPage({ onNavigate }) {
   const refresh = () => setCards(getFlashcards())
   const refreshGroups = () => setGroups(getFlashcardGroups())
 
-  // ── Review handlers ───────────────────────────────────────────────
+  // Review handlers
   const doStartReview = (subset, preserveOrder = true) => {
     const source = subset ?? processedCards
     if (source.length === 0) return
@@ -391,7 +233,7 @@ export default function FlashcardsPage({ onNavigate }) {
   const goToPrev = () => { if (reviewIndex > 0) { setReviewIndex(i => i - 1); setFlipped(false) } }
   const goToNext = () => { if (reviewIndex < reviewCards.length - 1) { setReviewIndex(i => i + 1); setFlipped(false) } }
 
-  // ── Keyboard shortcuts (review mode only) ─────────────────────────
+  // Keyboard shortcuts (review mode only)
   useEffect(() => {
     if (!reviewMode || sessionDone) return
     const onKey = (e) => {
@@ -413,7 +255,7 @@ export default function FlashcardsPage({ onNavigate }) {
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 
-  // ── Copy / export ─────────────────────────────────────────────────
+  // Copy / export
   const handleCopyAll = () => {
     if (processedCards.length === 0) return
     const text = processedCards.map(c => {
@@ -470,7 +312,7 @@ export default function FlashcardsPage({ onNavigate }) {
     setSelectMode(false); setSelectedCardIds(new Set())
   }
 
-  // ── Group handlers ────────────────────────────────────────────────
+  // Group handlers
   const handleCreateGroup = () => {
     if (!newGroupName.trim()) return
     const group = createFlashcardGroup(newGroupName, newGroupDesc)
@@ -521,182 +363,47 @@ export default function FlashcardsPage({ onNavigate }) {
 
   const exitSelectMode = () => { setSelectMode(false); setSelectedCardIds(new Set()) }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ── SESSION DONE ──────────────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════════
   if (reviewMode && sessionDone) {
-    const weakCount = reviewSummary.again + reviewSummary.hard
     return (
-      <div className="fc-page">
-        <div className="fc-done-wrap">
-          <div className="fc-done-card">
-            <div className="fc-done-icon">
-              <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-                <path d="M4 13.5L10 19.5L22 7.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <h2 className="fc-done-title">Reinforcement Complete</h2>
-            <p className="fc-done-sub">You reinforced {reviewCards.length} item{reviewCards.length !== 1 ? 's' : ''}.</p>
-            <div className="fc-summary-grid">
-              {EASE_META.map(({ ease, label, color }) => (
-                <div key={ease} className="fc-summary-cell">
-                  <span className="fc-summary-num" style={{ color }}>{reviewSummary[ease]}</span>
-                  <span className="fc-summary-lbl">{label}</span>
-                </div>
-              ))}
-            </div>
-            <p className="fc-done-rec">
-              {weakCount > 0
-                ? 'Reinforce unstable concepts before your next session.'
-                : 'Solid session — all concepts reinforced. Return later to keep retention strong.'}
-            </p>
-            <div className="fc-done-actions">
-              <button type="button" className="fc-action-btn primary wide" onClick={() => doStartReview(reviewCards, true)}>Reinforce Again</button>
-              <button type="button" className="fc-action-btn wide" onClick={exitReview}>Back to Library</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FlashcardSessionComplete
+        reviewCards={reviewCards}
+        reviewSummary={reviewSummary}
+        onReinforceAgain={() => doStartReview(reviewCards, true)}
+        onBackToLibrary={exitReview}
+      />
     )
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ── ACTIVE REVIEW ─────────────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════════
   if (reviewMode && reviewCards.length > 0) {
-    const card    = reviewCards[reviewIndex]
-    const canPrev = reviewIndex > 0
-    const canNext = reviewIndex < reviewCards.length - 1
-    const topicGroupLabel = getTopicGroup(card)
-
     return (
-      <div className="fc-page">
-        <div className="fc-rev-hdr">
-          <button type="button" className="fc-rev-exit-btn" onClick={exitReview} aria-label="Exit review">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M9 2L4 7L9 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Exit
-          </button>
-          <div className="fc-rev-hdr-center">
-            <span className="fc-rev-progress" aria-label={`Card ${reviewIndex + 1} of ${reviewCards.length}`}>
-              Card {reviewIndex + 1} of {reviewCards.length}
-            </span>
-            {([card.subject, card.system, topicGroupLabel].filter(Boolean).length > 0) && (
-              <span className="fc-rev-topic-label">
-                {[card.subject, card.system, topicGroupLabel].filter(Boolean).join(' · ')}
-              </span>
-            )}
-          </div>
-          <div className="fc-rev-hdr-spacer" />
-        </div>
-
-        <div className="fc-rev-body">
-          <div className="fc-rev-bar-wrap">
-            <div className="fc-rev-bar" style={{ width: `${((reviewIndex + 1) / reviewCards.length) * 100}%` }}/>
-          </div>
-          <div className="fc-rev-card-wrap">
-            <div className="fc-rev-card">
-              <div className="fc-rev-card-inner">
-                <div className="fc-rev-card-meta">
-                  <TagBadge tag={card.tag}/>
-                  {[card.subject, card.system].filter(Boolean).map((m, i) => (
-                    <span key={i} className="fc-rev-subject">{m}</span>
-                  ))}
-                </div>
-                <span className="fc-rev-card-prompt-label">{card.cardCategory || CARD_PROMPT_LABEL[card.tag] || 'High-Yield Recall'}</span>
-                <p className="fc-rev-question">{conceptPrompt(card)}</p>
-                {!flipped ? (
-                  <>
-                    <div className="fc-rev-divider" />
-                    <div className="fc-review-nav">
-                      <button type="button" className="fc-rev-nav-btn" onClick={goToPrev} disabled={!canPrev} aria-label="Previous card">← Prev</button>
-                      <button type="button" className="fc-action-btn primary" onClick={() => setFlipped(true)}>Reveal Mechanism</button>
-                      <button type="button" className="fc-rev-nav-btn" onClick={goToNext} disabled={!canNext} aria-label="Next card">Next →</button>
-                    </div>
-                    <span className="fc-kbd-hint">Space to reveal · ← → navigate</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="fc-rev-divider"/>
-                    <span className="fc-rev-card-answer-label">{CARD_ANSWER_LABEL[card.tag] || 'Core Mechanism'}</span>
-                    <p className="fc-rev-answer">{cardAnswer(card)}</p>
-                    {card.memoryAnchor && (
-                      <div className="fc-rev-card-anchor">
-                        <span className="fc-rev-card-anchor-label">Memory Anchor</span>
-                        <p className="fc-rev-card-anchor-text">{card.memoryAnchor}</p>
-                      </div>
-                    )}
-                    {card.commonTrap && (
-                      <div className="fc-rev-card-trap">
-                        <span className="fc-rev-card-trap-label">Common Trap</span>
-                        <p className="fc-rev-card-trap-text">{card.commonTrap}</p>
-                      </div>
-                    )}
-                    <div className="fc-ease-row">
-                      {EASE_META.map(({ ease, label, hint, cls }, i) => (
-                        <button key={ease} type="button" className={`fc-ease-btn fc-ease-btn--${cls}`}
-                          onClick={() => handleEase(ease)} aria-label={`${label}: ${hint}`}>
-                          <span className="fc-ease-label">{label}</span>
-                          <span className="fc-ease-hint">{hint}</span>
-                          <span className="fc-ease-key">{i + 1}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="fc-review-nav-secondary">
-                      <button type="button" className="fc-rev-nav-btn" onClick={goToPrev} disabled={!canPrev} aria-label="Previous card">← Prev</button>
-                      <button type="button" className="fc-rev-nav-btn" onClick={goToNext} disabled={!canNext} aria-label="Next card">Next →</button>
-                    </div>
-                    <p className="fc-kbd-hint">1 Relearn · 2 Unstable · 3 Reinforced · 4 Mastered</p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ActiveFlashcardReview
+        card={reviewCards[reviewIndex]}
+        flipped={flipped}
+        reviewIndex={reviewIndex}
+        reviewCount={reviewCards.length}
+        onExit={exitReview}
+        onReveal={() => setFlipped(true)}
+        onEase={handleEase}
+        onPrev={goToPrev}
+        onNext={goToNext}
+      />
     )
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ── EMPTY STATE ───────────────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════════
   if (cards.length === 0) {
     return (
-      <div className="fc-page">
-        <div className="fc-empty">
-          <div className="fc-empty-icon">
-            <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
-              <rect x="6" y="14" width="40" height="28" rx="5" stroke="currentColor" strokeWidth="2" opacity=".35"/>
-              <rect x="10" y="8" width="32" height="28" rx="5" stroke="currentColor" strokeWidth="2" opacity=".2"/>
-              <path d="M18 28h16M18 33h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".45"/>
-            </svg>
-          </div>
-          <h2 className="fc-empty-title">No Reinforcement Items Yet</h2>
-          <p className="fc-empty-body">
-            Finish a Practice or Coach session to automatically generate clinical reinforcement cards from your missed questions.
-          </p>
-          {showAdaptiveCTA && (
-            <AdaptiveGenerateCTA
-              plan={adaptivePlan}
-              state={aiGenState}
-              msg={aiGenMsg}
-              onGenerate={handleGenerateAI}
-            />
-          )}
-          {onNavigate && (
-            <button type="button" className="fc-action-btn primary" onClick={() => onNavigate('create-quiz')}>
-              Start a Practice Session
-            </button>
-          )}
-        </div>
-      </div>
+      <FlashcardEmptyState
+        showAdaptiveCTA={showAdaptiveCTA}
+        adaptivePlan={adaptivePlan}
+        aiGenState={aiGenState}
+        aiGenMsg={aiGenMsg}
+        onGenerateAI={handleGenerateAI}
+        onNavigate={onNavigate}
+      />
     )
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ── DECK VIEW ─────────────────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════════
+  // DECK VIEW
   return (
     <div className="fc-page">
       {addConfirmMsg && (
@@ -711,14 +418,14 @@ export default function FlashcardsPage({ onNavigate }) {
       <div className="fc-scroll">
         <div className="fc-content">
 
-          {/* ── 1. Command Header ────────────────────────────────── */}
+          {/* 1. Command Header */}
           <header className="fc-command-header">
             <div className="fc-command-left">
               <div className="fc-command-icon" aria-hidden="true"><IconMedicaShield/></div>
               <div>
                 <h1 className="fc-command-title">Clinical Reinforcement</h1>
                 <p className="fc-command-subtitle">
-                  {cards.length} item{cards.length !== 1 ? 's' : ''} · {dueCount} due today
+                  {cards.length} item{cards.length !== 1 ? 's' : ''} / {dueCount} due today
                 </p>
                 <span className="fc-command-kicker">Reinforcement Library</span>
               </div>
@@ -729,7 +436,7 @@ export default function FlashcardsPage({ onNavigate }) {
                 onClick={handleCopyAll} disabled={processedCards.length === 0}
                 title="Copy visible items as text" aria-label="Copy visible items to clipboard"
               >
-                {copyMsg === 'copied' ? 'Copied ✓' : copyMsg === 'failed' ? 'Failed' : (
+                {copyMsg === 'copied' ? 'Copied' : copyMsg === 'failed' ? 'Failed' : (
                   <><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <rect x="4" y="3.5" width="6.5" height="7.5" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
                     <path d="M4 3V2a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 12h4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -761,7 +468,7 @@ export default function FlashcardsPage({ onNavigate }) {
             </div>
           </header>
 
-          {/* ── Adaptive AI generation strip ─────────────────────── */}
+          {/* Adaptive AI generation strip */}
           {showAdaptiveCTA && (
             <AdaptiveGenerateCTA
               plan={adaptivePlan}
@@ -772,7 +479,7 @@ export default function FlashcardsPage({ onNavigate }) {
             />
           )}
 
-          {/* ── 2. Today's Review card ───────────────────────────── */}
+          {/* 2. Today's Review card */}
           <div className={`fc-review-queue${dueCount === 0 ? ' fc-review-queue--done' : ''}`}>
             <div className="fc-review-queue-main">
               <div className="fc-review-queue-text">
@@ -816,7 +523,7 @@ export default function FlashcardsPage({ onNavigate }) {
             </div>
           </div>
 
-          {/* ── 3. Topic Intelligence ────────────────────────────── */}
+          {/* 3. Topic Intelligence */}
           {(weakTopics.length > 0 || recentTopics.length > 0) && (
             <div className="fc-topic-intel">
               <div className="fc-topic-intel-header">
@@ -870,7 +577,7 @@ export default function FlashcardsPage({ onNavigate }) {
             </div>
           )}
 
-          {/* ── 4. Custom Groups ─────────────────────────────────── */}
+          {/* 4. Custom Groups */}
           <div className="fc-custom-groups">
             <div className="fc-custom-groups-header">
               <span className="fc-custom-groups-title">
@@ -923,7 +630,7 @@ export default function FlashcardsPage({ onNavigate }) {
                       <button type="button" className="fc-group-mgmt-btn danger"
                         title={`Delete "${g.name}"`} aria-label={`Delete ${g.name}`}
                         onClick={() => handleDeleteGroup(g.id)}
-                      >×</button>
+                      >x</button>
                     </div>
                   </div>
                 ))}
@@ -950,7 +657,7 @@ export default function FlashcardsPage({ onNavigate }) {
             )}
           </div>
 
-          {/* ── Bulk action bar ───────────────────────────────────── */}
+          {/* Bulk action bar */}
           {selectMode && (
             <div className="fc-bulk-bar">
               <span className="fc-bulk-count">{selectedCardIds.size} selected</span>
@@ -969,7 +676,7 @@ export default function FlashcardsPage({ onNavigate }) {
             </div>
           )}
 
-          {/* ── 5. Toolbar ───────────────────────────────────────── */}
+          {/* 5. Toolbar */}
           <div className="fc-toolbar-card">
             <div className="fc-toolbar-row">
               <div className="fc-search-wrap">
@@ -978,7 +685,7 @@ export default function FlashcardsPage({ onNavigate }) {
                   <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
                 <input type="text" className="fc-search-input"
-                  placeholder="Search items — clinical prompt, mechanism, topic, concept…"
+                  placeholder="Search items - clinical prompt, mechanism, topic, concept..."
                   value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                   aria-label="Search flashcards"
                 />
@@ -1064,7 +771,7 @@ export default function FlashcardsPage({ onNavigate }) {
                         onChange={e => setFilterTopicGroup(e.target.value)} aria-label="Filter by topic group">
                         <option value="all">All Topics</option>
                         {topicGroupOptions.map(({ topicGroup, count }) => (
-                          <option key={topicGroup} value={topicGroup}>{topicGroup} · {count}</option>
+                          <option key={topicGroup} value={topicGroup}>{topicGroup} / {count}</option>
                         ))}
                       </select>
                     )}
@@ -1074,7 +781,7 @@ export default function FlashcardsPage({ onNavigate }) {
             )}
           </div>
 
-          {/* ── 6. Card Library ──────────────────────────────────── */}
+          {/* 6. Card Library */}
           <div className="fc-library">
             <div className="fc-library-header">
               <div className="fc-library-header-left">
@@ -1134,10 +841,10 @@ export default function FlashcardsPage({ onNavigate }) {
                         <p className="fc-card-front">{conceptPrompt(card)}</p>
                         {!isExpanded && <p className="fc-card-back-preview">{cardAnswer(card)}</p>}
                         {metaParts.length > 0 && (
-                          <p className="fc-meta-line">{metaParts.join(' · ')}</p>
+                          <p className="fc-meta-line">{metaParts.join(' / ')}</p>
                         )}
                         {metaLine2Parts.length > 0 && (
-                          <p className="fc-meta-line" style={{ opacity: .7 }}>{metaLine2Parts.join(' · ')}</p>
+                          <p className="fc-meta-line" style={{ opacity: .7 }}>{metaLine2Parts.join(' / ')}</p>
                         )}
                         {cardGroups?.length > 0 && (
                           <div className="fc-group-badges">
@@ -1174,7 +881,7 @@ export default function FlashcardsPage({ onNavigate }) {
         </div>
       </div>
 
-      {/* ── Modals ────────────────────────────────────────────────── */}
+      {/* Modals */}
       {groupModalOpen && (
         <div className="fc-modal-overlay" onClick={() => { setGroupModalOpen(false); setNewGroupName(''); setNewGroupDesc('') }}>
           <div className="fc-group-modal" onClick={e => e.stopPropagation()}>
@@ -1247,73 +954,6 @@ export default function FlashcardsPage({ onNavigate }) {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Adaptive Generate CTA sub-component ───────────────────────────────────────
-
-function AdaptiveGenerateCTA({ plan, state, msg, onGenerate, compact = false }) {
-  const enabled   = plan.data?.enabled
-  const targets   = plan.data?.targetConcepts ?? []
-  const recCount  = plan.data?.recommendedCardCount ?? 10
-  const isLoading = state === 'loading'
-
-  if (plan.loading) return null
-
-  if (compact) {
-    return (
-      <div className="fc-ai-strip">
-        <div className="fc-ai-strip-left">
-          <span className="fc-ai-strip-label">AI Reinforcement</span>
-          {enabled && targets.length > 0 && (
-            <span className="fc-ai-strip-sub">{targets.length} weak concept{targets.length !== 1 ? 's' : ''} targeted</span>
-          )}
-          {!enabled && <span className="fc-ai-strip-sub">Complete more sessions to enable adaptive mode</span>}
-        </div>
-        <div className="fc-ai-strip-right">
-          {msg && <span className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</span>}
-          <button
-            type="button"
-            className={`fc-action-btn primary sm${isLoading ? ' loading' : ''}`}
-            onClick={onGenerate}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Generating…' : `Generate ${recCount} Cards`}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="fc-ai-cta">
-      <div className="fc-ai-cta-icon" aria-hidden="true">✦</div>
-      <div className="fc-ai-cta-body">
-        <div className="fc-ai-cta-title">AI Reinforcement Flashcards</div>
-        <p className="fc-ai-cta-desc">
-          {enabled && targets.length > 0
-            ? `Adaptive mode active — generate cards targeting your ${targets.length} weakest concept${targets.length !== 1 ? 's' : ''}.`
-            : 'Generate clinical reinforcement cards. Complete more sessions to unlock adaptive targeting.'}
-        </p>
-        {enabled && targets.length > 0 && (
-          <div className="fc-ai-concepts">
-            {targets.slice(0, 5).map(c => (
-              <span key={c} className="fc-ai-concept-chip">{c}</span>
-            ))}
-            {targets.length > 5 && <span className="fc-ai-concept-chip dim">+{targets.length - 5} more</span>}
-          </div>
-        )}
-      </div>
-      {msg && <p className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</p>}
-      <button
-        type="button"
-        className={`fc-action-btn primary${isLoading ? ' loading' : ''}`}
-        onClick={onGenerate}
-        disabled={isLoading}
-      >
-        {isLoading ? 'Generating…' : `Generate ${recCount} Cards`}
-      </button>
     </div>
   )
 }

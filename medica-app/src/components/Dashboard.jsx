@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { buildAnalyticsData } from '../lib/analyticsEngine'
-import { getSessionHistory, getLastQuizSession, getFlashcards, saveLastQuizConfig } from '../lib/storage'
+import { getSessionHistory, getLastQuizSession, getFlashcards, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig } from '../lib/storage'
 import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS } from '../lib/quizTypes'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -107,10 +107,15 @@ function buildSimilarConfig(lastSession, sessions) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Dashboard({ onNavigate }) {
-  const analytics   = useMemo(() => buildAnalyticsData(), [])
-  const sessions    = useMemo(() => getSessionHistory(), [])
-  const lastSession = useMemo(() => getLastQuizSession(), [])
-  const flashcards  = useMemo(() => getFlashcards(), [])
+  const sessions     = useMemo(() => getSessionHistory(), [])
+  const lastSession  = useMemo(() => getLastQuizSession(), [])
+  const flashcards   = useMemo(() => getFlashcards(), [])
+  const lastPractice = useMemo(() => getLastPracticeResults(), [])
+  const lastCoach    = useMemo(() => getLastCoachResults(), [])
+  const analytics    = useMemo(
+    () => buildAnalyticsData({ sessions, lastPractice, lastCoach, flashcards }),
+    [sessions, lastPractice, lastCoach, flashcards]
+  )
 
   const recentSessions = useMemo(() => sessions.slice(0, 3), [sessions])
 

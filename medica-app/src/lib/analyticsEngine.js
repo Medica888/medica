@@ -1,4 +1,3 @@
-import { getSessionHistory, getLastPracticeResults, getLastCoachResults, getFlashcards } from './storage'
 import { normalizeTopicForAnalytics } from './topicNormalizer.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { normalizeSubjectLabel, normalizeSystemLabel } from './usmleTaxonomy.js'
@@ -78,10 +77,8 @@ const PHYSICIAN_TASK_YIELD_MAP = {
  * @param {'week'|'month'|'all'} [range]
  * @param {Date} [now]  — injectable for deterministic tests
  */
-export function buildAnalyticsData(range = 'all', now = new Date()) {
-  const rawHistory = getSessionHistory()
-  const lastPractice = getLastPracticeResults()
-  const lastCoach = getLastCoachResults()
+export function buildAnalyticsData(storageData, range = 'all', now = new Date()) {
+  const { sessions: rawHistory = [], lastPractice = null, lastCoach = null, flashcards = [] } = storageData ?? {}
 
   const allSessions = _buildSessions(rawHistory, lastPractice, lastCoach)
   const sessions    = filterSessionsByRange(allSessions, range, now)
@@ -107,7 +104,7 @@ export function buildAnalyticsData(range = 'all', now = new Date()) {
   const repeatedMistakes = _detectRepeatedMistakes(sessions)
   const repeatedPatterns = _detectRepeatedPatterns(sessions)
   const improvingTopics = _detectImprovingTopics(sessions)
-  const flashcardsData = _buildFlashcardsData()
+  const flashcardsData = _buildFlashcardsData(flashcards)
   const studyStreak = _computeStreak(sessions)
 
   return {
@@ -792,11 +789,10 @@ function _detectImprovingTopics(sessions) {
   return improving.sort((a, b) => b.delta - a.delta).slice(0, 5)
 }
 
-function _buildFlashcardsData() {
-  const all = getFlashcards()
-  const due = all.filter(c => c.reviewStatus === 'new' || c.reviewStatus === 'learning').length
-  const mastered = all.filter(c => c.reviewStatus === 'mastered').length
-  return { total: all.length, due, mastered }
+function _buildFlashcardsData(flashcards) {
+  const due = flashcards.filter(c => c.reviewStatus === 'new' || c.reviewStatus === 'learning').length
+  const mastered = flashcards.filter(c => c.reviewStatus === 'mastered').length
+  return { total: flashcards.length, due, mastered }
 }
 
 function _computeStreak(sessions) {

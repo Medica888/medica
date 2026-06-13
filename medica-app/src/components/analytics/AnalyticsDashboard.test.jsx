@@ -11,6 +11,10 @@ vi.mock('../../lib/analyticsEngine', () => ({
 }))
 
 vi.mock('../../lib/storage', () => ({
+  getSessionHistory: vi.fn(() => []),
+  getLastPracticeResults: vi.fn(() => null),
+  getLastCoachResults: vi.fn(() => null),
+  getFlashcards: vi.fn(() => []),
   getQuestionReportAnalytics: vi.fn(() => ({ total: 0, reasons: [], topConcepts: [] })),
   subscribeQuestionReports: vi.fn(() => () => {}),
 }))
@@ -107,7 +111,7 @@ describe('AnalyticsDashboard — Test 11: Week filter changes data', () => {
     buildAnalyticsData.mockReturnValue(makeData(5))
     render(<AnalyticsDashboard onNavigate={NOOP} />)
     fireEvent.click(screen.getByRole('button', { name: /^week$/i }))
-    expect(buildAnalyticsData).toHaveBeenCalledWith('week')
+    expect(buildAnalyticsData).toHaveBeenCalledWith(expect.any(Object), 'week')
   })
 
   it('score trajectory subtitle updates to session count for week', () => {
@@ -129,7 +133,7 @@ describe('AnalyticsDashboard — Test 12: Month filter changes data', () => {
     buildAnalyticsData.mockReturnValue(makeData(5))
     render(<AnalyticsDashboard onNavigate={NOOP} />)
     fireEvent.click(screen.getByRole('button', { name: /^month$/i }))
-    expect(buildAnalyticsData).toHaveBeenCalledWith('month')
+    expect(buildAnalyticsData).toHaveBeenCalledWith(expect.any(Object), 'month')
   })
 })
 
@@ -143,7 +147,7 @@ describe('AnalyticsDashboard — Test 13: All time filter restores data', () => 
     render(<AnalyticsDashboard onNavigate={NOOP} />)
     fireEvent.click(screen.getByRole('button', { name: /^week$/i }))
     fireEvent.click(screen.getByRole('button', { name: /all time/i }))
-    const calls = buildAnalyticsData.mock.calls.map(c => c[0])
+    const calls = buildAnalyticsData.mock.calls.map(c => c[1])
     expect(calls).toContain('all')
     expect(calls[calls.length - 1]).toBe('all')
   })

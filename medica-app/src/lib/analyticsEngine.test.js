@@ -1,14 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-vi.mock('./storage', () => ({
-  getSessionHistory: vi.fn(),
-  getLastPracticeResults: vi.fn(() => null),
-  getLastCoachResults: vi.fn(() => null),
-  getFlashcards: vi.fn(() => []),
-}))
+import { describe, expect, it } from 'vitest'
 
 import { buildAnalyticsData, filterSessionsByRange, getRangeStartDate } from './analyticsEngine.js'
-import { getSessionHistory } from './storage'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -35,12 +27,8 @@ const NOW = new Date('2026-06-05T12:00:00.000Z')
 // ── Existing taxonomy test (unchanged) ────────────────────────────────────────
 
 describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('aggregates USMLE content areas and physician tasks into study priorities', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       {
         mode: 'practice',
         completedAt: '2026-06-01T12:00:00.000Z',
@@ -58,9 +46,7 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
         ],
         missedQuestions: [],
       },
-    ])
-
-    const data = buildAnalyticsData()
+    ] })
 
     expect(data.usmleContentBreakdown[0]).toMatchObject({
       name: 'Cardiovascular System',
@@ -77,7 +63,7 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
   })
 
   it('merges legacy subject and system aliases before computing analytics', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(0, {
         subjectBreakdown: [
           { name: 'Neuroscience', correct: 2, total: 4, percentage: 50 },
@@ -95,9 +81,7 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
           { id: 's1', subject: 'Pathology', system: 'Skin' },
         ],
       }),
-    ])
-
-    const data = buildAnalyticsData('all', NOW)
+    ] }, 'all', NOW)
 
     expect(data.subjectBreakdown).toEqual(
       expect.arrayContaining([
@@ -120,15 +104,12 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
 // ── Test 1: All time includes every valid session ─────────────────────────────
 
 describe('buildAnalyticsData — range: all time', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('includes sessions from today, 10 days ago, and 40 days ago', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(0),   // today
       makeSession(10),  // 10 days ago
       makeSession(40),  // 40 days ago
-    ])
-    const data = buildAnalyticsData('all', NOW)
+    ] }, 'all', NOW)
     expect(data.empty).toBe(false)
     expect(data.overview.totalSessions).toBe(3)
   })
@@ -137,28 +118,23 @@ describe('buildAnalyticsData — range: all time', () => {
 // ── Test 2: Week includes only last 7 days ────────────────────────────────────
 
 describe('buildAnalyticsData — range: week', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('includes only sessions from the last 7 days', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(0),   // today — IN
       makeSession(6),   // 6 days ago — IN
       makeSession(8),   // 8 days ago — OUT
       makeSession(40),  // 40 days ago — OUT
-    ])
-    const data = buildAnalyticsData('week', NOW)
+    ] }, 'week', NOW)
     expect(data.empty).toBe(false)
     expect(data.overview.totalSessions).toBe(2)
   })
 
   it('excludes sessions exactly 7 days old (boundary: >= start, not >)', () => {
-    // 7 days ago at exactly the same time as NOW minus 7 days should be IN
     const startOfWeek = new Date(NOW.getTime())
     startOfWeek.setDate(startOfWeek.getDate() - 7)
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       { ...makeSession(0), completedAt: startOfWeek.toISOString() },  // exactly at boundary — IN
-    ])
-    const data = buildAnalyticsData('week', NOW)
+    ] }, 'week', NOW)
     expect(data.empty).toBe(false)
     expect(data.overview.totalSessions).toBe(1)
   })
@@ -167,17 +143,14 @@ describe('buildAnalyticsData — range: week', () => {
 // ── Test 3: Month includes only last 30 days ──────────────────────────────────
 
 describe('buildAnalyticsData — range: month', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('includes only sessions from the last 30 days', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(0),   // today — IN
       makeSession(10),  // 10 days ago — IN
       makeSession(29),  // 29 days ago — IN
       makeSession(31),  // 31 days ago — OUT
       makeSession(40),  // 40 days ago — OUT
-    ])
-    const data = buildAnalyticsData('month', NOW)
+    ] }, 'month', NOW)
     expect(data.empty).toBe(false)
     expect(data.overview.totalSessions).toBe(3)
   })
@@ -186,15 +159,13 @@ describe('buildAnalyticsData — range: month', () => {
 // ── Test 4: Sessions outside range excluded from overview totals ──────────────
 
 describe('buildAnalyticsData — range filters overview totals', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('week range: totalQuestions only counts in-range sessions', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const sessions = [
       makeSession(0,  { total: 10, correct: 8 }),   // in range
       makeSession(40, { total: 20, correct: 15 }),  // out of range
-    ])
-    const weekData = buildAnalyticsData('week', NOW)
-    const allData  = buildAnalyticsData('all',  NOW)
+    ]
+    const weekData = buildAnalyticsData({ sessions }, 'week', NOW)
+    const allData  = buildAnalyticsData({ sessions }, 'all',  NOW)
     expect(weekData.overview.totalQuestions).toBe(10)
     expect(allData.overview.totalQuestions).toBe(30)
   })
@@ -203,14 +174,12 @@ describe('buildAnalyticsData — range filters overview totals', () => {
 // ── Test 5: Subject breakdown changes by range ────────────────────────────────
 
 describe('buildAnalyticsData — subject breakdown is range-aware', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('week range returns only subjects from in-range sessions', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const sessions = [
       makeSession(0,  { subjectBreakdown: [{ name: 'Pharmacology', correct: 8, total: 10, percentage: 80 }], systemBreakdown: [] }),
       makeSession(40, { subjectBreakdown: [{ name: 'Anatomy',      correct: 5, total: 10, percentage: 50 }], systemBreakdown: [] }),
-    ])
-    const weekData = buildAnalyticsData('week', NOW)
+    ]
+    const weekData = buildAnalyticsData({ sessions }, 'week', NOW)
     const names = weekData.subjectBreakdown.map(s => s.name)
     expect(names).toContain('Pharmacology')
     expect(names).not.toContain('Anatomy')
@@ -220,15 +189,12 @@ describe('buildAnalyticsData — subject breakdown is range-aware', () => {
 // ── Test 6: System breakdown changes by range ─────────────────────────────────
 
 describe('buildAnalyticsData — system breakdown is range-aware', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('month range excludes systems from sessions older than 30 days', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(5,  { subjectBreakdown: [], systemBreakdown: [{ name: 'Renal', correct: 7, total: 10, percentage: 70 }] }),
       makeSession(40, { subjectBreakdown: [], systemBreakdown: [{ name: 'Neurology', correct: 4, total: 10, percentage: 40 }] }),
-    ])
-    const monthData = buildAnalyticsData('month', NOW)
-    const names = monthData.systemBreakdown.map(s => s.name)
+    ] }, 'month', NOW)
+    const names = data.systemBreakdown.map(s => s.name)
     expect(names).toContain('Renal / Urinary')
     expect(names).not.toContain('Neurology')
   })
@@ -237,16 +203,14 @@ describe('buildAnalyticsData — system breakdown is range-aware', () => {
 // ── Test 7: Trends use only filtered sessions ─────────────────────────────────
 
 describe('buildAnalyticsData — trends are range-aware', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('week range trend has fewer points than all-time trend', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const sessions = [
       makeSession(0),
       makeSession(10),
       makeSession(40),
-    ])
-    const weekData = buildAnalyticsData('week', NOW)
-    const allData  = buildAnalyticsData('all',  NOW)
+    ]
+    const weekData = buildAnalyticsData({ sessions }, 'week', NOW)
+    const allData  = buildAnalyticsData({ sessions }, 'all',  NOW)
     expect(weekData.trends.length).toBeLessThan(allData.trends.length)
     expect(weekData.trends.length).toBe(1)
     expect(allData.trends.length).toBe(3)
@@ -256,13 +220,10 @@ describe('buildAnalyticsData — trends are range-aware', () => {
 // ── Test 8: Empty week range returns rangeEmpty state ────────────────────────
 
 describe('buildAnalyticsData — empty week range', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('returns { empty:true, rangeEmpty:true } when no sessions in last 7 days', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(40),  // only session is 40 days ago
-    ])
-    const data = buildAnalyticsData('week', NOW)
+    ] }, 'week', NOW)
     expect(data.empty).toBe(true)
     expect(data.rangeEmpty).toBe(true)
   })
@@ -271,21 +232,17 @@ describe('buildAnalyticsData — empty week range', () => {
 // ── Test 9: Empty month range returns rangeEmpty state ───────────────────────
 
 describe('buildAnalyticsData — empty month range', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('returns { empty:true, rangeEmpty:true } when no sessions in last 30 days', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       makeSession(40),
       makeSession(60),
-    ])
-    const data = buildAnalyticsData('month', NOW)
+    ] }, 'month', NOW)
     expect(data.empty).toBe(true)
     expect(data.rangeEmpty).toBe(true)
   })
 
   it('rangeEmpty is false for all-time empty (no sessions at all)', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([])
-    const data = buildAnalyticsData('all', NOW)
+    const data = buildAnalyticsData({ sessions: [] }, 'all', NOW)
     expect(data.empty).toBe(true)
     expect(data.rangeEmpty).toBe(false)
   })
@@ -294,31 +251,26 @@ describe('buildAnalyticsData — empty month range', () => {
 // ── Test 10: Invalid/missing completedAt handled safely ─────────────────────
 
 describe('buildAnalyticsData — invalid completedAt handling', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('session with null completedAt is excluded from week filter', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       { ...makeSession(0), completedAt: null },
       makeSession(0),  // valid today session
-    ])
-    const data = buildAnalyticsData('week', NOW)
+    ] }, 'week', NOW)
     expect(data.overview.totalSessions).toBe(1)  // only the valid one
   })
 
   it('session with undefined completedAt is excluded from month filter', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       { ...makeSession(5), completedAt: undefined },
       makeSession(5),
-    ])
-    const data = buildAnalyticsData('month', NOW)
+    ] }, 'month', NOW)
     expect(data.overview.totalSessions).toBe(1)
   })
 
   it('session with null completedAt is included in all-time range', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       { ...makeSession(0), completedAt: null },
-    ])
-    const data = buildAnalyticsData('all', NOW)
+    ] }, 'all', NOW)
     // _buildSessions sorts by completedAt, but null causes NaN which sorts to end
     // The session IS included (length > 0)
     expect(data.empty).toBe(false)
@@ -326,12 +278,85 @@ describe('buildAnalyticsData — invalid completedAt handling', () => {
   })
 
   it('session with invalid date string is excluded from week filter', () => {
-    vi.mocked(getSessionHistory).mockReturnValue([
+    const data = buildAnalyticsData({ sessions: [
       { ...makeSession(0), completedAt: 'not-a-date' },
       makeSession(0),
-    ])
-    const data = buildAnalyticsData('week', NOW)
+    ] }, 'week', NOW)
     expect(data.overview.totalSessions).toBe(1)
+  })
+})
+
+// ── Test 11: storageData edge cases ──────────────────────────────────────────
+
+describe('buildAnalyticsData — storageData edge cases', () => {
+  it('returns { empty:true, rangeEmpty:false } when storageData is null', () => {
+    const data = buildAnalyticsData(null)
+    expect(data.empty).toBe(true)
+    expect(data.rangeEmpty).toBe(false)
+  })
+
+  it('returns { empty:true, rangeEmpty:false } when storageData is undefined', () => {
+    const data = buildAnalyticsData(undefined)
+    expect(data.empty).toBe(true)
+    expect(data.rangeEmpty).toBe(false)
+  })
+
+  it('returns { empty:true, rangeEmpty:false } when sessions key is missing', () => {
+    const data = buildAnalyticsData({})
+    expect(data.empty).toBe(true)
+    expect(data.rangeEmpty).toBe(false)
+  })
+})
+
+// ── Test 12: flashcardsData computed from passed flashcards ──────────────────
+
+describe('buildAnalyticsData — flashcardsData from storageData', () => {
+  it('counts due and mastered from flashcards array', () => {
+    const flashcards = [
+      { reviewStatus: 'new' },
+      { reviewStatus: 'learning' },
+      { reviewStatus: 'mastered' },
+      { reviewStatus: 'mastered' },
+    ]
+    const data = buildAnalyticsData({ sessions: [makeSession(0)], flashcards }, 'all', NOW)
+    expect(data.flashcardsData.total).toBe(4)
+    expect(data.flashcardsData.due).toBe(2)
+    expect(data.flashcardsData.mastered).toBe(2)
+    expect(data.overview.flashcardsDue).toBe(2)
+  })
+
+  it('returns zero counts when flashcards is empty', () => {
+    const data = buildAnalyticsData({ sessions: [makeSession(0)], flashcards: [] }, 'all', NOW)
+    expect(data.flashcardsData.total).toBe(0)
+    expect(data.flashcardsData.due).toBe(0)
+    expect(data.flashcardsData.mastered).toBe(0)
+  })
+
+  it('defaults to empty flashcards when key is omitted', () => {
+    const data = buildAnalyticsData({ sessions: [makeSession(0)] }, 'all', NOW)
+    expect(data.flashcardsData.total).toBe(0)
+  })
+})
+
+// ── Test 13: lastPractice / lastCoach merge behavior ─────────────────────────
+
+describe('buildAnalyticsData — lastPractice and lastCoach merge', () => {
+  it('includes lastPractice session when not already in sessions array', () => {
+    const lastPractice = makeSession(1, { completedAt: '2026-06-04T10:00:00.000Z', total: 5, correct: 4 })
+    const data = buildAnalyticsData({ sessions: [makeSession(0)], lastPractice }, 'all', NOW)
+    expect(data.overview.totalSessions).toBe(2)
+  })
+
+  it('does not duplicate a session already present in the sessions array', () => {
+    const shared = makeSession(0)
+    const data = buildAnalyticsData({ sessions: [shared], lastPractice: shared }, 'all', NOW)
+    expect(data.overview.totalSessions).toBe(1)
+  })
+
+  it('includes lastCoach session when not already in sessions array', () => {
+    const lastCoach = makeSession(2, { completedAt: '2026-06-03T08:00:00.000Z', mode: 'coach', total: 8, correct: 6 })
+    const data = buildAnalyticsData({ sessions: [makeSession(0)], lastCoach }, 'all', NOW)
+    expect(data.overview.totalSessions).toBe(2)
   })
 })
 
