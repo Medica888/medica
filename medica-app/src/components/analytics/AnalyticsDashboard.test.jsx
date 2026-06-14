@@ -10,11 +10,21 @@ vi.mock('../../lib/analyticsEngine', () => ({
   filterSessionsByRange: vi.fn(s => s),
 }))
 
+vi.mock('../../hooks/useSessionHistory', () => ({
+  useSessionHistory: vi.fn(() => ({
+    sessions: [],
+    loading: false,
+    error: null,
+    source: 'localStorage',
+    refresh: vi.fn(),
+  })),
+}))
+
 vi.mock('../../lib/storage', () => ({
-  getSessionHistory: vi.fn(() => []),
   getLastPracticeResults: vi.fn(() => null),
   getLastCoachResults: vi.fn(() => null),
   getFlashcards: vi.fn(() => []),
+  getFlashcardReviewEvents: vi.fn(() => []),
   getQuestionReportAnalytics: vi.fn(() => ({ total: 0, reasons: [], topConcepts: [] })),
   subscribeQuestionReports: vi.fn(() => () => {}),
 }))

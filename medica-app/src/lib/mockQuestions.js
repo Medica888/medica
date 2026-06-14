@@ -23,6 +23,7 @@ import { filterReportedQuestions, getSessionHistory } from './storage.js'
 import { BALANCED_QUESTIONS } from './questionBanks/balancedQuestions.js'
 import { NBME_QUESTIONS } from './questionBanks/nbmeQuestions.js'
 import { UWORLD_QUESTIONS } from './questionBanks/uworldQuestions.js'
+import { COVERAGE_EXPANSION_QUESTIONS } from './questionBanks/coverageExpansionQuestions.js'
 import {
   buildSeenState,
   filterUnseenQuestions,
@@ -56,6 +57,7 @@ export const ENRICHED_IDS = new Set(['q001', 'q002', 'q003', 'q004', 'q005', 'q0
 /** @type {import('./quizTypes').QuizQuestion[]} */
 export const QUESTION_BANK = [
   ...BALANCED_QUESTIONS,
+  ...COVERAGE_EXPANSION_QUESTIONS,
   ...NBME_QUESTIONS,
   ...UWORLD_QUESTIONS,
 ].map(normalizeQuestionTaxonomyFields)

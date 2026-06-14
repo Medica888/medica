@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import WeakSpotDiagnosis from './WeakSpotDiagnosis'
 import { generateFlashcardsFromCoachSession } from '../../lib/flashcardGenerator'
-import { appendFlashcards } from '../../lib/storage'
+import { saveFlashcards } from '../../lib/dataProvider'
 
 /**
  * @param {{
@@ -23,11 +23,11 @@ export default function CoachResults({ results, session, onNewQuiz, onBackToBuil
 
   const [fcState, setFcState] = useState(null) // null | { added, skipped, total }
 
-  const handleGenerateFlashcards = () => {
+  const handleGenerateFlashcards = async () => {
     if (!session) return
     const cards = generateFlashcardsFromCoachSession(session)
-    const added = appendFlashcards(cards)
-    setFcState({ added, skipped: cards.length - added, total: cards.length })
+    const result = await saveFlashcards(cards)
+    setFcState({ added: result.added, skipped: result.skipped, total: result.total })
   }
 
   const sessionTopic = session?.config?.topic

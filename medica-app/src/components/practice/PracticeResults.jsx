@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { generateFlashcardsFromPracticeMistakes } from '../../lib/flashcardGenerator'
-import { appendFlashcards } from '../../lib/storage'
+import { saveFlashcards } from '../../lib/dataProvider'
 
 const READINESS_COLOR = {
   'Strong':           'var(--status-stable)',
@@ -34,11 +34,11 @@ export default function PracticeResults({ results, session, onReview, onNewQuiz,
 
   const [fcState, setFcState] = useState(null)
 
-  const handleGenerateFlashcards = () => {
+  const handleGenerateFlashcards = async () => {
     if (!session) return
     const cards = generateFlashcardsFromPracticeMistakes(session)
-    const added = appendFlashcards(cards)
-    setFcState({ added, skipped: cards.length - added })
+    const result = await saveFlashcards(cards)
+    setFcState({ added: result.added, skipped: result.skipped })
   }
 
   const sessionTopic = session?.config?.topic

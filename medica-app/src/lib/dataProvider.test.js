@@ -12,6 +12,7 @@ vi.mock('./storage.js', () => ({
 
 // Mock apiClient
 vi.mock('./apiClient.js', () => ({
+  getAuthToken: vi.fn(() => 'token'),
   exams: { create: vi.fn().mockResolvedValue({ id: 'sess-1' }) },
   flashcards: { createMany: vi.fn().mockResolvedValue([]), updateStatus: vi.fn(), markReviewed: vi.fn() },
   analytics: { get: vi.fn(), progress: vi.fn() },
@@ -65,6 +66,9 @@ const sessionWithAnswers = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.getAuthToken.mockReturnValue('token');
+  storage.appendFlashcards.mockReturnValue(0);
+  storage.getFlashcards.mockReturnValue([]);
 });
 
 describe('saveSession', () => {
@@ -148,20 +152,75 @@ describe('getSessions', () => {
 });
 
 describe('saveFlashcards', () => {
-  it('calls appendFlashcards with the cards', async () => {
+  it('saves locally first and returns accepted/skipped counts', async () => {
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
-    await saveFlashcards(cards);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(cards);
+
+    const result = await saveFlashcards(cards);
+
     expect(storage.appendFlashcards).toHaveBeenCalledWith(cards);
+    expect(result).toMatchObject({ added: 1, skipped: 0, total: 1 });
   });
 
-  it('calls api.flashcards.createMany with mapped payload', async () => {
+  it('calls api.flashcards.createMany with locally accepted cards', async () => {
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio', reviewStatus: 'new' }];
-    await saveFlashcards(cards);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(cards);
+
+    const result = await saveFlashcards(cards);
+
     expect(api.flashcards.createMany).toHaveBeenCalledOnce();
     const mapped = api.flashcards.createMany.mock.calls[0][0];
     expect(mapped[0].source_question_id).toBe('q1');
     expect(mapped[0].front).toBe('Q');
     expect(mapped[0].type).toBe('Recall');
+    expect(result.backendAttempted).toBe(true);
+    expect(result.backendSynced).toBe(true);
+  });
+
+  it('does not call backend when the user is not logged in', async () => {
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    api.getAuthToken.mockReturnValueOnce(null);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(cards);
+
+    const result = await saveFlashcards(cards);
+
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ added: 1, skipped: 0, backendAttempted: false, backendSynced: false });
+  });
+
+  it('does not call backend when local validation or dedupe rejects every card', async () => {
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    storage.appendFlashcards.mockReturnValueOnce(0);
+
+    const result = await saveFlashcards(cards);
+
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ added: 0, skipped: 1 });
+  });
+
+  it('keeps local cards saved when backend sync fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(cards);
+    api.flashcards.createMany.mockRejectedValueOnce(new Error('offline'));
+
+    const result = await saveFlashcards(cards);
+
+    expect(result).toMatchObject({ added: 1, skipped: 0, backendAttempted: true, backendSynced: false });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
 

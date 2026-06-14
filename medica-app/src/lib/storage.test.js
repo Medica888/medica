@@ -1,11 +1,13 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import {
   appendFlashcards,
+  getFlashcardReviewEvents,
   filterReportedQuestions,
   appendTrustedGeneratedQuestions,
   getQuestionReportAnalytics,
   getQuestionReports,
   getTrustedGeneratedQuestionsForConfig,
+  markFlashcardReviewed,
   saveQuestionReport,
   unreportQuestion,
 } from './storage.js'
@@ -243,6 +245,37 @@ describe('flashcard storage quality gate', () => {
     const saved = JSON.parse(localStorage.getItem('medica:flashcards') || '[]')
     expect(added).toBe(1)
     expect(saved[0].id).toBe('good-card')
+  })
+
+  it('records flashcard review events with learning metadata', () => {
+    appendFlashcards([
+      {
+        id: 'review-card',
+        sourceQuestionId: 'q1',
+        tag: 'Recall',
+        front: 'In loop diuretics, what mechanism causes potassium wasting?',
+        back: 'Loop diuretics increase distal sodium delivery because NKCC inhibition increases tubular flow.',
+        testedConcept: 'Loop diuretics',
+        subject: 'Pharmacology',
+        system: 'Renal / Urinary',
+        topicGroup: 'Diuretics',
+        sourceMode: 'practice',
+      },
+    ])
+
+    markFlashcardReviewed('review-card', 'again')
+
+    const events = getFlashcardReviewEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      cardId: 'review-card',
+      ease: 'again',
+      status: 'learning',
+      concept: 'Loop diuretics',
+      subject: 'Pharmacology',
+      system: 'Renal / Urinary',
+      topic: 'Diuretics',
+    })
   })
 })
 

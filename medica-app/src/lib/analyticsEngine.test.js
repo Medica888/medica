@@ -336,6 +336,49 @@ describe('buildAnalyticsData — flashcardsData from storageData', () => {
     const data = buildAnalyticsData({ sessions: [makeSession(0)] }, 'all', NOW)
     expect(data.flashcardsData.total).toBe(0)
   })
+
+  it('uses unstable flashcard reviews as a next-session target when quiz weaknesses are stable', () => {
+    const session = makeSession(0, {
+      percentage: 85,
+      subjectBreakdown: [{ name: 'Pharmacology', correct: 8, total: 10, percentage: 80 }],
+      systemBreakdown: [{ name: 'Renal / Urinary', correct: 8, total: 10, percentage: 80 }],
+      missedQuestions: [],
+    })
+    const flashcardReviewEvents = [
+      {
+        cardId: 'fc1',
+        ease: 'again',
+        reviewedAt: '2026-06-14T08:00:00.000Z',
+        concept: 'Loop diuretics',
+        topic: 'Diuretics',
+        subject: 'Pharmacology',
+        system: 'Renal / Urinary',
+      },
+      {
+        cardId: 'fc1',
+        ease: 'hard',
+        reviewedAt: '2026-06-14T08:05:00.000Z',
+        concept: 'Loop diuretics',
+        topic: 'Diuretics',
+        subject: 'Pharmacology',
+        system: 'Renal / Urinary',
+      },
+    ]
+
+    const data = buildAnalyticsData({ sessions: [session], flashcardReviewEvents }, 'all', NOW)
+
+    expect(data.flashcardMastery.weakConcepts[0]).toMatchObject({
+      concept: 'Loop diuretics',
+      instabilityScore: 100,
+    })
+    expect(data.nextSession).toMatchObject({
+      mode: 'coach',
+      area: 'Loop diuretics',
+      subject: 'Pharmacology',
+      system: 'Renal / Urinary',
+      topic: 'Diuretics',
+    })
+  })
 })
 
 // ── Test 13: lastPractice / lastCoach merge behavior ─────────────────────────

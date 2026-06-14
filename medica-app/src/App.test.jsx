@@ -127,6 +127,7 @@ vi.mock('./lib/storage', () => ({
   saveCoachResults: vi.fn(),
   getSessionHistory: vi.fn(() => []),
   getFlashcards: vi.fn(() => []),
+  getFlashcardReviewEvents: vi.fn(() => []),
 }))
 
 vi.mock('./lib/dataProvider', () => ({

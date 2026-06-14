@@ -78,7 +78,7 @@ const PHYSICIAN_TASK_YIELD_MAP = {
  * @param {Date} [now]  — injectable for deterministic tests
  */
 export function buildAnalyticsData(storageData, range = 'all', now = new Date()) {
-  const { sessions: rawHistory = [], lastPractice = null, lastCoach = null, flashcards = [] } = storageData ?? {}
+  const { sessions: rawHistory = [], lastPractice = null, lastCoach = null, flashcards = [], flashcardReviewEvents = [] } = storageData ?? {}
 
   const allSessions = _buildSessions(rawHistory, lastPractice, lastCoach)
   const sessions    = filterSessionsByRange(allSessions, range, now)
@@ -99,13 +99,14 @@ export function buildAnalyticsData(storageData, range = 'all', now = new Date())
   const studyPrescription = _prescribeStudy(weaknesses, overview)
   const sessionComparison = _compareSessions(sessions)
   const trends = _computeTrends(sessions)
-  const nextSession = _recommendNextSession(weaknesses, overview, topicBreakdown)
   const flashcardSummary = _buildFlashcardSummary(sessions)
   const repeatedMistakes = _detectRepeatedMistakes(sessions)
   const repeatedPatterns = _detectRepeatedPatterns(sessions)
   const improvingTopics = _detectImprovingTopics(sessions)
   const flashcardsData = _buildFlashcardsData(flashcards)
+  const flashcardMastery = _buildFlashcardMastery(flashcardReviewEvents)
   const studyStreak = _computeStreak(sessions)
+  const nextSession = _recommendNextSession(weaknesses, overview, topicBreakdown, flashcardMastery.weakConcepts)
 
   return {
     empty: false,
@@ -127,6 +128,7 @@ export function buildAnalyticsData(storageData, range = 'all', now = new Date())
     repeatedPatterns,
     improvingTopics,
     flashcardsData,
+    flashcardMastery,
   }
 }
 
@@ -638,7 +640,7 @@ function _computeTrends(sessions) {
   }))
 }
 
-function _recommendNextSession(weaknesses, overview, topicBreakdown) {
+function _recommendNextSession(weaknesses, overview, topicBreakdown, flashcardWeakConcepts = []) {
   let mode = 'practice'
   if (weaknesses.critical.length > 0) {
     mode = 'coach'
@@ -661,6 +663,12 @@ function _recommendNextSession(weaknesses, overview, topicBreakdown) {
     difficulty = 'More Hard'
     if (weaknesses.moderate[0].type === 'subject') subject = weaknesses.moderate[0].name
     else system = weaknesses.moderate[0].name
+  } else if (flashcardWeakConcepts[0]) {
+    area = flashcardWeakConcepts[0].concept
+    difficulty = 'Balanced'
+    mode = 'coach'
+    subject = flashcardWeakConcepts[0].subject || null
+    system = flashcardWeakConcepts[0].system || null
   } else if (overview.overallAccuracy >= 75) {
     difficulty = 'NBME Difficult'
   }
@@ -670,11 +678,14 @@ function _recommendNextSession(weaknesses, overview, topicBreakdown) {
     reasoning = `${weaknesses.critical[0].name} is your most critical weakness at ${weaknesses.critical[0].percentage}%. Coach Mode with targeted explanations will accelerate improvement.`
   } else if (weaknesses.moderate[0]) {
     reasoning = `${weaknesses.moderate[0].name} needs attention at ${weaknesses.moderate[0].percentage}%. A focused practice block will push this above 70%.`
+  } else if (flashcardWeakConcepts[0]) {
+    reasoning = `${flashcardWeakConcepts[0].concept} is unstable in flashcard review. Run a targeted Coach block to convert recall into question performance.`
   } else if (overview.overallAccuracy >= 75) {
     reasoning = 'Strong overall performance. Increase the challenge with harder questions to keep building toward Step 1 readiness.'
   }
 
-  const topTopic = (topicBreakdown && topicBreakdown.length > 0) ? topicBreakdown[0].name : null
+  const topTopic = flashcardWeakConcepts[0]?.topic
+    || ((topicBreakdown && topicBreakdown.length > 0) ? topicBreakdown[0].name : null)
   return { mode, area, difficulty, reasoning, subject, system, topic: topTopic, questionCount: 20 }
 }
 
@@ -793,6 +804,60 @@ function _buildFlashcardsData(flashcards) {
   const due = flashcards.filter(c => c.reviewStatus === 'new' || c.reviewStatus === 'learning').length
   const mastered = flashcards.filter(c => c.reviewStatus === 'mastered').length
   return { total: flashcards.length, due, mastered }
+}
+
+function _buildFlashcardMastery(events) {
+  const map = {}
+  for (const e of events || []) {
+    const concept = e.concept || e.topic
+    if (!concept) continue
+    if (!map[concept]) {
+      map[concept] = {
+        concept,
+        topic: e.topic || concept,
+        subject: normalizeSubjectLabel(e.subject) || e.subject || null,
+        system: normalizeSystemLabel(e.system) || e.system || null,
+        reviews: 0,
+        again: 0,
+        hard: 0,
+        good: 0,
+        easy: 0,
+        lastReviewedAt: e.reviewedAt || null,
+      }
+    }
+    const item = map[concept]
+    item.reviews += 1
+    if (['again', 'hard', 'good', 'easy'].includes(e.ease)) item[e.ease] += 1
+    if (e.reviewedAt && (!item.lastReviewedAt || new Date(e.reviewedAt) > new Date(item.lastReviewedAt))) {
+      item.lastReviewedAt = e.reviewedAt
+    }
+  }
+
+  const concepts = Object.values(map).map(item => {
+    const unstable = item.again + item.hard
+    const stable = item.good + item.easy
+    const retentionScore = item.reviews > 0 ? Math.round((stable / item.reviews) * 100) : 0
+    const instabilityScore = item.reviews > 0 ? Math.round((unstable / item.reviews) * 100) : 0
+    return {
+      ...item,
+      retentionScore,
+      instabilityScore,
+      status: retentionScore >= 75 ? 'stable' : retentionScore >= 50 ? 'watch' : 'unstable',
+    }
+  }).sort((a, b) => {
+    if (b.instabilityScore !== a.instabilityScore) return b.instabilityScore - a.instabilityScore
+    return b.reviews - a.reviews
+  })
+
+  const weakConcepts = concepts
+    .filter(c => c.reviews >= 2 && c.instabilityScore >= 50)
+    .slice(0, 5)
+
+  return {
+    totalReviews: (events || []).length,
+    concepts,
+    weakConcepts,
+  }
 }
 
 function _computeStreak(sessions) {

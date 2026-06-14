@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { buildAnalyticsData } from '../lib/analyticsEngine'
-import { getSessionHistory, getLastQuizSession, getFlashcards, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig } from '../lib/storage'
+import { getLastQuizSession, getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
 import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS } from '../lib/quizTypes'
+import { useSessionHistory } from '../hooks/useSessionHistory'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -67,16 +68,19 @@ function getGreeting() {
 function buildRecommendedConfig(ns) {
   const mode = ns.mode || 'coach'
   const area = ns.area || ''
+  const topic = ns.topic || area
   const matchedSystem  = SYSTEMS.find(s  => s !== 'All Systems'  && s.toLowerCase() === area.toLowerCase())
   const matchedSubject = SUBJECTS.find(s => s !== 'All Subjects' && s.toLowerCase() === area.toLowerCase())
+  const explicitSystem = SYSTEMS.includes(ns.system) ? ns.system : null
+  const explicitSubject = SUBJECTS.includes(ns.subject) ? ns.subject : null
   return {
     ...DEFAULT_CONFIG,
     mode,
-    subject:            matchedSubject || 'All Subjects',
-    system:             matchedSystem  || 'All Systems',
-    topic:         mode === 'coach' ? (area || '') : ((!matchedSystem && !matchedSubject && area) ? area : ''),
+    subject:       explicitSubject || matchedSubject || 'All Subjects',
+    system:        explicitSystem  || matchedSystem  || 'All Systems',
+    topic:         mode === 'coach' ? (topic || '') : ((!matchedSystem && !matchedSubject && topic) ? topic : ''),
     difficulty:    ns.difficulty  || 'Balanced',
-    questionCount: 10,
+    questionCount: ns.questionCount || 10,
     clinicalFocus: '',
   }
 }
@@ -107,14 +111,15 @@ function buildSimilarConfig(lastSession, sessions) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Dashboard({ onNavigate }) {
-  const sessions     = useMemo(() => getSessionHistory(), [])
+  const { sessions } = useSessionHistory()
   const lastSession  = useMemo(() => getLastQuizSession(), [])
   const flashcards   = useMemo(() => getFlashcards(), [])
+  const flashcardReviewEvents = useMemo(() => getFlashcardReviewEvents(), [])
   const lastPractice = useMemo(() => getLastPracticeResults(), [])
   const lastCoach    = useMemo(() => getLastCoachResults(), [])
   const analytics    = useMemo(
-    () => buildAnalyticsData({ sessions, lastPractice, lastCoach, flashcards }),
-    [sessions, lastPractice, lastCoach, flashcards]
+    () => buildAnalyticsData({ sessions, lastPractice, lastCoach, flashcards, flashcardReviewEvents }),
+    [sessions, lastPractice, lastCoach, flashcards, flashcardReviewEvents]
   )
 
   const recentSessions = useMemo(() => sessions.slice(0, 3), [sessions])
@@ -143,7 +148,8 @@ export default function Dashboard({ onNavigate }) {
     // 1 — Recommended session
     if (ns?.area) {
       const label = MODE_LABELS[ns.mode] || 'Practice'
-      tasks.push({ id: 'rec', text: `${label}: ${ns.area} (10 questions)` })
+      const count = ns.questionCount || 10
+      tasks.push({ id: 'rec', text: `${label}: ${ns.area} (${count} question${count !== 1 ? 's' : ''})` })
     }
 
     // 2 — Flashcard review
@@ -188,6 +194,11 @@ export default function Dashboard({ onNavigate }) {
     onNavigate('create-quiz')
   }
 
+  function startCustomQuiz() {
+    clearLastQuizConfig()
+    onNavigate('create-quiz')
+  }
+
   return (
     <div className="db-scroll">
       <div className="db-content">
@@ -215,7 +226,7 @@ export default function Dashboard({ onNavigate }) {
                 Create Similar Session
               </button>
             )}
-            <button type="button" className="db-btn db-btn--primary" onClick={() => onNavigate('create-quiz')}>
+            <button type="button" className="db-btn db-btn--primary" onClick={startCustomQuiz}>
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
                 <path d="M6.5 1.5V11.5M1.5 6.5H11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
@@ -236,7 +247,7 @@ export default function Dashboard({ onNavigate }) {
                 {ns.difficulty && (
                   <span className="db-diff-pill">{ns.difficulty}</span>
                 )}
-                <span className="db-diff-pill">10 questions</span>
+                <span className="db-diff-pill">{ns.questionCount || 10} question{(ns.questionCount || 10) !== 1 ? 's' : ''}</span>
               </div>
               <h2 className="db-hero-topic">{ns.area || 'High-yield Step 1 review'}</h2>
               <p className="db-hero-why">
@@ -250,7 +261,7 @@ export default function Dashboard({ onNavigate }) {
                   <path d="M5 2L10 6.5L5 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-              <button type="button" className="db-btn db-btn--ghost" onClick={() => onNavigate('create-quiz')}>
+              <button type="button" className="db-btn db-btn--ghost" onClick={startCustomQuiz}>
                 Create Custom Quiz
               </button>
             </div>
@@ -265,7 +276,7 @@ export default function Dashboard({ onNavigate }) {
               </p>
             </div>
             <div className="db-hero-actions">
-              <button type="button" className="db-btn db-btn--primary" onClick={() => onNavigate('create-quiz')}>
+              <button type="button" className="db-btn db-btn--primary" onClick={startCustomQuiz}>
                 Create First Quiz
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
                   <path d="M5 2L10 6.5L5 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -323,7 +334,7 @@ export default function Dashboard({ onNavigate }) {
               label="Create Quiz"
               desc="Start a practice, coach, or exam session"
               color="blue"
-              onClick={() => onNavigate('create-quiz')}
+              onClick={startCustomQuiz}
             />
             <QuickAction
               icon={<QBankIcon />}

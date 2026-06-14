@@ -433,6 +433,8 @@ export function clearCoachResults() {
 
 const FLASHCARDS_KEY     = 'medica:flashcards'
 const FLASHCARDS_KEY_OLD = 'medica_flashcards'
+const FLASHCARD_REVIEW_EVENTS_KEY = 'medica:flashcardReviewEvents'
+const FLASHCARD_REVIEW_EVENTS_MAX = 500
 
 /** @param {object[]} cards */
 export function saveFlashcards(cards) {
@@ -545,7 +547,45 @@ export function markFlashcardReviewed(id, ease) {
       status = 'learning'
     }
     updateFlashcardStatus(id, status, ease)
+    recordFlashcardReviewEvent(card, ease, status)
   } catch { /* ignore */ }
+}
+
+export function getFlashcardReviewEvents() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(FLASHCARD_REVIEW_EVENTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+export function clearFlashcardReviewEvents() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(FLASHCARD_REVIEW_EVENTS_KEY)
+  } catch { /* ignore */ }
+}
+
+function recordFlashcardReviewEvent(card, ease, status) {
+  if (!card || !ease) return
+  const event = {
+    id: `fcr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    cardId: card.id,
+    sourceQuestionId: card.sourceQuestionId ?? null,
+    ease,
+    status,
+    reviewedAt: new Date().toISOString(),
+    subject: card.subject ?? null,
+    system: card.system ?? null,
+    topic: card.topicGroup ?? card.canonicalTopic ?? card.topic ?? null,
+    concept: card.testedConcept ?? card.concept ?? card.topicGroup ?? card.canonicalTopic ?? card.topic ?? null,
+    tag: card.tag ?? null,
+    sourceMode: card.sourceMode ?? null,
+  }
+  const events = getFlashcardReviewEvents()
+  localStorage.setItem(FLASHCARD_REVIEW_EVENTS_KEY, JSON.stringify([event, ...events].slice(0, FLASHCARD_REVIEW_EVENTS_MAX)))
 }
 
 /** Reads a card's clinical recall prompt, falling back to `front` for old cards. */

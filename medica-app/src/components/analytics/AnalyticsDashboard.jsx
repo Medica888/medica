@@ -9,9 +9,10 @@ import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 import ProgressPanel from './ProgressPanel'
 import ProgressTrendPanel from './ProgressTrendPanel'
 import { useReadiness, useMasteryProgress, useMasteryTimeline } from '../../hooks/useMastery'
+import { useSessionHistory } from '../../hooks/useSessionHistory'
 import {
-  getSessionHistory, getLastPracticeResults, getLastCoachResults, getFlashcards,
-  getQuestionReportAnalytics, subscribeQuestionReports,
+  getLastPracticeResults, getLastCoachResults, getFlashcards,
+  getFlashcardReviewEvents, getQuestionReportAnalytics, subscribeQuestionReports,
 } from '../../lib/storage'
 
 const TIME_FILTERS = ['Week', 'Month', 'All time']
@@ -33,14 +34,15 @@ export default function AnalyticsDashboard({ onNavigate }) {
   const [timeFilter, setTimeFilter] = useState('All time')
   const range = FILTER_TO_RANGE[timeFilter] ?? 'all'
 
-  const sessions     = useMemo(() => getSessionHistory(), [])
+  const { sessions } = useSessionHistory()
   const lastPractice = useMemo(() => getLastPracticeResults(), [])
   const lastCoach    = useMemo(() => getLastCoachResults(), [])
   const flashcards   = useMemo(() => getFlashcards(), [])
+  const flashcardReviewEvents = useMemo(() => getFlashcardReviewEvents(), [])
 
   const data = useMemo(
-    () => buildAnalyticsData({ sessions, lastPractice, lastCoach, flashcards }, range),
-    [sessions, lastPractice, lastCoach, flashcards, range]
+    () => buildAnalyticsData({ sessions, lastPractice, lastCoach, flashcards, flashcardReviewEvents }, range),
+    [sessions, lastPractice, lastCoach, flashcards, flashcardReviewEvents, range]
   )
 
   // reportsVersion bumps whenever a report is saved; drives the memo below

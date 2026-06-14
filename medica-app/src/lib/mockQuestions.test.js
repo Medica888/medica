@@ -26,6 +26,7 @@ import {
   validateHardDifficultyQuestion,
 } from './mockQuestions.js'
 import { validateBankQuestion } from './ai/generateAIQuestions.js'
+import { buildQuestionBankCoverageReport, formatCoverageRows } from './questionBankCoverage.js'
 
 const baseConfig = {
   mode:          'practice',
@@ -697,6 +698,10 @@ function _counts(questions, key) {
   return map
 }
 
+function _coverageReport() {
+  return buildQuestionBankCoverageReport(QUESTION_BANK)
+}
+
 function _coachQuestions() {
   return QUESTION_BANK.filter(q => ENRICHED_IDS.has(q.id))
 }
@@ -715,25 +720,57 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     expect(difficultyCounts.get('Balanced')).toBeGreaterThanOrEqual(100)
   })
 
-  it('every subject has at least 10 questions', () => {
+  it('Phase 1 coverage fills Genetics, Behavioral Science, Dermatology, and Oncology to 10+', () => {
     const subjectCounts = _counts(QUESTION_BANK, 'subject')
-    const underfilled = [...subjectCounts.entries()].filter(([, count]) => count < 10)
+    const systemCounts = _counts(QUESTION_BANK, 'system')
+
+    expect(subjectCounts.get('Genetics')).toBeGreaterThanOrEqual(10)
+    expect(subjectCounts.get('Behavioral Science')).toBeGreaterThanOrEqual(10)
+    expect(systemCounts.get('Dermatology')).toBeGreaterThanOrEqual(10)
+    expect(systemCounts.get('Oncology')).toBeGreaterThanOrEqual(10)
+  })
+
+  it('Phase 2 coverage keeps high-yield subject-system pairs at 8+ questions', () => {
+    const pairs = [
+      ['Pharmacology', 'Cardiovascular'],
+      ['Pathology', 'Cardiovascular'],
+      ['Physiology', 'Renal / Urinary'],
+      ['Pharmacology', 'Renal / Urinary'],
+      ['Pathology', 'Oncology'],
+    ]
+
+    const failures = pairs
+      .map(([subject, system]) => ({
+        subject,
+        system,
+        count: QUESTION_BANK.filter(q => q.subject === subject && q.system === system).length,
+      }))
+      .filter(pair => pair.count < 8)
+
+    expect(
+      failures,
+      `High-yield pairs below 8Q: ${failures.map(p => `${p.subject}+${p.system}(${p.count})`).join(', ')}`,
+    ).toHaveLength(0)
+  })
+
+  it('every subject has at least 10 questions', () => {
+    const underfilled = _coverageReport().subjects.filter(row => row.count < 10)
 
     expect(
       underfilled,
-      `Subjects below 10Q: ${underfilled.map(([subject, count]) => `${subject}(${count})`).join(', ')}`,
+      `Subjects below 10Q: ${underfilled.map(row => `${row.subject}(${row.count})`).join(', ')}`,
     ).toHaveLength(0)
   })
 
   it('every system has at least 10 questions and no legacy system labels remain', () => {
     const systemCounts = _counts(QUESTION_BANK, 'system')
-    const underfilled = [...systemCounts.entries()].filter(([, count]) => count < 10)
+    const underfilled = _coverageReport().systems.filter(row => row.count < 10)
 
     expect(systemCounts.has('Loop Diuretics')).toBe(false)
     expect(systemCounts.has('Nervous System')).toBe(false)
     expect(
       underfilled,
-      `Systems below 10Q: ${underfilled.map(([system, count]) => `${system}(${count})`).join(', ')}`,
+      `Systems below 10Q: ${underfilled.map(row => `${row.system}(${row.count})`).join(', ')}`,
     ).toHaveLength(0)
   })
 
@@ -887,14 +924,13 @@ describe('QUESTION_BANK — coverage analytics (advisory report)', () => {
   })
 
   it('prints 10-question readiness by system (advisory)', () => {
-    const sysCounts = _counts(QUESTION_BANK, 'system')
-    const rows = [...sysCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([sys, n]) => ({
-        system: sys,
-        total: n,
-        can10Q: n >= 10 ? 'yes' : 'NO',
-        can5Q: n >= 5 ? 'yes' : 'NO',
+    const rows = _coverageReport().systems
+      .sort((a, b) => b.count - a.count)
+      .map(row => ({
+        system: row.system,
+        total: row.count,
+        can10Q: row.count >= 10 ? 'yes' : 'NO',
+        can5Q: row.count >= 5 ? 'yes' : 'NO',
       }))
 
     console.log('\n=== 10Q Readiness by System (direct scope, no fallback) ===')
@@ -906,6 +942,29 @@ describe('QUESTION_BANK — coverage analytics (advisory report)', () => {
     if (under10.length) {
       console.log(`\nSystems below 10Q: ${under10.map(r => `${r.system}(${r.total})`).join(', ')}`)
     }
+    expect(true).toBe(true)
+  })
+
+  it('prints high-yield subject-system pair coverage (advisory)', () => {
+    const report = _coverageReport()
+
+    console.log('\n=== High-Yield Subject-System Pair Coverage ===')
+    console.log('cnt | status | subject + system')
+    for (const row of formatCoverageRows(report.highYieldPairs, ['subject', 'system'])) {
+      console.log(row)
+    }
+    expect(true).toBe(true)
+  })
+
+  it('prints next candidate gaps for Phase 3 (advisory)', () => {
+    const report = _coverageReport()
+
+    console.log('\n=== Phase 3 Candidate Gaps ===')
+    console.log('cnt | status | subject + system')
+    for (const row of formatCoverageRows(report.nextTargets.slice(0, 20), ['subject', 'system'])) {
+      console.log(row)
+    }
+    console.log(`\nPair summary: Good=${report.summary.pairGood}, Watch=${report.summary.pairWatch}, Gap=${report.summary.pairGap}, Zero=${report.summary.pairZero}`)
     expect(true).toBe(true)
   })
 
