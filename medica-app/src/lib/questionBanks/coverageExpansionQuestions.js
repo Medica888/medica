@@ -42,6 +42,12 @@ function q({
     ],
     correct: 'A',
     explanation,
+    optionExplanations: {
+      A: explanation,
+      B: `${distractors[0]} is incorrect because it does not match the key mechanism: ${concept}. ${trap}`,
+      C: `${distractors[1]} is incorrect because it does not explain the clinical finding tested here: ${concept}.`,
+      D: `${distractors[2]} is incorrect because the vignette is best explained by ${concept}, not this distractor.`,
+    },
     pearl,
   }
 }

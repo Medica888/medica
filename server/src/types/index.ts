@@ -88,6 +88,21 @@ export interface Flashcard {
   created_at: Date;
   reviewed_at?: Date;
   question_ref_id?: string; // nullable FK → questions(id); populated when source question is known
+  // v9.0.0-alpha.5 — full-fidelity metadata for Topic Intelligence and SRS
+  subject?: string;
+  system?: string;
+  topic?: string;
+  canonical_topic?: string;
+  topic_slug?: string;
+  source_mode?: string;
+  memory_anchor?: string | null;
+  common_trap?: string | null;
+  source_pearl?: string | null;
+  weak_spot_category?: string;
+  reinforcement_priority?: string;
+  review_count?: number;
+  ease?: string | null;
+  last_missed_reason?: string | null;
 }
 
 // ── Concept graph ─────────────────────────────────────────────────────────────

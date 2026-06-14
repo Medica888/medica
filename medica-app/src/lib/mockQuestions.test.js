@@ -711,8 +711,40 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     expect(QUESTION_BANK.length).toBeGreaterThanOrEqual(100)
   })
 
-  it('ENRICHED_IDS is exactly 50', () => {
-    expect(ENRICHED_IDS.size).toBe(50)
+  it('ENRICHED_IDS includes the full local bank for Coach-ready reuse', () => {
+    expect(ENRICHED_IDS.size).toBe(QUESTION_BANK.length)
+  })
+
+  it('every local-bank question has A-D optionExplanations for Coach teaching', () => {
+    const coachReady = QUESTION_BANK.filter(q =>
+      ['A', 'B', 'C', 'D'].every(letter => String(q.optionExplanations?.[letter] ?? '').trim()),
+    )
+
+    expect(coachReady.length).toBe(QUESTION_BANK.length)
+  })
+
+  it('wrong-answer explanations include contrastive teaching language', () => {
+    const failures = []
+
+    for (const q of QUESTION_BANK) {
+      for (const letter of ['A', 'B', 'C', 'D']) {
+        if (letter === q.correct) continue
+        const explanation = String(q.optionExplanations?.[letter] ?? '')
+        if (!/\b(not|does not|do not|instead|whereas|however|although|unlike|lacks?|incorrect|wrong|would|rather|contrast|describes?|causes?|associated with|best answer|less likely|rules out|incompatible|not the|fails to|neither|feature of|opposite of|impossible|excludes?|inferior)\b/i.test(explanation) || explanation.length < 70) {
+          failures.push(`${q.id}.${letter}`)
+        }
+      }
+    }
+
+    expect(failures, failures.join(', ')).toHaveLength(0)
+  })
+
+  it('generated option explanations use canonical taxonomy labels', () => {
+    const dermatologyQuestion = QUESTION_BANK.find(q => q.id === 'qB067')
+
+    expect(dermatologyQuestion?.system).toBe('Dermatology')
+    expect(dermatologyQuestion?.optionExplanations?.B).toContain('Dermatology')
+    expect(dermatologyQuestion?.optionExplanations?.B).not.toContain('Skin')
   })
 
   it('Balanced bank has at least 100 questions', () => {

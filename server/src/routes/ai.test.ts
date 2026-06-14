@@ -82,7 +82,7 @@ function makeBatchResult(
 const noFilter = (qs: Record<string, any>[], _: Set<string>) => qs;
 
 function makePromotableQuestion(overrides: Record<string, any> = {}) {
-  return {
+  const base = {
     id: 'ai-q-1',
     subject: 'Pharmacology',
     system: 'Cardiovascular',
@@ -108,6 +108,56 @@ function makePromotableQuestion(overrides: Record<string, any> = {}) {
     },
     ...overrides,
   };
+
+  const topic = String(base.topic || '').toLowerCase();
+  const concept = String(base.testedConcept || '').toLowerCase();
+  const hasCustomOptions = Object.prototype.hasOwnProperty.call(overrides, 'options');
+  const hasCustomExplanation = Object.prototype.hasOwnProperty.call(overrides, 'explanation');
+  const hasCustomOptionExplanations = Object.prototype.hasOwnProperty.call(overrides, 'optionExplanations');
+
+  if ((topic.includes('beta blocker') || concept.includes('beta blocker')) && !hasCustomOptions) {
+    base.options = [
+      { letter: 'A', text: 'Beta-1 adrenergic receptor antagonism in the sinoatrial node' },
+      { letter: 'B', text: 'Angiotensin-converting enzyme inhibition with bradykinin accumulation' },
+      { letter: 'C', text: 'L-type calcium channel blockade in vascular smooth muscle' },
+      { letter: 'D', text: 'Direct epithelial sodium channel blockade in the collecting duct' },
+    ];
+    base.correct = 'A';
+    if (!hasCustomExplanation) {
+      base.explanation = 'Beta blockers such as metoprolol antagonize beta-1 adrenergic receptors in cardiac nodal tissue. Reduced beta-1 signaling decreases cAMP-mediated pacemaker activity, causing negative chronotropy and a lower heart rate.';
+    }
+    if (!hasCustomOptionExplanations) {
+      base.optionExplanations = {
+        A: 'Correct: beta-1 adrenergic receptor antagonism lowers heart rate by reducing nodal cAMP signaling.',
+        B: 'Incorrect because ACE inhibition explains bradykinin cough, not metoprolol negative chronotropy.',
+        C: 'Incorrect because calcium channel blockade describes amlodipine or verapamil effects.',
+        D: 'Incorrect because ENaC blockade describes potassium-sparing diuretics.',
+      };
+    }
+  }
+
+  if ((topic.includes('calcium channel') || concept.includes('calcium channel')) && !hasCustomOptions) {
+    base.options = [
+      { letter: 'A', text: 'L-type calcium channel blockade in arteriolar smooth muscle' },
+      { letter: 'B', text: 'Beta-1 adrenergic receptor antagonism in the sinoatrial node' },
+      { letter: 'C', text: 'Angiotensin-converting enzyme inhibition with bradykinin accumulation' },
+      { letter: 'D', text: 'Na-K-2Cl cotransporter inhibition in the thick ascending limb' },
+    ];
+    base.correct = 'A';
+    if (!hasCustomExplanation) {
+      base.explanation = 'Amlodipine is a dihydropyridine calcium channel blocker that inhibits L-type calcium channels in arteriolar smooth muscle. Reduced calcium entry relaxes vascular smooth muscle, lowers systemic vascular resistance, and decreases blood pressure.';
+    }
+    if (!hasCustomOptionExplanations) {
+      base.optionExplanations = {
+        A: 'Correct: L-type calcium channel blockade relaxes arteriolar smooth muscle and lowers blood pressure.',
+        B: 'Incorrect because beta-1 blockade lowers heart rate rather than directly relaxing arterioles.',
+        C: 'Incorrect because ACE inhibition lowers angiotensin II and increases bradykinin.',
+        D: 'Incorrect because NKCC2 inhibition describes loop diuretics.',
+      };
+    }
+  }
+
+  return base;
 }
 
 // ── HARD_MODE_CAPS shape ──────────────────────────────────────────────────────

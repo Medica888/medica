@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { getFlashcards, markFlashcardReviewed, clearFlashcards, appendFlashcards } from '../../lib/storage'
 import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
+import { useFlashcards } from '../../hooks/useFlashcards.js'
+import * as dataProvider from '../../lib/dataProvider.js'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
 import AdaptiveGenerateCTA from './AdaptiveGenerateCTA'
 import FlashcardCommandHeader from './FlashcardCommandHeader'
@@ -28,7 +29,7 @@ import { normalizeSubjectLabel, normalizeSystemLabel } from '../../lib/usmleTaxo
 
 export default function FlashcardsPage({ onNavigate }) {
   // Core state
-  const [cards, setCards]             = useState(() => getFlashcards())
+  const { cards, refresh } = useFlashcards()
   const [reviewMode, setReviewMode]   = useState(false)
   const [reviewCards, setReviewCards] = useState([])
   const [reviewIndex, setReviewIndex] = useState(0)
@@ -73,8 +74,8 @@ export default function FlashcardsPage({ onNavigate }) {
       const count = adaptivePlan.data?.recommendedCardCount || 10
       const data  = await generateApi.flashcards(Math.min(count, 20))
       if (data?.flashcards?.length) {
-        const added = appendFlashcards(data.flashcards)
-        setCards(getFlashcards())
+        const { added } = await dataProvider.saveFlashcards(data.flashcards)
+        refresh()
         setAiGenState('done')
         setAiGenMsg(`${added} reinforcement card${added !== 1 ? 's' : ''} added`)
       } else {
@@ -207,7 +208,6 @@ export default function FlashcardsPage({ onNavigate }) {
     setSearchQuery(''); setSortMode('due')
   }
 
-  const refresh = () => setCards(getFlashcards())
   const refreshGroups = () => setGroups(getFlashcardGroups())
 
   // Review handlers
@@ -222,10 +222,10 @@ export default function FlashcardsPage({ onNavigate }) {
 
   const handleEase = useCallback((ease) => {
     setReviewSummary(prev => ({ ...prev, [ease]: prev[ease] + 1 }))
-    markFlashcardReviewed(reviewCards[reviewIndex].id, ease)
+    dataProvider.reviewFlashcard(reviewCards[reviewIndex].id, ease)
     if (reviewIndex < reviewCards.length - 1) { setReviewIndex(i => i + 1); setFlipped(false) }
     else { setSessionDone(true); refresh() }
-  }, [reviewCards, reviewIndex])
+  }, [reviewCards, reviewIndex, refresh])
 
   const exitReview = () => {
     setReviewMode(false); setSessionDone(false); setReviewIndex(0); setFlipped(false); refresh()
@@ -241,7 +241,7 @@ export default function FlashcardsPage({ onNavigate }) {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if (e.key === ' ') { e.preventDefault(); if (!flipped) setFlipped(true) }
-      else if (e.key === 'Escape') { setReviewMode(false); setSessionDone(false); setReviewIndex(0); setFlipped(false); setCards(getFlashcards()) }
+      else if (e.key === 'Escape') { setReviewMode(false); setSessionDone(false); setReviewIndex(0); setFlipped(false); refresh() }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); if (reviewIndex > 0) { setReviewIndex(i => i - 1); setFlipped(false) } }
       else if (e.key === 'ArrowRight') { e.preventDefault(); if (reviewIndex < reviewCards.length - 1) { setReviewIndex(i => i + 1); setFlipped(false) } }
       else if (flipped) {
@@ -252,7 +252,7 @@ export default function FlashcardsPage({ onNavigate }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [reviewMode, sessionDone, flipped, reviewIndex, reviewCards, handleEase])
+  }, [reviewMode, sessionDone, flipped, reviewIndex, reviewCards, handleEase, refresh])
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 
@@ -306,10 +306,12 @@ export default function FlashcardsPage({ onNavigate }) {
     URL.revokeObjectURL(url)
   }
 
-  const handleClearDeck = () => {
+  const handleClearDeck = async () => {
     if (!window.confirm('Clear all reinforcement items and custom groups? This cannot be undone.')) return
-    clearFlashcards(); clearAllFlashcardGroups()
-    setCards([]); setGroups([]); setActiveGroupId('all')
+    await dataProvider.clearFlashcards()
+    clearAllFlashcardGroups()
+    refresh()
+    setGroups([]); setActiveGroupId('all')
     setSelectMode(false); setSelectedCardIds(new Set())
   }
 

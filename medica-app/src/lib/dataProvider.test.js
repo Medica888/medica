@@ -8,6 +8,7 @@ vi.mock('./storage.js', () => ({
   markFlashcardReviewed: vi.fn(),
   updateFlashcardStatus: vi.fn(),
   getFlashcards: vi.fn(() => []),
+  clearFlashcards: vi.fn(),
 }));
 
 // Mock apiClient
@@ -25,6 +26,8 @@ import {
   getSessions,
   saveFlashcards,
   getAllFlashcards,
+  reviewFlashcard,
+  clearFlashcards,
 } from './dataProvider.js';
 
 // results shape — output of calculatePracticeResults
@@ -207,6 +210,35 @@ describe('saveFlashcards', () => {
     expect(result).toMatchObject({ added: 0, skipped: 1 });
   });
 
+  it('maps full-fidelity camelCase metadata to snake_case', async () => {
+    const richCard = [{
+      front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio',
+      reviewStatus: 'new', subject: 'Cardiology', system: 'Cardiovascular',
+      canonicalTopic: 'Hypertensive Crises', topicSlug: 'hypertensive-crises',
+      sourceMode: 'practice', memoryAnchor: 'no damage = urgency',
+      commonTrap: 'urgency vs emergency', sourcePearl: 'DBP > 120 alone',
+      weakSpotCategory: 'Cardio', reinforcementPriority: 'high',
+      reviewCount: 2, ease: 'good', lastMissedReason: 'confused with emergency',
+    }];
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(richCard);
+
+    await saveFlashcards(richCard);
+
+    const mapped = api.flashcards.createMany.mock.calls[0][0];
+    expect(mapped[0].canonical_topic).toBe('Hypertensive Crises');
+    expect(mapped[0].topic_slug).toBe('hypertensive-crises');
+    expect(mapped[0].source_mode).toBe('practice');
+    expect(mapped[0].memory_anchor).toBe('no damage = urgency');
+    expect(mapped[0].common_trap).toBe('urgency vs emergency');
+    expect(mapped[0].source_pearl).toBe('DBP > 120 alone');
+    expect(mapped[0].weak_spot_category).toBe('Cardio');
+    expect(mapped[0].reinforcement_priority).toBe('high');
+    expect(mapped[0].review_count).toBe(2);
+    expect(mapped[0].ease).toBe('good');
+    expect(mapped[0].last_missed_reason).toBe('confused with emergency');
+  });
+
   it('keeps local cards saved when backend sync fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
@@ -229,5 +261,26 @@ describe('getAllFlashcards', () => {
     storage.getFlashcards.mockReturnValueOnce([{ id: 'f1' }]);
     const result = getAllFlashcards();
     expect(result).toEqual([{ id: 'f1' }]);
+  });
+});
+
+describe('reviewFlashcard', () => {
+  it('passes ease through to markFlashcardReviewed', async () => {
+    await reviewFlashcard('fc-1', 'easy');
+    expect(storage.markFlashcardReviewed).toHaveBeenCalledWith('fc-1', 'easy');
+  });
+
+  it('still writes locally even when user is not authenticated', async () => {
+    api.getAuthToken.mockReturnValueOnce(null);
+    await reviewFlashcard('fc-1', 'good');
+    expect(storage.markFlashcardReviewed).toHaveBeenCalledWith('fc-1', 'good');
+    expect(api.flashcards.markReviewed).not.toHaveBeenCalled();
+  });
+});
+
+describe('clearFlashcards', () => {
+  it('calls clearFlashcards from storage', async () => {
+    await clearFlashcards();
+    expect(storage.clearFlashcards).toHaveBeenCalledOnce();
   });
 });

@@ -26,8 +26,11 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
     const id = randomUUID();
     const res = await this.pool.query<Flashcard>(
       `INSERT INTO flashcards
-         (id, user_id, source_question_id, type, front, back, tag, review_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         (id, user_id, source_question_id, type, front, back, tag, review_status,
+          subject, system, topic, canonical_topic, topic_slug, source_mode,
+          memory_anchor, common_trap, source_pearl, weak_spot_category,
+          reinforcement_priority, review_count, ease, last_missed_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        RETURNING *`,
       [
         id,
@@ -36,8 +39,22 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
         flashcard.type,
         flashcard.front,
         flashcard.back,
-        flashcard.tag,
+        flashcard.tag ?? '',
         flashcard.review_status,
+        flashcard.subject ?? '',
+        flashcard.system ?? '',
+        flashcard.topic ?? '',
+        flashcard.canonical_topic ?? '',
+        flashcard.topic_slug ?? '',
+        flashcard.source_mode ?? '',
+        flashcard.memory_anchor ?? null,
+        flashcard.common_trap ?? null,
+        flashcard.source_pearl ?? null,
+        flashcard.weak_spot_category ?? '',
+        flashcard.reinforcement_priority ?? 'normal',
+        flashcard.review_count ?? 0,
+        flashcard.ease ?? null,
+        flashcard.last_missed_reason ?? null,
       ],
     );
     return res.rows[0]!;
@@ -52,7 +69,10 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
       await client.query('BEGIN');
       const res = await client.query<Flashcard>(
         `INSERT INTO flashcards
-           (id, user_id, source_question_id, type, front, back, tag, review_status)
+           (id, user_id, source_question_id, type, front, back, tag, review_status,
+            subject, system, topic, canonical_topic, topic_slug, source_mode,
+            memory_anchor, common_trap, source_pearl, weak_spot_category,
+            reinforcement_priority, review_count, ease, last_missed_reason)
          SELECT
            unnest($1::uuid[]),
            unnest($2::uuid[]),
@@ -61,7 +81,21 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
            unnest($5::text[]),
            unnest($6::text[]),
            unnest($7::text[]),
-           unnest($8::text[])
+           unnest($8::text[]),
+           unnest($9::text[]),
+           unnest($10::text[]),
+           unnest($11::text[]),
+           unnest($12::text[]),
+           unnest($13::text[]),
+           unnest($14::text[]),
+           unnest($15::text[]),
+           unnest($16::text[]),
+           unnest($17::text[]),
+           unnest($18::text[]),
+           unnest($19::text[]),
+           unnest($20::integer[]),
+           unnest($21::text[]),
+           unnest($22::text[])
          RETURNING *`,
         [
           ids,
@@ -70,8 +104,22 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
           flashcards.map((f) => f.type),
           flashcards.map((f) => f.front),
           flashcards.map((f) => f.back),
-          flashcards.map((f) => f.tag ?? null),
+          flashcards.map((f) => f.tag ?? ''),
           flashcards.map((f) => f.review_status),
+          flashcards.map((f) => f.subject ?? ''),
+          flashcards.map((f) => f.system ?? ''),
+          flashcards.map((f) => f.topic ?? ''),
+          flashcards.map((f) => f.canonical_topic ?? ''),
+          flashcards.map((f) => f.topic_slug ?? ''),
+          flashcards.map((f) => f.source_mode ?? ''),
+          flashcards.map((f) => f.memory_anchor ?? null),
+          flashcards.map((f) => f.common_trap ?? null),
+          flashcards.map((f) => f.source_pearl ?? null),
+          flashcards.map((f) => f.weak_spot_category ?? ''),
+          flashcards.map((f) => f.reinforcement_priority ?? 'normal'),
+          flashcards.map((f) => f.review_count ?? 0),
+          flashcards.map((f) => f.ease ?? null),
+          flashcards.map((f) => f.last_missed_reason ?? null),
         ],
       );
       await client.query('COMMIT');
@@ -95,7 +143,8 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
   async markReviewed(id: string, userId: string): Promise<Flashcard | null> {
     const res = await this.pool.query<Flashcard>(
       `UPDATE flashcards
-       SET reviewed_at = NOW(),
+       SET reviewed_at   = NOW(),
+           review_count  = review_count + 1,
            review_status = CASE WHEN review_status = 'new' THEN 'learning' ELSE review_status END
        WHERE id = $1 AND user_id = $2
        RETURNING *`,

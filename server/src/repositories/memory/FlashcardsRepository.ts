@@ -17,7 +17,25 @@ export class InMemoryFlashcardsRepository implements IFlashcardsRepository {
 
   async create(flashcard: Omit<Flashcard, 'id' | 'created_at'>): Promise<Flashcard> {
     const id = randomUUID();
-    const record: Flashcard = { id, ...flashcard, created_at: new Date() };
+    const record: Flashcard = {
+      ...flashcard,
+      id,
+      subject:                flashcard.subject                ?? '',
+      system:                 flashcard.system                 ?? '',
+      topic:                  flashcard.topic                  ?? '',
+      canonical_topic:        flashcard.canonical_topic        ?? '',
+      topic_slug:             flashcard.topic_slug             ?? '',
+      source_mode:            flashcard.source_mode            ?? '',
+      weak_spot_category:     flashcard.weak_spot_category     ?? '',
+      reinforcement_priority: flashcard.reinforcement_priority ?? 'normal',
+      review_count:           flashcard.review_count           ?? 0,
+      memory_anchor:          flashcard.memory_anchor          ?? null,
+      common_trap:            flashcard.common_trap            ?? null,
+      source_pearl:           flashcard.source_pearl           ?? null,
+      ease:                   flashcard.ease                   ?? null,
+      last_missed_reason:     flashcard.last_missed_reason     ?? null,
+      created_at: new Date(),
+    };
     this.store.set(id, record);
     return record;
   }
@@ -37,6 +55,8 @@ export class InMemoryFlashcardsRepository implements IFlashcardsRepository {
     const card = this.store.get(id);
     if (!card || card.user_id !== userId) return null;
     card.reviewed_at = new Date();
+    card.review_count = (card.review_count ?? 0) + 1;
+    if (card.review_status === 'new') card.review_status = 'learning';
     return card;
   }
 

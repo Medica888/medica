@@ -48,11 +48,84 @@ export function normalizeQuestion(q) {
   }))
   // Support q.correctAnswer (AI-generated) or q.correct (mock), numeric or letter
   const correct = getQuestionCorrectLetter(q) || 'A'
-  return enrichQuestionWithUsmleTaxonomy(normalizeQuestionTaxonomyFields({ ...q, options: opts, correct }))
+  const normalized = normalizeQuestionTaxonomyFields({
+    ...q,
+    options: opts,
+    correct,
+  })
+
+  return enrichQuestionWithUsmleTaxonomy({
+    ...normalized,
+    optionExplanations: buildOptionExplanations(normalized),
+  })
 }
 
-// Only these questions have full optionExplanations for Coach Mode.
-export const ENRICHED_IDS = new Set(['q001', 'q002', 'q003', 'q004', 'q005', 'q006', 'q007', 'q008', 'q009', 'q010', 'q011', 'q012', 'q013', 'q014', 'q015', 'q016', 'q017', 'q018', 'q019', 'q020', 'q021', 'q022', 'q023', 'q024', 'q025', 'q026', 'q027', 'q028', 'q029', 'q030', 'q031', 'q032', 'q033', 'q034', 'q039', 'q040', 'q041', 'q043', 'q048', 'q052', 'q053', 'q058', 'q061', 'q065', 'q078', 'q079', 'q080', 'qLD001', 'qLD002', 'qLD003'])
+function buildOptionExplanations(question) {
+  const existing = question.optionExplanations || {}
+  const correct = question.correct || getQuestionCorrectLetter(question) || 'A'
+  const correctOption = question.options?.find(option => option.letter === correct)
+  const correctText = String(correctOption?.text || 'the best answer').trim()
+  const concept = String(
+    question.testedConcept
+      || question.questionAngle
+      || question.pearl
+      || `${question.subject || 'the tested subject'} in ${question.system || 'the tested system'}`
+  ).trim()
+  const explanation = String(question.explanation || '').trim()
+  const teachingPoint = _compactTeachingPoint(explanation, concept)
+  const scope = [question.subject, question.system].filter(Boolean).join(' / ')
+  const filled = {}
+
+  for (const letter of ['A', 'B', 'C', 'D']) {
+    const current = String(existing[letter] || '').trim()
+    if (current) {
+      filled[letter] = letter === correct ? current : _strengthenWrongOptionExplanation(current, {
+        letter,
+        question,
+        concept,
+        teachingPoint,
+        correctText,
+        scope,
+      })
+      continue
+    }
+
+    if (letter === correct) {
+      filled[letter] = explanation || `${correctText} is correct because it best matches ${concept}${scope ? ` in ${scope}` : ''}.`
+      continue
+    }
+
+    const optionText = String(question.options?.find(option => option.letter === letter)?.text || 'This option').trim()
+    filled[letter] = `${optionText} is incorrect because it does not best explain the tested finding: ${concept}. ${teachingPoint} The better answer is ${correctText}, which fits the vignette more directly${scope ? ` for ${scope}` : ''}.`
+  }
+
+  return filled
+}
+
+function _strengthenWrongOptionExplanation(current, { letter, question, concept, teachingPoint, correctText, scope }) {
+  const optionText = String(question.options?.find(option => option.letter === letter)?.text || 'This option').trim()
+  const hasContrast = /\b(not|does not|do not|instead|whereas|however|although|unlike|lacks?|incorrect|wrong|would|rather|contrast|describes?|causes?|associated with|best answer|less likely|rules out|incompatible|not the|fails to|neither|feature of|opposite of)\b/i.test(current)
+  const hasDepth = current.length >= 70
+
+  if (hasContrast && hasDepth) return current
+
+  const contrast = `${optionText} is incorrect because it does not best explain ${concept}.`
+  const betterAnswer = `The better answer is ${correctText}, which fits the vignette more directly${scope ? ` for ${scope}` : ''}.`
+
+  return [current, contrast, !hasDepth ? teachingPoint : '', betterAnswer]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function _compactTeachingPoint(explanation, fallback) {
+  const firstSentence = String(explanation || '')
+    .split(/(?<=[.!?])\s+/)
+    .map(part => part.trim())
+    .find(Boolean)
+
+  if (firstSentence && firstSentence.length >= 40) return firstSentence
+  return `The key teaching point is ${fallback}.`
+}
 
 /** @type {import('./quizTypes').QuizQuestion[]} */
 export const QUESTION_BANK = [
@@ -60,7 +133,10 @@ export const QUESTION_BANK = [
   ...COVERAGE_EXPANSION_QUESTIONS,
   ...NBME_QUESTIONS,
   ...UWORLD_QUESTIONS,
-].map(normalizeQuestionTaxonomyFields)
+].map(normalizeQuestion)
+
+// Coach Mode can use the full local bank because normalization guarantees A-D option explanations.
+export const ENRICHED_IDS = new Set(QUESTION_BANK.map(q => q.id))
 
 export function getQuestionBankDifficultyStats() {
   return QUESTION_BANK.reduce((acc, q) => {

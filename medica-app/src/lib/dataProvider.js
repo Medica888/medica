@@ -18,6 +18,7 @@ import {
   markFlashcardReviewed,
   updateFlashcardStatus,
   getFlashcards,
+  clearFlashcards as _storageFlashcards,
 } from './storage.js';
 
 const USE_BACKEND = import.meta.env.VITE_USE_BACKEND === 'true';
@@ -125,12 +126,26 @@ export async function saveFlashcards(cards) {
 
   try {
     const mapped = savedCards.map((c) => ({
-      source_question_id: c.sourceQuestionId ?? c.id,
-      type: c.type ?? 'Recall',
-      front: c.front,
-      back: c.back,
-      tag: c.tag ?? '',
-      review_status: c.reviewStatus ?? 'new',
+      source_question_id:     c.sourceQuestionId ?? c.id,
+      type:                   c.type ?? 'Recall',
+      front:                  c.front,
+      back:                   c.back,
+      tag:                    c.tag ?? '',
+      review_status:          c.reviewStatus ?? 'new',
+      subject:                c.subject ?? '',
+      system:                 c.system ?? '',
+      topic:                  c.topic ?? '',
+      canonical_topic:        c.canonicalTopic ?? '',
+      topic_slug:             c.topicSlug ?? '',
+      source_mode:            c.sourceMode ?? '',
+      memory_anchor:          c.memoryAnchor ?? null,
+      common_trap:            c.commonTrap ?? null,
+      source_pearl:           c.sourcePearl ?? null,
+      weak_spot_category:     c.weakSpotCategory ?? '',
+      reinforcement_priority: c.reinforcementPriority ?? 'normal',
+      review_count:           c.reviewCount ?? 0,
+      ease:                   c.ease ?? null,
+      last_missed_reason:     c.lastMissedReason ?? null,
     }));
     result.backendAttempted = true;
     await api.flashcards.createMany(mapped);
@@ -153,14 +168,25 @@ export async function setFlashcardStatus(id, status) {
   }
 }
 
-export async function reviewFlashcard(id) {
-  markFlashcardReviewed(id);
+export async function reviewFlashcard(id, ease) {
+  markFlashcardReviewed(id, ease);
 
-  if (!USE_BACKEND) return;
+  if (!USE_BACKEND || !api.getAuthToken?.()) return;
   try {
     await api.flashcards.markReviewed(id);
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard review failed:', err.message);
+  }
+}
+
+export async function clearFlashcards() {
+  _storageFlashcards();
+
+  if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  try {
+    await api.flashcards.clearAll();
+  } catch (err) {
+    console.warn('[dataProvider] Backend flashcard clear failed:', err.message);
   }
 }
 
