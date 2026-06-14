@@ -1,4 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Shared sync-state constants used across saveFlashcards and syncLocalFlashcardsToBackend tests.
+// FAKE_TOKEN encodes payload { sub: 'user-123' }.
+// btoa('{"sub":"user-123"}') === 'eyJzdWIiOiJ1c2VyLTEyMyJ9'
+const FAKE_TOKEN = 'header.eyJzdWIiOiJ1c2VyLTEyMyJ9.sig';
+const FLAG_KEY   = 'medica_flashcards_synced_v9_user-123';
+const DIRTY_KEY  = 'medica_flashcards_dirty_v9_user-123';
 
 // Mock storage module before importing dataProvider
 vi.mock('./storage.js', () => ({
@@ -15,7 +22,12 @@ vi.mock('./storage.js', () => ({
 vi.mock('./apiClient.js', () => ({
   getAuthToken: vi.fn(() => 'token'),
   exams: { create: vi.fn().mockResolvedValue({ id: 'sess-1' }) },
-  flashcards: { createMany: vi.fn().mockResolvedValue([]), updateStatus: vi.fn(), markReviewed: vi.fn() },
+  flashcards: {
+    list: vi.fn().mockResolvedValue({ flashcards: [] }),
+    createMany: vi.fn().mockResolvedValue([]),
+    updateStatus: vi.fn(),
+    markReviewed: vi.fn(),
+  },
   analytics: { get: vi.fn(), progress: vi.fn() },
 }));
 
@@ -28,6 +40,7 @@ import {
   getAllFlashcards,
   reviewFlashcard,
   clearFlashcards,
+  syncLocalFlashcardsToBackend,
 } from './dataProvider.js';
 
 // results shape — output of calculatePracticeResults
@@ -155,6 +168,10 @@ describe('getSessions', () => {
 });
 
 describe('saveFlashcards', () => {
+  afterEach(() => {
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
   it('saves locally first and returns accepted/skipped counts', async () => {
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
     storage.appendFlashcards.mockReturnValueOnce(1);
@@ -254,6 +271,42 @@ describe('saveFlashcards', () => {
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it('sets dirty flag when backend write fails for an authenticated user', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
+    api.flashcards.createMany.mockRejectedValueOnce(new Error('offline'));
+
+    await saveFlashcards(cards);
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
+    warnSpy.mockRestore();
+  });
+
+  it('does not set dirty flag when user is not authenticated', async () => {
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    api.getAuthToken.mockReturnValueOnce(null);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
+
+    await saveFlashcards(cards);
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBeNull();
+  });
+
+  it('does not set dirty flag when backend write succeeds', async () => {
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
+
+    await saveFlashcards(cards);
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBeNull();
+  });
 });
 
 describe('getAllFlashcards', () => {
@@ -282,5 +335,182 @@ describe('clearFlashcards', () => {
   it('calls clearFlashcards from storage', async () => {
     await clearFlashcards();
     expect(storage.clearFlashcards).toHaveBeenCalledOnce();
+  });
+});
+
+describe('syncLocalFlashcardsToBackend', () => {
+  const LOCAL_CARD = { front: 'Q', back: 'A', sourceQuestionId: 'q1', tag: 'Bio', type: 'Recall', reviewStatus: 'new' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.flashcards.list.mockResolvedValue({ flashcards: [] });
+    api.flashcards.createMany.mockResolvedValue([]);
+    try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  afterEach(() => {
+    try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  it('skips when user is not authenticated', async () => {
+    api.getAuthToken.mockReturnValue(null);
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(result.skipped).toBe(true);
+    expect(api.flashcards.list).not.toHaveBeenCalled();
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+  });
+
+  it('sends local cards to backend on first sync', async () => {
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(api.flashcards.list).toHaveBeenCalledOnce();
+    expect(api.flashcards.createMany).toHaveBeenCalledOnce();
+    expect(result.synced).toBe(1);
+    expect(result.skipped).toBe(false);
+  });
+
+  it('sets the sync flag after successful sync', async () => {
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    await syncLocalFlashcardsToBackend();
+
+    expect(localStorage.getItem(FLAG_KEY)).toBe('1');
+  });
+
+  it('skips when sync flag is set and dirty flag is absent', async () => {
+    localStorage.setItem(FLAG_KEY, '1');
+    // dirty flag intentionally absent
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(result.skipped).toBe(true);
+    expect(api.flashcards.list).not.toHaveBeenCalled();
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+  });
+
+  it('runs delta sync when sync flag is set but dirty flag is also set', async () => {
+    localStorage.setItem(FLAG_KEY, '1');
+    localStorage.setItem(DIRTY_KEY, '1');
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(api.flashcards.list).toHaveBeenCalledOnce();
+    expect(api.flashcards.createMany).toHaveBeenCalledOnce();
+    expect(result.synced).toBe(1);
+    expect(result.skipped).toBe(false);
+  });
+
+  it('clears dirty flag after successful delta sync', async () => {
+    localStorage.setItem(FLAG_KEY, '1');
+    localStorage.setItem(DIRTY_KEY, '1');
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    await syncLocalFlashcardsToBackend();
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBeNull();
+    expect(localStorage.getItem(FLAG_KEY)).toBe('1');
+  });
+
+  it('does not duplicate cards in backend after dirty-flag-triggered delta sync', async () => {
+    // Backend already has the card. Dirty flag triggers a sync attempt.
+    localStorage.setItem(FLAG_KEY, '1');
+    localStorage.setItem(DIRTY_KEY, '1');
+    api.flashcards.list.mockResolvedValue({ flashcards: [{ source_question_id: 'q1', tag: 'Bio' }] });
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+    expect(result.synced).toBe(0);
+    expect(localStorage.getItem(DIRTY_KEY)).toBeNull();
+  });
+
+  it('does not send card already in backend (dedup by source_question_id::tag)', async () => {
+    api.flashcards.list.mockResolvedValue({ flashcards: [{ source_question_id: 'q1', tag: 'Bio' }] });
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+
+    const result = await syncLocalFlashcardsToBackend();
+
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+    expect(result.synced).toBe(0);
+    expect(localStorage.getItem(FLAG_KEY)).toBe('1');
+  });
+
+  it('sends only cards not already in backend (partial dedup)', async () => {
+    api.flashcards.list.mockResolvedValue({ flashcards: [{ source_question_id: 'q1', tag: 'Bio' }] });
+    const localCard2 = { front: 'Q2', back: 'A2', sourceQuestionId: 'q2', tag: 'Neuro', type: 'Recall', reviewStatus: 'new' };
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD, localCard2]);
+
+    await syncLocalFlashcardsToBackend();
+
+    const sent = api.flashcards.createMany.mock.calls[0][0];
+    expect(sent).toHaveLength(1);
+    expect(sent[0].source_question_id).toBe('q2');
+  });
+
+  it('filters out cards with empty front or back', async () => {
+    const blankCard = { front: '', back: 'A', sourceQuestionId: 'q2', tag: 'X', type: 'Recall' };
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD, blankCard]);
+
+    await syncLocalFlashcardsToBackend();
+
+    const sent = api.flashcards.createMany.mock.calls[0][0];
+    expect(sent).toHaveLength(1);
+    expect(sent[0].source_question_id).toBe('q1');
+  });
+
+  it('does not set sync flag when createMany fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+    api.flashcards.createMany.mockRejectedValueOnce(new Error('network error'));
+
+    await syncLocalFlashcardsToBackend();
+
+    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('aborts without sending when list fetch fails, does not set flag', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
+    api.flashcards.list.mockRejectedValueOnce(new Error('network error'));
+
+    await syncLocalFlashcardsToBackend();
+
+    expect(api.flashcards.createMany).not.toHaveBeenCalled();
+    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('maps cards through full-fidelity helper before syncing', async () => {
+    const richCard = {
+      front: 'Q', back: 'A', sourceQuestionId: 'q1', tag: 'Bio',
+      type: 'Pearl', reviewStatus: 'learning',
+      subject: 'Cardiology', system: 'Cardiovascular',
+      canonicalTopic: 'Hypertensive Crises', topicSlug: 'hypertensive-crises',
+      sourceMode: 'practice', memoryAnchor: 'no damage = urgency',
+      reinforcementPriority: 'high', reviewCount: 3, ease: 'good',
+    };
+    storage.getFlashcards.mockReturnValue([richCard]);
+
+    await syncLocalFlashcardsToBackend();
+
+    const sent = api.flashcards.createMany.mock.calls[0][0];
+    expect(sent[0].type).toBe('Pearl');
+    expect(sent[0].review_status).toBe('learning');
+    expect(sent[0].canonical_topic).toBe('Hypertensive Crises');
+    expect(sent[0].reinforcement_priority).toBe('high');
+    expect(sent[0].review_count).toBe(3);
+    expect(sent[0].ease).toBe('good');
   });
 });

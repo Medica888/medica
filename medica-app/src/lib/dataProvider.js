@@ -103,6 +103,56 @@ export function getSessions() {
 
 // ── Flashcards ────────────────────────────────────────────────────────────
 
+const SYNC_FLAG_PREFIX   = 'medica_flashcards_synced_v9_';
+const SYNC_DIRTY_PREFIX  = 'medica_flashcards_dirty_v9_';
+const VALID_TYPES        = new Set(['Recall', 'Pearl', 'Application', 'Trap', 'Comparison']);
+const VALID_STATUS       = new Set(['new', 'learning', 'review', 'mastered']);
+const VALID_EASE         = new Set(['again', 'hard', 'good', 'easy']);
+const VALID_PRIORITY     = new Set(['low', 'normal', 'high']);
+
+function _mapCardToBackendPayload(c) {
+  return {
+    source_question_id:     c.sourceQuestionId ?? c.id ?? '',
+    type:                   VALID_TYPES.has(c.type) ? c.type : 'Recall',
+    front:                  c.front,
+    back:                   c.back,
+    tag:                    c.tag ?? '',
+    review_status:          VALID_STATUS.has(c.reviewStatus) ? c.reviewStatus : 'new',
+    subject:                c.subject ?? '',
+    system:                 c.system ?? '',
+    topic:                  c.topic ?? '',
+    canonical_topic:        c.canonicalTopic ?? '',
+    topic_slug:             c.topicSlug ?? '',
+    source_mode:            c.sourceMode ?? '',
+    memory_anchor:          c.memoryAnchor ?? null,
+    common_trap:            c.commonTrap ?? null,
+    source_pearl:           c.sourcePearl ?? null,
+    weak_spot_category:     c.weakSpotCategory ?? '',
+    reinforcement_priority: VALID_PRIORITY.has(c.reinforcementPriority) ? c.reinforcementPriority : 'normal',
+    review_count:           Number.isInteger(c.reviewCount) ? c.reviewCount : 0,
+    ease:                   VALID_EASE.has(c.ease) ? c.ease : null,
+    last_missed_reason:     c.lastMissedReason ?? null,
+  };
+}
+
+function _getUserIdFromToken(token) {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(b64));
+    return String(payload.sub ?? '');
+  } catch {
+    return '';
+  }
+}
+
+function _setFlag(key) {
+  try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
+}
+
+function _clearFlag(key) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
 /**
  * Save flashcards generated after a session.
  * Written to localStorage first; backend is best-effort.
@@ -120,41 +170,74 @@ export async function saveFlashcards(cards) {
     backendSynced: false,
   };
 
-  if (!USE_BACKEND || !added || !api.getAuthToken?.() || savedCards.length === 0) {
+  const _syncToken = api.getAuthToken?.();
+  if (!USE_BACKEND || !added || !_syncToken || savedCards.length === 0) {
     return result;
   }
 
+  const _syncUserId = _getUserIdFromToken(_syncToken);
+
   try {
-    const mapped = savedCards.map((c) => ({
-      source_question_id:     c.sourceQuestionId ?? c.id,
-      type:                   c.type ?? 'Recall',
-      front:                  c.front,
-      back:                   c.back,
-      tag:                    c.tag ?? '',
-      review_status:          c.reviewStatus ?? 'new',
-      subject:                c.subject ?? '',
-      system:                 c.system ?? '',
-      topic:                  c.topic ?? '',
-      canonical_topic:        c.canonicalTopic ?? '',
-      topic_slug:             c.topicSlug ?? '',
-      source_mode:            c.sourceMode ?? '',
-      memory_anchor:          c.memoryAnchor ?? null,
-      common_trap:            c.commonTrap ?? null,
-      source_pearl:           c.sourcePearl ?? null,
-      weak_spot_category:     c.weakSpotCategory ?? '',
-      reinforcement_priority: c.reinforcementPriority ?? 'normal',
-      review_count:           c.reviewCount ?? 0,
-      ease:                   c.ease ?? null,
-      last_missed_reason:     c.lastMissedReason ?? null,
-    }));
+    const mapped = savedCards.map(_mapCardToBackendPayload);
     result.backendAttempted = true;
     await api.flashcards.createMany(mapped);
     result.backendSynced = true;
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard save failed:', err.message);
+    if (_syncUserId) _setFlag(`${SYNC_DIRTY_PREFIX}${_syncUserId}`);
   }
 
   return result;
+}
+
+/**
+ * One-time sync of localStorage flashcards into the backend for authenticated users.
+ * Idempotent: uses a per-user localStorage flag as an optimization, and always
+ * fetches existing backend cards to filter duplicates before sending.
+ * Does not delete localStorage cards. Does not set the flag on failure.
+ */
+export async function syncLocalFlashcardsToBackend() {
+  if (!USE_BACKEND) return { skipped: true, reason: 'backend disabled' };
+  const token = api.getAuthToken?.();
+  if (!token) return { skipped: true, reason: 'unauthenticated' };
+  const userId = _getUserIdFromToken(token);
+  if (!userId) return { skipped: true, reason: 'unresolvable user id' };
+
+  const flagKey  = `${SYNC_FLAG_PREFIX}${userId}`;
+  const dirtyKey = `${SYNC_DIRTY_PREFIX}${userId}`;
+  try {
+    const alreadySynced = typeof localStorage !== 'undefined' && localStorage.getItem(flagKey) === '1';
+    const isDirty       = typeof localStorage !== 'undefined' && localStorage.getItem(dirtyKey) === '1';
+    if (alreadySynced && !isDirty) {
+      return { skipped: true, reason: 'already synced' };
+    }
+  } catch { /* ignore */ }
+
+  const localCards = getFlashcards().filter(c => c.front && c.back);
+  if (localCards.length === 0) {
+    _setFlag(flagKey);
+    _clearFlag(dirtyKey);
+    return { synced: 0, skipped: false };
+  }
+
+  const allMapped = localCards.map(_mapCardToBackendPayload);
+
+  try {
+    const existing = await api.flashcards.list();
+    const backendCards = existing?.flashcards ?? [];
+    const existingKeys = new Set(backendCards.map(c => `${c.source_question_id}::${c.tag ?? ''}`));
+    const toSync = allMapped.filter(c => !existingKeys.has(`${c.source_question_id}::${c.tag}`));
+
+    if (toSync.length > 0) {
+      await api.flashcards.createMany(toSync);
+    }
+    _setFlag(flagKey);
+    _clearFlag(dirtyKey);
+    return { synced: toSync.length, skipped: false };
+  } catch (err) {
+    console.warn('[dataProvider] Local flashcard sync failed:', err.message);
+    return { synced: 0, skipped: false, error: err.message };
+  }
 }
 
 export async function setFlashcardStatus(id, status) {

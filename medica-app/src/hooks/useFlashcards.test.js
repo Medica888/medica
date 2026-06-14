@@ -3,13 +3,14 @@ import { renderHook, act } from '@testing-library/react'
 import { useFlashcards } from './useFlashcards.js'
 
 vi.mock('../lib/dataProvider.js', () => ({
-  getAllFlashcards: vi.fn(() => []),
-  saveFlashcards:  vi.fn(async () => ({ added: 0, skipped: 0, total: 0 })),
-  reviewFlashcard: vi.fn(async () => {}),
-  clearFlashcards: vi.fn(async () => {}),
+  getAllFlashcards:              vi.fn(() => []),
+  saveFlashcards:               vi.fn(async () => ({ added: 0, skipped: 0, total: 0 })),
+  reviewFlashcard:              vi.fn(async () => {}),
+  clearFlashcards:              vi.fn(async () => {}),
+  syncLocalFlashcardsToBackend: vi.fn(async () => ({ skipped: true, reason: 'already synced' })),
 }))
 
-import { getAllFlashcards } from '../lib/dataProvider.js'
+import { getAllFlashcards, syncLocalFlashcardsToBackend } from '../lib/dataProvider.js'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -99,5 +100,23 @@ describe('useFlashcards — no backend calls', () => {
     expect(saveFlashcards).not.toHaveBeenCalled()
     expect(reviewFlashcard).not.toHaveBeenCalled()
     expect(clearFlashcards).not.toHaveBeenCalled()
+  })
+})
+
+describe('useFlashcards — sync on mount', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls syncLocalFlashcardsToBackend once on mount', () => {
+    getAllFlashcards.mockReturnValue([])
+    renderHook(() => useFlashcards())
+    expect(syncLocalFlashcardsToBackend).toHaveBeenCalled()
+  })
+
+  it('does not re-trigger sync on refresh', () => {
+    getAllFlashcards.mockReturnValue([])
+    const { result } = renderHook(() => useFlashcards())
+    const callsBefore = syncLocalFlashcardsToBackend.mock.calls.length
+    act(() => result.current.refresh())
+    expect(syncLocalFlashcardsToBackend.mock.calls.length).toBe(callsBefore)
   })
 })

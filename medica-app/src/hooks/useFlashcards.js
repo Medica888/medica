@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react'
-import { getAllFlashcards } from '../lib/dataProvider.js'
+import { useState, useCallback, useEffect } from 'react'
+import { getAllFlashcards, syncLocalFlashcardsToBackend } from '../lib/dataProvider.js'
 
 // localStorage-primary read hook.
 // Backend read is deferred to migration phase — the backend Flashcard type lacks the
@@ -8,6 +8,10 @@ import { getAllFlashcards } from '../lib/dataProvider.js'
 // dual-write to localStorage + backend via dataProvider write functions.
 export function useFlashcards() {
   const [cards, setCards] = useState(() => getAllFlashcards())
+
+  useEffect(() => {
+    syncLocalFlashcardsToBackend()
+  }, [])
 
   const refresh = useCallback(() => {
     setCards(getAllFlashcards())
