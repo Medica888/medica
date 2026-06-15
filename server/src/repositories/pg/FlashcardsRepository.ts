@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { Pool } from 'pg';
 import type { Flashcard } from '../../types/index.js';
-import type { IFlashcardsRepository } from '../interfaces.js';
+import type { IFlashcardsRepository, FlashcardSrsUpdate } from '../interfaces.js';
 
 export class PgFlashcardsRepository implements IFlashcardsRepository {
   constructor(private pool: Pool) {}
@@ -140,15 +140,18 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
     return res.rows[0] ?? null;
   }
 
-  async markReviewed(id: string, userId: string): Promise<Flashcard | null> {
+  async markReviewed(id: string, userId: string, srs: FlashcardSrsUpdate): Promise<Flashcard | null> {
     const res = await this.pool.query<Flashcard>(
       `UPDATE flashcards
-       SET reviewed_at   = NOW(),
-           review_count  = review_count + 1,
-           review_status = CASE WHEN review_status = 'new' THEN 'learning' ELSE review_status END
+       SET reviewed_at   = $3,
+           review_count  = $4,
+           review_status = $5,
+           ease          = $6,
+           interval_days = $7,
+           next_review   = $8
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
-      [id, userId],
+      [id, userId, srs.reviewed_at, srs.review_count, srs.review_status, srs.ease, srs.interval_days, srs.next_review],
     );
     return res.rows[0] ?? null;
   }

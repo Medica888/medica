@@ -103,6 +103,8 @@ export interface Flashcard {
   review_count?: number;
   ease?: string | null;
   last_missed_reason?: string | null;
+  interval_days?: number;
+  next_review?: Date | null;
 }
 
 // ── Concept graph ─────────────────────────────────────────────────────────────

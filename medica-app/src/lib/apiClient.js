@@ -66,7 +66,7 @@ export const flashcards = {
 
   updateStatus: (id, status) => request('PATCH', `/api/flashcards/${id}/status`, { status }),
 
-  markReviewed: (id) => request('POST', `/api/flashcards/${id}/review`),
+  markReviewed: (id, ease) => request('POST', `/api/flashcards/${id}/review`, ease ? { ease } : undefined),
 
   clearAll: () => request('DELETE', '/api/flashcards'),
 };

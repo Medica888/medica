@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Flashcard } from '../../types/index.js';
-import type { IFlashcardsRepository } from '../interfaces.js';
+import type { IFlashcardsRepository, FlashcardSrsUpdate } from '../interfaces.js';
 
 export class InMemoryFlashcardsRepository implements IFlashcardsRepository {
   private store = new Map<string, Flashcard>();
@@ -51,12 +51,15 @@ export class InMemoryFlashcardsRepository implements IFlashcardsRepository {
     return card;
   }
 
-  async markReviewed(id: string, userId: string): Promise<Flashcard | null> {
+  async markReviewed(id: string, userId: string, srs: FlashcardSrsUpdate): Promise<Flashcard | null> {
     const card = this.store.get(id);
     if (!card || card.user_id !== userId) return null;
-    card.reviewed_at = new Date();
-    card.review_count = (card.review_count ?? 0) + 1;
-    if (card.review_status === 'new') card.review_status = 'learning';
+    card.reviewed_at   = srs.reviewed_at;
+    card.review_count  = srs.review_count;
+    card.review_status = srs.review_status;
+    card.ease          = srs.ease;
+    card.interval_days = srs.interval_days;
+    card.next_review   = srs.next_review;
     return card;
   }
 

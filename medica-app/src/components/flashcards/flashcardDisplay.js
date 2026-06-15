@@ -63,13 +63,14 @@ export const getCardStatus = (card) => card.reviewStatus || 'new'
 
 export function isFlashcardDue(card) {
   const s = card.reviewStatus
-  if (s === 'mastered') {
-    if (!card.nextReview) return false
-    const d = new Date(card.nextReview)
-    if (isNaN(d.getTime())) return false
-    return d <= new Date()
-  }
-  return true
+  // Mastered with no scheduled review: skip (backward compat for old cards)
+  if (s === 'mastered' && !card.nextReview) return false
+  // New / learning with no schedule: always due
+  if (!card.nextReview) return true
+  // All cards with a nextReview: due only when the date has passed
+  const d = new Date(card.nextReview)
+  if (isNaN(d.getTime())) return s !== 'mastered'
+  return d <= new Date()
 }
 
 export function sortFlashcards(arr, mode) {

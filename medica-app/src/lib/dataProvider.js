@@ -297,7 +297,7 @@ export async function reviewFlashcard(id, ease) {
   const backendId = _resolveBackendId(id);
   if (!backendId) { _markDirty(); return; }
   try {
-    await api.flashcards.markReviewed(backendId);
+    await api.flashcards.markReviewed(backendId, ease);
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard review failed:', err.message);
     _markDirty();
@@ -344,6 +344,8 @@ function _mapBackendCardToFrontend(c) {
     lastMissedReason:      c.last_missed_reason ?? null,
     createdAt:             c.created_at ?? null,
     reviewedAt:            c.reviewed_at ?? null,
+    interval:              c.interval_days ?? 0,
+    nextReview:            c.next_review ? new Date(c.next_review).toISOString() : null,
   };
 }
 
@@ -364,31 +366,28 @@ export async function getBackendFlashcards() {
   }
 }
 
-// Fields updated for an exact ID match (backend UUID === local id).
-// These cards use UUID in localStorage, so reviewFlashcard(uuid) reaches the backend
-// and backend SRS (reviewStatus, reviewCount, reviewedAt) stays current.
-// ease is excluded: backend updateStatus() only stores review_status, never ease,
-// so backend.ease is always null — overwriting would erase local ease values.
-// nextReview is local-only (not in backend schema) — never overwritten.
-const _BACKEND_OVERWRITE_FIELDS = [
+// Content fields written from backend → local for both id-match and key-match cards.
+const _BACKEND_CONTENT_FIELDS = [
   'front', 'back', 'subject', 'system', 'topic',
   'canonicalTopic', 'topicSlug', 'sourceMode', 'tag', 'type',
   'memoryAnchor', 'commonTrap', 'sourcePearl',
   'weakSpotCategory', 'reinforcementPriority', 'lastMissedReason',
   'createdAt',
-  'reviewStatus', 'reviewCount', 'reviewedAt',
 ];
 
-// Fields filled for a key-only match (sourceQuestionId::tag match, ids differ).
-// The local card has a fcg_... ID; reviewFlashcard(fcg_...) 404s on the backend,
-// so backend SRS is frozen at its initial sync value. Local SRS always wins here.
-const _BACKEND_FILL_FIELDS = [
-  'front', 'back', 'subject', 'system', 'topic',
-  'canonicalTopic', 'topicSlug', 'sourceMode', 'tag', 'type',
-  'memoryAnchor', 'commonTrap', 'sourcePearl',
-  'weakSpotCategory', 'reinforcementPriority', 'lastMissedReason',
-  'createdAt',
+// SRS fields written from backend → local only when backend.reviewedAt is newer.
+// This handles cross-device sync correctly and prevents stale backend data from
+// overwriting a more recent local review.
+const _BACKEND_SRS_FIELDS = [
+  'reviewStatus', 'reviewCount', 'reviewedAt', 'ease', 'interval', 'nextReview',
 ];
+
+function _isNewerReviewedAt(backendTs, localTs) {
+  const b = backendTs ? new Date(backendTs).getTime() : NaN;
+  if (isNaN(b)) return false; // backend has no review history → keep local
+  const l = localTs ? new Date(localTs).getTime() : NaN;
+  return isNaN(l) || b > l;  // local never reviewed, or backend is genuinely newer
+}
 
 function _normFront(s) {
   return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -397,20 +396,14 @@ function _normFront(s) {
 /**
  * Upsert backend cards into localStorage.
  *
- * ID match (bc.id === local.id):
- *   Backend non-null values update local, including SRS fields. Safe because these
- *   cards carry their backend UUID in localStorage, so markReviewed(uuid) succeeds
- *   and backend SRS stays current.
- *
- * Key-only match (sourceQuestionId::tag, ids differ):
- *   Backend fills empty content/metadata fields only. Local SRS wins because the
- *   local card's fcg_... ID causes markReviewed to 404, freezing backend SRS.
+ * Both id-match and key-match paths:
+ *   Content fields (front, back, metadata): overwrite with backend non-null values.
+ *   SRS fields (reviewStatus, interval, nextReview, …): only overwrite when
+ *   backend.reviewedAt is strictly newer than local.reviewedAt. This handles
+ *   cross-device sync correctly without clobbering recent local reviews.
  *
  * No match: card inserted with backend UUID as id (cross-device population).
  * Secondary dedup: normalized front text prevents visible duplicates.
- *
- * Null/undefined backend fields never overwrite populated local fields (either path).
- * Anonymous users: only called after authenticated getBackendFlashcards() — safe.
  *
  * Returns count of new cards inserted (updates are not counted).
  */
@@ -428,22 +421,18 @@ export function importBackendFlashcards(backendCards) {
     const key      = `${bc.sourceQuestionId ?? ''}::${bc.tag ?? ''}`;
     const idMatch  = byId.get(bc.id);
     const keyMatch = idMatch ? null : byKey.get(key);
+    const local_   = idMatch ?? keyMatch;
 
-    if (idMatch) {
-      // Exact UUID match: backend SRS is current — overwrite non-null fields
-      for (const field of _BACKEND_OVERWRITE_FIELDS) {
-        if (bc[field] != null) idMatch[field] = bc[field];
+    if (local_) {
+      for (const field of _BACKEND_CONTENT_FIELDS) {
+        if (bc[field] != null) local_[field] = bc[field];
       }
-      idMatch.backendId = bc.id;
-    } else if (keyMatch) {
-      // Key-only match: backend SRS is stale — fill missing content fields only.
-      // Local id is fcg_...; markReviewed(fcg_) 404s, so local SRS always wins.
-      for (const field of _BACKEND_FILL_FIELDS) {
-        if (bc[field] != null && bc[field] !== '' && (keyMatch[field] == null || keyMatch[field] === '')) {
-          keyMatch[field] = bc[field];
+      if (_isNewerReviewedAt(bc.reviewedAt, local_.reviewedAt)) {
+        for (const field of _BACKEND_SRS_FIELDS) {
+          if (bc[field] != null) local_[field] = bc[field];
         }
       }
-      keyMatch.backendId = bc.id;
+      local_.backendId = bc.id;
     } else {
       const nf = _normFront(bc.front);
       if (nf && frontSet.has(nf)) continue;

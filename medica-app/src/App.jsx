@@ -3,6 +3,7 @@ import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import { savePracticeResults, saveCoachResults, getSessionHistory, getFlashcards } from './lib/storage'
+import { isFlashcardDue } from './components/flashcards/flashcardDisplay'
 import { saveSession as persistSession } from './lib/dataProvider'
 import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
@@ -150,15 +151,7 @@ export default function App() {
   }, [])
 
   const flashcardsDue = useMemo(() => {
-    const cards = getFlashcards()
-    return cards.filter(c => {
-      if (c.reviewStatus === 'mastered') {
-        if (!c.nextReview) return false
-        const d = new Date(c.nextReview)
-        return !isNaN(d.getTime()) && d <= new Date()
-      }
-      return true
-    }).length
+    return getFlashcards().filter(isFlashcardDue).length
   }, [])
   // 'builder' | 'loading' | 'session' | 'practice-results' | 'practice-review' | 'coach-results' | 'exam-results' | 'exam-review'
   const [quizPhase, setQuizPhase]         = useState('builder')

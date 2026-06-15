@@ -174,7 +174,7 @@ describe('POST /api/flashcards — full-fidelity fields round-trip', () => {
 });
 
 describe('POST /api/flashcards/:id/review — review_count increment', () => {
-  it('increments review_count on each review', async () => {
+  it('increments review_count on each review (no ease = legacy path)', async () => {
     const token = await registerAndGetToken();
     const created = await request(app)
       .post('/api/flashcards')
@@ -193,5 +193,105 @@ describe('POST /api/flashcards/:id/review — review_count increment', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(second.status).toBe(200);
     expect(second.body.flashcard.review_count).toBe(2);
+  });
+});
+
+describe('POST /api/flashcards/:id/review — SRS scheduling', () => {
+  async function createAndReview(token: string, ease?: string) {
+    const created = await request(app)
+      .post('/api/flashcards')
+      .set('Authorization', `Bearer ${token}`)
+      .send(sampleCards);
+    const id = created.body.flashcards[0].id as string;
+    const body = ease ? { ease } : undefined;
+    const res = await request(app)
+      .post(`/api/flashcards/${id}/review`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+    return res;
+  }
+
+  it('easy: sets interval=7, status=mastered, next_review in the future', async () => {
+    const token = await registerAndGetToken();
+    const res = await createAndReview(token, 'easy');
+    expect(res.status).toBe(200);
+    const card = res.body.flashcard;
+    expect(card.ease).toBe('easy');
+    expect(card.interval_days).toBe(7);
+    expect(card.review_status).toBe('mastered');
+    expect(card.review_count).toBe(1);
+    const nextReview = new Date(card.next_review);
+    expect(nextReview > new Date()).toBe(true);
+  });
+
+  it('again: sets interval=0, status=learning, next_review is today or earlier', async () => {
+    const token = await registerAndGetToken();
+    const res = await createAndReview(token, 'again');
+    expect(res.status).toBe(200);
+    const card = res.body.flashcard;
+    expect(card.ease).toBe('again');
+    expect(card.interval_days).toBe(0);
+    expect(card.review_status).toBe('learning');
+    const nextReview = new Date(card.next_review);
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(nextReview < tomorrow).toBe(true);
+  });
+
+  it('good on first review: interval=3, status=learning', async () => {
+    const token = await registerAndGetToken();
+    const res = await createAndReview(token, 'good');
+    expect(res.status).toBe(200);
+    const card = res.body.flashcard;
+    expect(card.interval_days).toBe(3);
+    expect(card.review_status).toBe('learning');
+  });
+
+  it('hard on first review: interval=1, status=learning', async () => {
+    const token = await registerAndGetToken();
+    const res = await createAndReview(token, 'hard');
+    expect(res.status).toBe(200);
+    const card = res.body.flashcard;
+    expect(card.interval_days).toBe(1);
+    expect(card.review_status).toBe('learning');
+  });
+
+  it('again demotes a mastered card to learning', async () => {
+    const token = await registerAndGetToken();
+    const created = await request(app)
+      .post('/api/flashcards')
+      .set('Authorization', `Bearer ${token}`)
+      .send(sampleCards);
+    const id = created.body.flashcards[0].id as string;
+    // First promote to mastered
+    await request(app).post(`/api/flashcards/${id}/review`).set('Authorization', `Bearer ${token}`).send({ ease: 'easy' });
+    // Then demote
+    const res = await request(app).post(`/api/flashcards/${id}/review`).set('Authorization', `Bearer ${token}`).send({ ease: 'again' });
+    expect(res.status).toBe(200);
+    expect(res.body.flashcard.review_status).toBe('learning');
+    expect(res.body.flashcard.interval_days).toBe(0);
+  });
+
+  it('invalid ease returns 400', async () => {
+    const token = await registerAndGetToken();
+    const created = await request(app)
+      .post('/api/flashcards')
+      .set('Authorization', `Bearer ${token}`)
+      .send(sampleCards);
+    const id = created.body.flashcards[0].id as string;
+    const res = await request(app)
+      .post(`/api/flashcards/${id}/review`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ease: 'perfect' });
+    expect(res.status).toBe(400);
+  });
+
+  it('reviewed_at is set and recent', async () => {
+    const token = await registerAndGetToken();
+    const before = new Date();
+    const res = await createAndReview(token, 'good');
+    const after = new Date();
+    const reviewedAt = new Date(res.body.flashcard.reviewed_at);
+    expect(reviewedAt >= before).toBe(true);
+    expect(reviewedAt <= after).toBe(true);
   });
 });

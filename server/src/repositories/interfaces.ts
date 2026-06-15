@@ -44,13 +44,22 @@ export interface IQuestionAttemptsRepository {
   createMany(attempts: Omit<QuestionAttempt, 'id'>[], tx?: unknown): Promise<QuestionAttempt[]>;
 }
 
+export interface FlashcardSrsUpdate {
+  reviewed_at: Date;
+  review_count: number;
+  review_status: Flashcard['review_status'];
+  ease: string | null;
+  interval_days: number;
+  next_review: Date | null;
+}
+
 export interface IFlashcardsRepository {
   findByUserId(userId: string): Promise<Flashcard[]>;
   findById(id: string): Promise<Flashcard | null>;
   create(flashcard: Omit<Flashcard, 'id' | 'created_at'>): Promise<Flashcard>;
   createMany(flashcards: Omit<Flashcard, 'id' | 'created_at'>[]): Promise<Flashcard[]>;
   updateStatus(id: string, userId: string, status: Flashcard['review_status']): Promise<Flashcard | null>;
-  markReviewed(id: string, userId: string): Promise<Flashcard | null>;
+  markReviewed(id: string, userId: string, srs: FlashcardSrsUpdate): Promise<Flashcard | null>;
   deleteByUserId(userId: string): Promise<number>;
 }
 

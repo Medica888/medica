@@ -875,6 +875,90 @@ describe('importBackendFlashcards', () => {
     expect(saved[0].reviewedAt).toBe('2026-01-15');
     expect(saved[0].backendId).toBe('uuid-9');
   });
+
+  // ── SRS timestamp gate ──────────────────────────────────────────────────────
+
+  it('SRS gate: backend reviewedAt newer than local → SRS fields overwritten', () => {
+    const local = {
+      id: 'uuid-aa', sourceQuestionId: 'q2', tag: 'T',
+      front: 'F', back: 'B',
+      reviewStatus: 'learning', reviewCount: 1, reviewedAt: '2026-01-10T00:00:00.000Z',
+      ease: 'again', interval: 0, nextReview: null,
+    };
+    const bc = {
+      id: 'uuid-aa', sourceQuestionId: 'q2', tag: 'T',
+      front: 'F', back: 'B',
+      reviewStatus: 'mastered', reviewCount: 4, reviewedAt: '2026-01-20T00:00:00.000Z',
+      ease: 'easy', interval: 7, nextReview: '2026-01-27T00:00:00.000Z',
+    };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].reviewCount).toBe(4);
+    expect(saved[0].ease).toBe('easy');
+    expect(saved[0].interval).toBe(7);
+  });
+
+  it('SRS gate: local reviewedAt newer than backend → SRS fields kept', () => {
+    const local = {
+      id: 'uuid-bb', sourceQuestionId: 'q3', tag: 'T',
+      front: 'F', back: 'B',
+      reviewStatus: 'mastered', reviewCount: 5, reviewedAt: '2026-01-25T00:00:00.000Z',
+      ease: 'easy', interval: 14, nextReview: '2026-02-08T00:00:00.000Z',
+    };
+    const bc = {
+      id: 'uuid-bb', sourceQuestionId: 'q3', tag: 'T',
+      front: 'Updated front', back: 'Updated back',
+      reviewStatus: 'learning', reviewCount: 1, reviewedAt: '2026-01-10T00:00:00.000Z',
+      ease: 'again', interval: 0, nextReview: null,
+    };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    // Content fields updated (backend values applied)
+    expect(saved[0].front).toBe('Updated front');
+    expect(saved[0].back).toBe('Updated back');
+    // SRS fields preserved (local is newer)
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].reviewCount).toBe(5);
+    expect(saved[0].ease).toBe('easy');
+    expect(saved[0].interval).toBe(14);
+  });
+
+  it('SRS gate (keyMatch): content overwritten, SRS preserved when local is newer', () => {
+    // key-match path: local has no backendId, matched by sourceQuestionId::tag
+    const local = {
+      id: 'fcg_cc', sourceQuestionId: 'q4', tag: 'T',
+      front: 'Old front', back: 'Old back', subject: 'Old',
+      reviewStatus: 'mastered', reviewCount: 3, reviewedAt: '2026-02-01T00:00:00.000Z',
+      ease: 'good', interval: 8, nextReview: '2026-02-09T00:00:00.000Z',
+    };
+    const bc = {
+      id: 'uuid-cc', sourceQuestionId: 'q4', tag: 'T',
+      front: 'New front', back: 'New back', subject: 'New',
+      reviewStatus: 'new', reviewCount: 0, reviewedAt: '2026-01-01T00:00:00.000Z',
+      ease: null, interval: 0, nextReview: null,
+    };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    // Content updated
+    expect(saved[0].front).toBe('New front');
+    expect(saved[0].subject).toBe('New');
+    // SRS preserved (local newer)
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].reviewCount).toBe(3);
+    expect(saved[0].interval).toBe(8);
+    // backendId assigned
+    expect(saved[0].backendId).toBe('uuid-cc');
+  });
 });
 
 describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
@@ -894,7 +978,7 @@ describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
 
     await reviewFlashcard('11111111-2222-3333-4444-555555555555', 'good');
 
-    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555');
+    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555', 'good');
   });
 
   it('calls backend with backendId when fcg_ card has backendId set', async () => {
@@ -905,7 +989,7 @@ describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
     await reviewFlashcard('fcg_x', 'easy');
 
     expect(storage.markFlashcardReviewed).toHaveBeenCalledWith('fcg_x', 'easy');
-    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('uuid-99');
+    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('uuid-99', 'easy');
   });
 
   it('marks dirty and skips backend when fcg_ card has no backendId', async () => {

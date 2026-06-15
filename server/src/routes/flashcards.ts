@@ -49,11 +49,17 @@ router.patch('/:id/status', validate(updateStatusSchema), async (req: AuthReques
   }
 });
 
+const VALID_EASE = new Set(['again', 'hard', 'good', 'easy']);
+
 router.post('/:id/review', async (req: AuthRequest, res: Response) => {
   const id = String(req.params['id']);
   if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Flashcard not found' });
+  const { ease } = (req.body ?? {}) as { ease?: string };
+  if (ease !== undefined && !VALID_EASE.has(ease)) {
+    return res.status(400).json({ error: 'Validation error', details: { ease: 'Must be again, hard, good, or easy' } });
+  }
   try {
-    const card = await getService().markReviewed(id, req.userId!);
+    const card = await getService().markReviewed(id, req.userId!, ease);
     res.json({ flashcard: card });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : '';

@@ -8,6 +8,7 @@ import { validateClinicalCard } from './flashcardValidator.js'
 import { getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { questionReports } from './apiClient.js'
+import { computeSRS } from './srsScheduler.js'
 
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
@@ -526,9 +527,7 @@ export function updateFlashcardStatus(id, status, ease) {
 }
 
 /**
- * Mark a card as reviewed with a given ease rating.
- * Simple MVP logic: easy -> mastered; again/hard -> learning;
- * good -> mastered if reviewCount >= 2, otherwise learning.
+ * Mark a card as reviewed with a given ease rating, computing the next SRS schedule.
  * @param {string} id
  * @param {'again'|'hard'|'good'|'easy'} ease
  */
@@ -538,16 +537,10 @@ export function markFlashcardReviewed(id, ease) {
     const cards = getFlashcards()
     const card = cards.find(c => c.id === id)
     if (!card) return
-    let status
-    if (ease === 'easy') {
-      status = 'mastered'
-    } else if (ease === 'good') {
-      status = (card.reviewCount || 0) >= 2 ? 'mastered' : 'learning'
-    } else {
-      status = 'learning'
-    }
-    updateFlashcardStatus(id, status, ease)
-    recordFlashcardReviewEvent(card, ease, status)
+    const srs = computeSRS(card, ease)
+    if (!srs) return
+    saveFlashcards(cards.map(c => c.id === id ? { ...c, ...srs } : c))
+    recordFlashcardReviewEvent(card, ease, srs.reviewStatus)
   } catch { /* ignore */ }
 }
 
