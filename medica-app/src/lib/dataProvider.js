@@ -110,6 +110,7 @@ const VALID_TYPES        = new Set(['Recall', 'Pearl', 'Application', 'Trap', 'C
 const VALID_STATUS       = new Set(['new', 'learning', 'review', 'mastered']);
 const VALID_EASE         = new Set(['again', 'hard', 'good', 'easy']);
 const VALID_PRIORITY     = new Set(['low', 'normal', 'high']);
+const UUID_RE            = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function _mapCardToBackendPayload(c) {
   return {
@@ -154,6 +155,38 @@ function _clearFlag(key) {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
+function _markDirty() {
+  const token = api.getAuthToken?.();
+  if (!token) return;
+  const userId = _getUserIdFromToken(token);
+  if (userId) _setFlag(`${SYNC_DIRTY_PREFIX}${userId}`);
+}
+
+function _resolveBackendId(localId) {
+  const card = getFlashcards().find(c => c.id === localId);
+  if (card?.backendId) return card.backendId;
+  if (UUID_RE.test(localId)) return localId;
+  return null;
+}
+
+function _writeBackendIds(createdCards) {
+  if (!Array.isArray(createdCards) || createdCards.length === 0) return;
+  const local = getFlashcards();
+  let changed = false;
+  const byKey = new Map(
+    local.map(c => [`${c.sourceQuestionId ?? c.id ?? ''}::${c.tag ?? ''}`, c]),
+  );
+  for (const bc of createdCards) {
+    const key = `${bc.source_question_id ?? ''}::${bc.tag ?? ''}`;
+    const card = byKey.get(key);
+    if (card && !card.backendId && bc.id) {
+      card.backendId = bc.id;
+      changed = true;
+    }
+  }
+  if (changed) _storageSaveFlashcards(local);
+}
+
 /**
  * Save flashcards generated after a session.
  * Written to localStorage first; backend is best-effort.
@@ -181,7 +214,8 @@ export async function saveFlashcards(cards) {
   try {
     const mapped = savedCards.map(_mapCardToBackendPayload);
     result.backendAttempted = true;
-    await api.flashcards.createMany(mapped);
+    const created = await api.flashcards.createMany(mapped);
+    _writeBackendIds(created?.flashcards ?? []);
     result.backendSynced = true;
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard save failed:', err.message);
@@ -230,7 +264,8 @@ export async function syncLocalFlashcardsToBackend() {
     const toSync = allMapped.filter(c => !existingKeys.has(`${c.source_question_id}::${c.tag}`));
 
     if (toSync.length > 0) {
-      await api.flashcards.createMany(toSync);
+      const created = await api.flashcards.createMany(toSync);
+      _writeBackendIds(created?.flashcards ?? []);
     }
     _setFlag(flagKey);
     _clearFlag(dirtyKey);
@@ -244,11 +279,14 @@ export async function syncLocalFlashcardsToBackend() {
 export async function setFlashcardStatus(id, status) {
   updateFlashcardStatus(id, status);
 
-  if (!USE_BACKEND) return;
+  if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  const backendId = _resolveBackendId(id);
+  if (!backendId) { _markDirty(); return; }
   try {
-    await api.flashcards.updateStatus(id, status);
+    await api.flashcards.updateStatus(backendId, status);
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard status update failed:', err.message);
+    _markDirty();
   }
 }
 
@@ -256,10 +294,13 @@ export async function reviewFlashcard(id, ease) {
   markFlashcardReviewed(id, ease);
 
   if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  const backendId = _resolveBackendId(id);
+  if (!backendId) { _markDirty(); return; }
   try {
-    await api.flashcards.markReviewed(id);
+    await api.flashcards.markReviewed(backendId);
   } catch (err) {
     console.warn('[dataProvider] Backend flashcard review failed:', err.message);
+    _markDirty();
   }
 }
 
@@ -393,17 +434,20 @@ export function importBackendFlashcards(backendCards) {
       for (const field of _BACKEND_OVERWRITE_FIELDS) {
         if (bc[field] != null) idMatch[field] = bc[field];
       }
+      idMatch.backendId = bc.id;
     } else if (keyMatch) {
-      // Key-only match: backend SRS is stale — fill missing content fields only
+      // Key-only match: backend SRS is stale — fill missing content fields only.
+      // Local id is fcg_...; markReviewed(fcg_) 404s, so local SRS always wins.
       for (const field of _BACKEND_FILL_FIELDS) {
         if (bc[field] != null && bc[field] !== '' && (keyMatch[field] == null || keyMatch[field] === '')) {
           keyMatch[field] = bc[field];
         }
       }
+      keyMatch.backendId = bc.id;
     } else {
       const nf = _normFront(bc.front);
       if (nf && frontSet.has(nf)) continue;
-      const card = { ...bc };
+      const card = { ...bc, backendId: bc.id };
       merged.push(card);
       if (bc.id) byId.set(bc.id, card);
       byKey.set(key, card);

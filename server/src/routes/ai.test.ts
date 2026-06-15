@@ -1682,6 +1682,22 @@ describe('hybrid question bank fill', () => {
     expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
   });
 
+  it('fails closed before showing or saving live AI questions when quarantine lookup fails', async () => {
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([makePromotableQuestion()]));
+    (getRepositories().questionReports as any).getQuarantinedFingerprints = async () => {
+      throw new Error('quarantine unavailable');
+    };
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(503);
+
+    expect(res.body.code).toBe('QUARANTINE_CHECK_UNAVAILABLE');
+    expect(res.body.error).not.toMatch(/quarantine unavailable/i);
+    expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
+  });
+
   it('captures validated medical-unknown manual topics as taxonomy candidates', async () => {
     const breastCancerQuestion = makePromotableQuestion({
       id: 'breast-cancer-q-1',

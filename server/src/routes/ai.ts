@@ -2075,7 +2075,7 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
       }
     }
 
-    // ── Quarantine filter — fail-open: if the check throws, generation proceeds ──
+    // ── Quarantine filter — fail-closed: if the check throws, do not serve or save generated content ──
     let quarantineRejected = 0;
     try {
       const quarantinedFps = await getRepositories().questionReports.getQuarantinedFingerprints();
@@ -2091,7 +2091,12 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
         });
       }
     } catch (qErr) {
-      console.warn('[generate-questions] quarantine check skipped:', (qErr as Error).message);
+      console.warn('[generate-questions] quarantine check failed closed:', (qErr as Error).message);
+      res.status(503).json({
+        error: 'Question safety check temporarily unavailable',
+        code: 'QUARANTINE_CHECK_UNAVAILABLE',
+      });
+      return;
     }
 
     // Use the full AI buffer so +2 buffer questions can fill bank-collision gaps.

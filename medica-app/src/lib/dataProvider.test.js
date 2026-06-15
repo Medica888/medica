@@ -25,7 +25,7 @@ vi.mock('./apiClient.js', () => ({
   exams: { create: vi.fn().mockResolvedValue({ id: 'sess-1' }) },
   flashcards: {
     list: vi.fn().mockResolvedValue({ flashcards: [] }),
-    createMany: vi.fn().mockResolvedValue([]),
+    createMany: vi.fn().mockResolvedValue({ flashcards: [] }),
     updateStatus: vi.fn(),
     markReviewed: vi.fn(),
   },
@@ -40,6 +40,7 @@ import {
   saveFlashcards,
   getAllFlashcards,
   reviewFlashcard,
+  setFlashcardStatus,
   clearFlashcards,
   syncLocalFlashcardsToBackend,
   getBackendFlashcards,
@@ -348,7 +349,7 @@ describe('syncLocalFlashcardsToBackend', () => {
     vi.clearAllMocks();
     api.getAuthToken.mockReturnValue(FAKE_TOKEN);
     api.flashcards.list.mockResolvedValue({ flashcards: [] });
-    api.flashcards.createMany.mockResolvedValue([]);
+    api.flashcards.createMany.mockResolvedValue({ flashcards: [] });
     try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
     try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
   });
@@ -815,5 +816,267 @@ describe('importBackendFlashcards', () => {
     expect(added).toBe(1);
     const saved = storage.saveFlashcards.mock.calls[0][0];
     expect(saved).toHaveLength(2);
+  });
+
+  // ── alpha.8: backendId written on all match paths ────────────────────────
+
+  it('sets backendId on ID-matched local card', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].backendId).toBe('uuid-1');
+  });
+
+  it('sets backendId on key-only matched fcg_ card (the critical mapping)', () => {
+    const local = { id: 'fcg_local', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    const bc    = { id: 'uuid-99',  front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].id).toBe('fcg_local');
+    expect(saved[0].backendId).toBe('uuid-99');
+  });
+
+  it('sets backendId on newly inserted card', () => {
+    const bc = { id: 'uuid-new', front: 'F', back: 'B', sourceQuestionId: 'q9', tag: 'X' };
+    storage.getFlashcards.mockReturnValue([]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].backendId).toBe('uuid-new');
+  });
+
+  it('does not let backendId mapping route fcg_ card into SRS overwrite branch', () => {
+    // Regression: after fcg_ card gets backendId='uuid-9', backend returns {id:'uuid-9', reviewStatus:'new'}.
+    // The card must still use LOCAL SRS (mastered/5) — key-only match path, not id-match.
+    const local = {
+      id: 'fcg_x', backendId: 'uuid-9', sourceQuestionId: 'q1', tag: 'C',
+      front: 'F', back: 'B', reviewStatus: 'mastered', reviewCount: 5, reviewedAt: '2026-01-15',
+    };
+    const bc = {
+      id: 'uuid-9', sourceQuestionId: 'q1', tag: 'C',
+      front: 'F', back: 'B', reviewStatus: 'new', reviewCount: 0, reviewedAt: null,
+    };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].id).toBe('fcg_x');
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].reviewCount).toBe(5);
+    expect(saved[0].reviewedAt).toBe('2026-01-15');
+    expect(saved[0].backendId).toBe('uuid-9');
+  });
+});
+
+describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    storage.getFlashcards.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  it('calls backend with local id when id is already a UUID', async () => {
+    api.flashcards.markReviewed.mockResolvedValue(null);
+    storage.getFlashcards.mockReturnValue([]);
+
+    await reviewFlashcard('11111111-2222-3333-4444-555555555555', 'good');
+
+    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555');
+  });
+
+  it('calls backend with backendId when fcg_ card has backendId set', async () => {
+    const localCard = { id: 'fcg_x', backendId: 'uuid-99', front: 'F', back: 'B' };
+    storage.getFlashcards.mockReturnValue([localCard]);
+    api.flashcards.markReviewed.mockResolvedValue(null);
+
+    await reviewFlashcard('fcg_x', 'easy');
+
+    expect(storage.markFlashcardReviewed).toHaveBeenCalledWith('fcg_x', 'easy');
+    expect(api.flashcards.markReviewed).toHaveBeenCalledWith('uuid-99');
+  });
+
+  it('marks dirty and skips backend when fcg_ card has no backendId', async () => {
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    const localCard = { id: 'fcg_x', front: 'F', back: 'B' };
+    storage.getFlashcards.mockReturnValue([localCard]);
+
+    await reviewFlashcard('fcg_x', 'good');
+
+    expect(api.flashcards.markReviewed).not.toHaveBeenCalled();
+    expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
+  });
+
+  it('marks dirty when backend call fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storage.getFlashcards.mockReturnValue([]);
+    api.flashcards.markReviewed.mockRejectedValueOnce(new Error('network'));
+
+    await reviewFlashcard('11111111-2222-3333-4444-555555555555', 'hard');
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
+    warnSpy.mockRestore();
+  });
+});
+
+describe('setFlashcardStatus — backendId resolution (alpha.8)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    storage.getFlashcards.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  it('always updates localStorage', async () => {
+    await setFlashcardStatus('fcg_x', 'mastered');
+    expect(storage.updateFlashcardStatus).toHaveBeenCalledWith('fcg_x', 'mastered');
+  });
+
+  it('calls backend with UUID directly when id is already a UUID', async () => {
+    api.flashcards.updateStatus.mockResolvedValue(null);
+    storage.getFlashcards.mockReturnValue([]);
+
+    await setFlashcardStatus('11111111-2222-3333-4444-555555555555', 'review');
+
+    expect(api.flashcards.updateStatus).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555', 'review');
+  });
+
+  it('calls backend with backendId when fcg_ card has backendId set', async () => {
+    const localCard = { id: 'fcg_x', backendId: 'uuid-77', front: 'F', back: 'B' };
+    storage.getFlashcards.mockReturnValue([localCard]);
+    api.flashcards.updateStatus.mockResolvedValue(null);
+
+    await setFlashcardStatus('fcg_x', 'mastered');
+
+    expect(api.flashcards.updateStatus).toHaveBeenCalledWith('uuid-77', 'mastered');
+  });
+
+  it('marks dirty and skips backend when fcg_ card has no backendId', async () => {
+    const localCard = { id: 'fcg_x', front: 'F', back: 'B' };
+    storage.getFlashcards.mockReturnValue([localCard]);
+
+    await setFlashcardStatus('fcg_x', 'mastered');
+
+    expect(api.flashcards.updateStatus).not.toHaveBeenCalled();
+    expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
+  });
+
+  it('marks dirty when backend call fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storage.getFlashcards.mockReturnValue([]);
+    api.flashcards.updateStatus.mockRejectedValueOnce(new Error('network'));
+
+    await setFlashcardStatus('11111111-2222-3333-4444-555555555555', 'learning');
+
+    expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
+    warnSpy.mockRestore();
+  });
+
+  it('does not call backend when user is not authenticated', async () => {
+    api.getAuthToken.mockReturnValue(null);
+
+    await setFlashcardStatus('11111111-2222-3333-4444-555555555555', 'mastered');
+
+    expect(api.flashcards.updateStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('saveFlashcards — _writeBackendIds (alpha.8)', () => {
+  afterEach(() => {
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  it('writes backendId to local fcg_ card after successful createMany', async () => {
+    const fcgCard = { id: 'fcg_x', front: 'Q', back: 'A', sourceQuestionId: 'q1', tag: 'Bio' };
+    const backendResponse = { flashcards: [{ id: 'uuid-new', source_question_id: 'q1', tag: 'Bio' }] };
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])         // beforeKeys
+      .mockReturnValueOnce([fcgCard])  // savedCards filter
+      .mockReturnValueOnce([fcgCard]); // _writeBackendIds read
+    api.flashcards.createMany.mockResolvedValueOnce(backendResponse);
+
+    await saveFlashcards([fcgCard]);
+
+    expect(storage.saveFlashcards).toHaveBeenCalledOnce();
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].backendId).toBe('uuid-new');
+  });
+
+  it('does not call saveFlashcards when createMany returns no cards', async () => {
+    const fcgCard = { id: 'fcg_y', front: 'Q', back: 'A', sourceQuestionId: 'q2', tag: 'Neuro' };
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    storage.appendFlashcards.mockReturnValueOnce(1);
+    storage.getFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([fcgCard])
+      .mockReturnValueOnce([fcgCard]);
+    api.flashcards.createMany.mockResolvedValueOnce({ flashcards: [] });
+
+    await saveFlashcards([fcgCard]);
+
+    expect(storage.saveFlashcards).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncLocalFlashcardsToBackend — _writeBackendIds (alpha.8)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.flashcards.list.mockResolvedValue({ flashcards: [] });
+    api.flashcards.createMany.mockResolvedValue({ flashcards: [] });
+    try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  afterEach(() => {
+    try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
+    try { localStorage.removeItem(DIRTY_KEY); } catch { /* ignore */ }
+  });
+
+  it('writes backendId to local fcg_ card after successful sync', async () => {
+    const fcgCard = { front: 'Q', back: 'A', sourceQuestionId: 'q1', tag: 'Bio' };
+    const backendResponse = { flashcards: [{ id: 'uuid-new', source_question_id: 'q1', tag: 'Bio' }] };
+    storage.getFlashcards
+      .mockReturnValueOnce([fcgCard])  // localCards
+      .mockReturnValueOnce([fcgCard]); // _writeBackendIds read
+    api.flashcards.createMany.mockResolvedValueOnce(backendResponse);
+
+    await syncLocalFlashcardsToBackend();
+
+    expect(storage.saveFlashcards).toHaveBeenCalledOnce();
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].backendId).toBe('uuid-new');
+  });
+
+  it('uses sourceQuestionId ?? id fallback when sourceQuestionId is absent', async () => {
+    // Card was sent to backend with source_question_id = c.id (the fcg_ id) fallback
+    const fcgCard = { id: 'fcg_nqid', front: 'Q', back: 'A', tag: 'Bio' };
+    const backendResponse = { flashcards: [{ id: 'uuid-match', source_question_id: 'fcg_nqid', tag: 'Bio' }] };
+    storage.getFlashcards
+      .mockReturnValueOnce([fcgCard])
+      .mockReturnValueOnce([fcgCard]);
+    api.flashcards.createMany.mockResolvedValueOnce(backendResponse);
+
+    await syncLocalFlashcardsToBackend();
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].backendId).toBe('uuid-match');
   });
 });

@@ -351,4 +351,114 @@ describe('medical fact registry expanded canonical facts', () => {
     expect(result.passed).toBe(false);
     expect(result.rejectionReasons).toContain('specialty:fact_registry_endocrine_21_hydroxylase_cah_contradiction');
   });
+
+  it('fails when Graves disease is explained as Hashimoto-style thyroid destruction', async () => {
+    const result = await validate(q({
+      subject: 'Pathology',
+      system: 'Endocrine',
+      topic: 'Graves disease',
+      testedConcept: 'Graves disease antibody mechanism',
+      usmleContentArea: 'Endocrine System',
+      stem: 'A 29-year-old woman has heat intolerance, tremor, diffuse goiter, and exophthalmos due to Graves disease. Which antibody mechanism explains this condition?',
+      options: [
+        { letter: 'A', text: 'Anti-thyroid peroxidase antibodies causing autoimmune thyroid destruction' },
+        { letter: 'B', text: 'Insulin receptor antibodies causing fasting hypoglycemia' },
+        { letter: 'C', text: 'Anti-mitochondrial antibodies damaging bile ducts' },
+        { letter: 'D', text: 'Anti-centromere antibodies causing limited systemic sclerosis' },
+      ],
+      correct: 'A',
+      explanation: 'Graves disease is caused by anti-TPO mediated thyroid destruction with autoimmune hypothyroidism.',
+    }));
+
+    expect(result.passed).toBe(false);
+    expect(result.rejectionReasons).toContain('specialty:fact_registry_endocrine_graves_tsh_receptor_stimulation_contradiction');
+  });
+
+  it('fails when myasthenia gravis is explained as Lambert-Eaton physiology', async () => {
+    const result = await validate(q({
+      subject: 'Pathology',
+      system: 'Neurology',
+      topic: 'Myasthenia gravis',
+      testedConcept: 'Myasthenia gravis antibody target',
+      usmleContentArea: 'Nervous System & Special Senses',
+      stem: 'A 34-year-old woman has fluctuating ptosis and fatigable weakness due to myasthenia gravis. Which mechanism explains the disease?',
+      options: [
+        { letter: 'A', text: 'Presynaptic P/Q-type calcium channel antibodies causing improved strength with repeated use' },
+        { letter: 'B', text: 'Dystrophin gene deletion causing myofiber membrane instability' },
+        { letter: 'C', text: 'Anterior horn cell degeneration causing fasciculations' },
+        { letter: 'D', text: 'Peripheral myelin destruction causing slowed nerve conduction' },
+      ],
+      correct: 'A',
+      explanation: 'Myasthenia gravis is caused by presynaptic calcium channel antibodies, so weakness improves with repeated use.',
+    }));
+
+    expect(result.passed).toBe(false);
+    expect(result.rejectionReasons).toContain('specialty:fact_registry_neurology_myasthenia_ach_receptor_contradiction');
+  });
+
+  it('fails when SLE is assigned systemic-sclerosis antibodies', async () => {
+    const result = await validate(q({
+      subject: 'Immunology',
+      system: 'Multisystem',
+      topic: 'Systemic lupus erythematosus',
+      testedConcept: 'SLE autoantibodies',
+      usmleContentArea: 'Immune System',
+      stem: 'A young woman has photosensitivity, oral ulcers, malar rash, and lupus nephritis from systemic lupus erythematosus. Which antibody is most associated with this disease?',
+      options: [
+        { letter: 'A', text: 'Anti-centromere antibodies' },
+        { letter: 'B', text: 'Anti-acetylcholine receptor antibodies' },
+        { letter: 'C', text: 'Anti-mitochondrial antibodies' },
+        { letter: 'D', text: 'Anti-glomerular basement membrane antibodies' },
+      ],
+      correct: 'A',
+      explanation: 'Systemic lupus erythematosus is best associated with anti-centromere antibodies.',
+    }));
+
+    expect(result.passed).toBe(false);
+    expect(result.rejectionReasons).toContain('specialty:fact_registry_immunology_sle_anti_dsdna_smith_contradiction');
+  });
+
+  it('fails when tuberculosis is classified as a coagulase-positive coccus', async () => {
+    const result = await validate(q({
+      subject: 'Microbiology',
+      system: 'Infectious Disease',
+      topic: 'Tuberculosis',
+      testedConcept: 'Mycobacterium tuberculosis organism classification',
+      usmleContentArea: 'Microbiology',
+      stem: 'A patient with chronic cough, night sweats, apical cavitary lesions, and caseating granulomas has tuberculosis. Which organism feature explains this infection?',
+      options: [
+        { letter: 'A', text: 'Gram-positive cocci in clusters that are coagulase positive' },
+        { letter: 'B', text: 'Motile gram-negative rod with lactose fermentation' },
+        { letter: 'C', text: 'Encapsulated budding yeast seen with India ink' },
+        { letter: 'D', text: 'Optochin-sensitive diplococci with a polysaccharide capsule' },
+      ],
+      correct: 'A',
+      explanation: 'Tuberculosis is caused by gram-positive cocci in clusters that are coagulase positive.',
+    }));
+
+    expect(result.passed).toBe(false);
+    expect(result.rejectionReasons).toContain('specialty:fact_registry_microbiology_tuberculosis_acid_fast_caseating_contradiction');
+  });
+
+  it('fails when celiac disease is explained as Crohn disease pathology', async () => {
+    const result = await validate(q({
+      subject: 'Pathology',
+      system: 'Gastrointestinal',
+      topic: 'Celiac disease',
+      testedConcept: 'Celiac disease histology and antibodies',
+      usmleContentArea: 'Gastrointestinal System',
+      stem: 'A child develops chronic diarrhea, bloating, and weight loss after eating wheat products, consistent with celiac disease. Which pathologic finding is expected?',
+      options: [
+        { letter: 'A', text: 'Transmural inflammation with noncaseating granulomas and skip lesions' },
+        { letter: 'B', text: 'Pseudomembranes caused by toxin-mediated colitis' },
+        { letter: 'C', text: 'Crypt abscesses limited to the colon and rectum' },
+        { letter: 'D', text: 'Paneth cell metaplasia from chronic colonic injury' },
+      ],
+      correct: 'A',
+      explanation: 'Celiac disease is defined by transmural inflammation with noncaseating granulomas and skip lesions.',
+    }));
+
+    expect(result.passed).toBe(false);
+    expect(result.rejectionReasons).toContain('specialty:fact_registry_gastrointestinal_celiac_ttg_villous_atrophy_contradiction');
+  });
 });
