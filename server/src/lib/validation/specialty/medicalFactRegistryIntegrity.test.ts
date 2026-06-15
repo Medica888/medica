@@ -45,4 +45,31 @@ describe('medical fact registry integrity', () => {
 
     expect(uniqueExpectedStatements.size).toBe(expectedStatements.length);
   });
+
+  it('covers the major USMLE medical domains with a broad rule set', () => {
+    const domains = new Set(medicalFactRules.map(rule => rule.domain));
+    const expectedDomains = [
+      'Cardiology',
+      'Pulmonary',
+      'Renal',
+      'Endocrine',
+      'Gastrointestinal',
+      'Neurology',
+      'Microbiology',
+      'Immunology',
+      'Hematology',
+      'Reproductive',
+      'Rheumatology',
+      'Dermatology',
+      'Psychiatry',
+      'Pharmacology',
+      'Biochemistry',
+      'Genetics',
+    ];
+
+    expect(medicalFactRules.length).toBeGreaterThanOrEqual(100);
+    for (const domain of expectedDomains) {
+      expect(domains.has(domain)).toBe(true);
+    }
+  });
 });
