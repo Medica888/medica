@@ -1,6 +1,7 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { config } from './config.js';
 import healthRouter from './routes/health.js';
 import authRouter from './routes/auth.js';
@@ -14,6 +15,7 @@ import questionReportsRouter from './routes/questionReports.js';
 export function createApp(): express.Application {
   const app = express();
 
+  app.use(helmet());
   app.use(cors({ origin: config.allowedOrigins, credentials: true }));
   app.use(express.json({ limit: '2mb' }));
 

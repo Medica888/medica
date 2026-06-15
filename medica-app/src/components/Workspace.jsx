@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import MCQView from './MCQView'
 
 marked.setOptions({ breaks: true })
@@ -168,7 +169,7 @@ export default function Workspace({ skill, onBack }) {
               <div
                 className="out-body"
                 dangerouslySetInnerHTML={{
-                  __html: marked.parse(output) + (isGenerating ? '<span class="tcur"></span>' : '')
+                  __html: DOMPurify.sanitize(marked.parse(output)) + (isGenerating ? '<span class="tcur"></span>' : '')
                 }}
               />
             )}

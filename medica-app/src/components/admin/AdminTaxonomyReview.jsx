@@ -58,9 +58,8 @@ export default function AdminTaxonomyReview() {
   })
   const { pending: saving, act } = useTaxonomyCandidateActions()
 
-  const rawCandidates = data?.candidates ?? []
-
   const candidates = useMemo(() => {
+    const rawCandidates = data?.candidates ?? []
     let list = rawCandidates.map(c => localUpdates[c.id] ? { ...c, ...localUpdates[c.id] } : c)
     if (filterType) list = list.filter(c => c.type === filterType)
     if (search.trim()) {
@@ -71,9 +70,9 @@ export default function AdminTaxonomyReview() {
       )
     }
     return list
-  }, [rawCandidates, localUpdates, filterType, search])
+  }, [data?.candidates, localUpdates, filterType, search])
 
-  const hasMore = rawCandidates.length >= PAGE_SIZE
+  const hasMore = (data?.candidates?.length ?? 0) >= PAGE_SIZE
   const hasPrev = page > 1
 
   const flashSuccess = (id) => {
@@ -134,7 +133,7 @@ export default function AdminTaxonomyReview() {
   const handleFilterStatus = (val) => { setFilterStatus(val); setPage(1); closeExpanded() }
   const handleFilterType   = (val) => { setFilterType(val); closeExpanded() }
 
-  const count      = rawCandidates.length
+  const count      = data?.candidates?.length ?? 0
   const countLabel = data ? (hasMore ? `${count}+` : String(count)) : null
 
   return (
