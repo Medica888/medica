@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { IQuestionsRepository } from '../interfaces.js';
+import type { GeneratedBankStatus, IQuestionsRepository } from '../interfaces.js';
 import {
   difficultySearchLabels,
   isBroadTaxonomyValue,
@@ -117,7 +117,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
 
   async findGeneratedBankReview(params: {
     externalId?: string;
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -128,9 +128,13 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       if (sort === 'newest') return 0;
       if (sort === 'score') return (b.validationScore ?? -1) - (a.validationScore ?? -1);
       if (sort === 'usage') return b.usageCount - a.usageCount;
-      // priority: validated_generated first, then lower score, then higher usage
-      const aStatus = a.bankStatus === 'validated_generated' ? 0 : 1;
-      const bStatus = b.bankStatus === 'validated_generated' ? 0 : 1;
+      // priority: failed candidates first, then pending generated, then lower score, then higher usage
+      const statusPriority = (status: string) =>
+        status === 'validation_failed' ? 0 :
+        status === 'validated_generated' ? 1 :
+        status === 'rejected' ? 3 : 2;
+      const aStatus = statusPriority(a.bankStatus);
+      const bStatus = statusPriority(b.bankStatus);
       if (aStatus !== bStatus) return aStatus - bStatus;
       const aScore = a.validationScore ?? 100;
       const bScore = b.validationScore ?? 100;
@@ -163,7 +167,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
   }
 
   async countGeneratedBankReview(params: {
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
   }): Promise<number> {
     return [...this.store.values()].filter(entry =>
       entry.source === 'ai'
@@ -173,7 +177,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
 
   async updateGeneratedBankStatus(
     externalId: string,
-    status: 'validated_generated' | 'approved' | 'quarantined',
+    status: GeneratedBankStatus,
   ): Promise<Record<string, unknown> | null> {
     const entry = this.store.get(externalId);
     if (!entry || entry.source !== 'ai') return null;
@@ -209,6 +213,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     validatedGenerated: number;
     approved: number;
     quarantined: number;
+    validationFailed: number;
+    rejected: number;
     used: number;
     totalUsage: number;
     approvalRate: number;
@@ -221,7 +227,9 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     const approved = entries.filter(entry => entry.bankStatus === 'approved').length;
     const quarantined = entries.filter(entry => entry.bankStatus === 'quarantined').length;
     const validatedGenerated = entries.filter(entry => entry.bankStatus === 'validated_generated').length;
-    const reviewable = approved + quarantined + validatedGenerated;
+    const validationFailed = entries.filter(entry => entry.bankStatus === 'validation_failed').length;
+    const rejected = entries.filter(entry => entry.bankStatus === 'rejected').length;
+    const reviewable = approved + quarantined + validatedGenerated + validationFailed + rejected;
     const scoredEntries = entries.filter(entry => entry.validationScore != null);
     const avgScore = scoredEntries.length > 0
       ? scoredEntries.reduce((sum, e) => sum + (e.validationScore as number), 0) / scoredEntries.length
@@ -232,6 +240,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       validatedGenerated,
       approved,
       quarantined,
+      validationFailed,
+      rejected,
       used: entries.filter(entry => entry.usageCount > 0).length,
       totalUsage: entries.reduce((sum, entry) => sum + entry.usageCount, 0),
       approvalRate: reviewable > 0 ? approved / reviewable : 0,

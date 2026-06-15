@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { IQuestionsRepository } from '../interfaces.js';
+import type { GeneratedBankStatus, IQuestionsRepository } from '../interfaces.js';
 import {
   difficultySearchLabels,
   isBroadTaxonomyValue,
@@ -132,7 +132,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
 
   async findGeneratedBankReview(params: {
     externalId?: string;
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -160,7 +160,12 @@ export class PgQuestionsRepository implements IQuestionsRepository {
         : params.sort === 'usage'
           ? 'usage_count DESC, created_at DESC'
           : /* priority (default) */
-            `CASE WHEN bank_status = 'validated_generated' THEN 0 ELSE 1 END ASC,
+            `CASE
+               WHEN bank_status = 'validation_failed' THEN 0
+               WHEN bank_status = 'validated_generated' THEN 1
+               WHEN bank_status = 'rejected' THEN 3
+               ELSE 2
+             END ASC,
              COALESCE(validation_score, 100) ASC,
              usage_count DESC,
              report_count DESC,
@@ -191,7 +196,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
   }
 
   async countGeneratedBankReview(params: {
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
   }): Promise<number> {
     const values: unknown[] = [];
     const clauses = ["source = 'ai'"];
@@ -208,7 +213,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
 
   async updateGeneratedBankStatus(
     externalId: string,
-    status: 'validated_generated' | 'approved' | 'quarantined',
+    status: GeneratedBankStatus,
   ): Promise<Record<string, unknown> | null> {
     const res = await this.pool.query<Record<string, unknown>>(
       `UPDATE questions
@@ -241,6 +246,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     validatedGenerated: number;
     approved: number;
     quarantined: number;
+    validationFailed: number;
+    rejected: number;
     used: number;
     totalUsage: number;
     approvalRate: number;
@@ -255,6 +262,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       validatedGenerated: string;
       approved: string;
       quarantined: string;
+      validationFailed: string;
+      rejected: string;
       used: string;
       totalUsage: string;
       averageValidationScore: string | null;
@@ -266,6 +275,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               COUNT(*) FILTER (WHERE bank_status = 'validated_generated')::text AS "validatedGenerated",
               COUNT(*) FILTER (WHERE bank_status = 'approved')::text AS "approved",
               COUNT(*) FILTER (WHERE bank_status = 'quarantined')::text AS "quarantined",
+              COUNT(*) FILTER (WHERE bank_status = 'validation_failed')::text AS "validationFailed",
+              COUNT(*) FILTER (WHERE bank_status = 'rejected')::text AS "rejected",
               COUNT(*) FILTER (WHERE usage_count > 0)::text AS "used",
               COALESCE(SUM(usage_count), 0)::text AS "totalUsage",
               ROUND(AVG(validation_score)::numeric, 2)::text AS "averageValidationScore",
@@ -278,13 +289,17 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     const approved = Number(row?.approved || 0);
     const quarantined = Number(row?.quarantined || 0);
     const validatedGenerated = Number(row?.validatedGenerated || 0);
-    const reviewable = approved + quarantined + validatedGenerated;
+    const validationFailed = Number(row?.validationFailed || 0);
+    const rejected = Number(row?.rejected || 0);
+    const reviewable = approved + quarantined + validatedGenerated + validationFailed + rejected;
     return {
       total: Number(row?.total || 0),
       legacy: Number(row?.legacy || 0),
       validatedGenerated,
       approved,
       quarantined,
+      validationFailed,
+      rejected,
       used: Number(row?.used || 0),
       totalUsage: Number(row?.totalUsage || 0),
       approvalRate: reviewable > 0 ? approved / reviewable : 0,

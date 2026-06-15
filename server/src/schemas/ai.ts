@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const generatedBankStatusSchema = z.enum(['validated_generated', 'approved', 'quarantined']);
+const generatedBankStatusSchema = z.enum(['validated_generated', 'approved', 'quarantined', 'validation_failed', 'rejected']);
 const taxonomyCandidateStatusSchema = z.enum(['pending', 'approved_canonical', 'mapped_alias', 'rejected']);
 
 export const generateQuestionsSchema = z.object({

@@ -273,6 +273,8 @@ router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async 
         averagePendingAge: metrics.averagePendingAgeDays,
         approvedLast7d: throughput7d.approved,
         quarantinedLast7d: throughput7d.quarantined,
+        validationFailedCount: metrics.validationFailed,
+        rejectedCount: metrics.rejected,
         approvedPerDay: throughput7d.approved / 7,
         quarantinedPerDay: throughput7d.quarantined / 7,
         generatedPerDay: metrics.generatedLast7d / 7,
@@ -1401,6 +1403,15 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       } else {
         mrRejected++;
         rejectCount++;
+        await _saveFailedGeneratedQuestionCandidate(q as Record<string, any>, config, {
+          ...validation,
+          passed: false,
+          blocking: true,
+          status: 'fail',
+          rejectionReasons: review.failedCategories.length ? review.failedCategories : ['medical_review_failed'],
+        }, 'medical-review').catch(err => {
+          console.warn('[generated-bank] failed candidate capture skipped:', (err as Error).message);
+        });
         for (const reason of review.failedCategories) {
           if (reason in mrFailureCategories) {
             mrFailureCategories[reason as keyof MedicalReviewFailureCategories]++;
@@ -1455,10 +1466,19 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
         disposition = 'repair-passed';
       } else {
         console.warn('[validation-engine] repair failed:', repairedValidation.rejectionReasons, '| score:', repairedValidation.score);
+        await _saveFailedGeneratedQuestionCandidate(q as Record<string, any>, config, validation, 'rule-validation').catch(err => {
+          console.warn('[generated-bank] failed original candidate capture skipped:', (err as Error).message);
+        });
+        await _saveFailedGeneratedQuestionCandidate(repairedNorm as Record<string, any>, config, repairedValidation, 'repair-validation').catch(err => {
+          console.warn('[generated-bank] failed repair candidate capture skipped:', (err as Error).message);
+        });
         disposition = 'repair-failed';
       }
     } else {
       console.warn('[validation-engine] rejected:', validation.rejectionReasons, '| score:', validation.score);
+      await _saveFailedGeneratedQuestionCandidate(q as Record<string, any>, config, validation, 'rule-validation').catch(err => {
+        console.warn('[generated-bank] failed candidate capture skipped:', (err as Error).message);
+      });
     }
     const logStem = disposition === 'repair-passed' && repairedStem !== null ? repairedStem : q.stem;
     if (isSuspectStem(logStem)) {
@@ -1698,6 +1718,49 @@ function _questionBodyForGeneratedBank(
   };
 }
 
+function _questionBodyForFailedGeneratedCandidate(
+  question: ReturnType<typeof normalizeQuestion>,
+  config: Record<string, any>,
+  fingerprint: string,
+  validation: ValidationEngineResult,
+  source: 'rule-validation' | 'medical-review' | 'repair-validation',
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const subject = normalizeSubject(question.subject) ?? normalizeSubject(config.subject) ?? '';
+  const system = normalizeSystem(question.system) ?? normalizeSystem(config.system) ?? '';
+  const difficulty = normalizeDifficulty(question.difficulty) ?? normalizeDifficulty(config.difficulty) ?? 'Balanced';
+  const rawTopicForNorm = question.topic || question.canonicalTopic || '';
+  const canonicalTopic = normalizeTopic(rawTopicForNorm) ?? question.canonicalTopic ?? '';
+  const rawConceptForNorm = question.testedConcept || '';
+  const canonicalConceptNorm = normalizeConcept(rawConceptForNorm);
+  const canonicalConcepts = canonicalConceptNorm ? [canonicalConceptNorm] : (rawConceptForNorm ? [rawConceptForNorm] : []);
+  return {
+    ...question,
+    id: fingerprint,
+    subject,
+    system,
+    canonicalTopic,
+    canonicalConcepts,
+    source: 'ai',
+    bankStatus: 'validation_failed',
+    promotionStatus: 'review_candidate',
+    fingerprint,
+    mode: config.mode || '',
+    difficulty,
+    validationStatus: 'fail',
+    validationScore: validation.score,
+    validationVersion: 'central-validation-engine-v1',
+    rejectionReasons: validation.rejectionReasons,
+    warnings: validation.warnings,
+    validatorResults: validation.validators,
+    failedAt: now,
+    generatedAt: now,
+    validationFailureSource: source,
+    usageCount: 0,
+    reportCount: 0,
+  };
+}
+
 async function _validatePromotableQuestion(rawQuestion: Record<string, any>, config: Record<string, any>) {
   const scope = resolveScope(config);
   const question = normalizeQuestion(rawQuestion, 0, scope);
@@ -1736,6 +1799,37 @@ export async function _saveGeneratedQuestionsToBank(questions: Record<string, an
     saved++;
   }
   return saved;
+}
+
+async function _saveFailedGeneratedQuestionCandidate(
+  rawQuestion: Record<string, any>,
+  config: Record<string, any>,
+  validation: ValidationEngineResult,
+  source: 'rule-validation' | 'medical-review' | 'repair-validation',
+): Promise<boolean> {
+  const repo = getRepositories().questions;
+  const scope = resolveScope(config);
+  const question = normalizeQuestion(rawQuestion, 0, scope);
+  const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
+  if (!fingerprint || fingerprint === '||') return false;
+
+  const existingRows = await repo.findGeneratedBankReview({ externalId: fingerprint, limit: 1 });
+  const existingStatus = existingRows[0] ? String((existingRows[0] as Record<string, any>).bankStatus ?? '') : '';
+  if (existingStatus === 'approved' || existingStatus === 'quarantined' || existingStatus === 'rejected') return false;
+
+  const body = _questionBodyForFailedGeneratedCandidate(question, config, fingerprint, validation, source);
+  await repo.upsertByExternalId(fingerprint, {
+    subject: String(body.subject || ''),
+    system: String(body.system || ''),
+    body,
+    source: 'ai',
+    bankStatus: 'validation_failed',
+    mode: String(body.mode || ''),
+    difficulty: String(body.difficulty || ''),
+    validationScore: Number(body.validationScore || 0),
+    validatedAt: String(body.failedAt || ''),
+  });
+  return true;
 }
 
 async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number, approvedOnly = false): Promise<Record<string, any>[]> {

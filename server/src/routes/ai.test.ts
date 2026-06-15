@@ -1663,7 +1663,7 @@ describe('hybrid question bank fill', () => {
   // Each question needs a unique topic+questionAngle pair to avoid dedup() angle-key collisions.
   // dedup() drops a question when norm(topic+'|'+questionAngle) matches a previously seen entry.
 
-  it('does not show or save live AI questions that fail validation', async () => {
+  it('does not show failed live AI questions, but captures them for admin review', async () => {
     mockMessagesCreate.mockResolvedValue(aiResponseWith([
       makePromotableQuestion({
         subject: 'Pathology',
@@ -1679,7 +1679,12 @@ describe('hybrid question bank fill', () => {
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).not.toBe(200);
-    expect((await getRepositories().questions.getGeneratedBankMetrics()).total).toBe(0);
+    const metrics = await getRepositories().questions.getGeneratedBankMetrics();
+    expect(metrics.total).toBe(1);
+    expect(metrics.validationFailed).toBe(1);
+    const candidates = await getRepositories().questions.findGeneratedBankReview({ status: 'validation_failed' });
+    expect(candidates).toHaveLength(1);
+    expect((candidates[0].body as any).rejectionReasons).toContain('subject_system:cardio_pharmacology_not_pathology');
   });
 
   it('fails closed before showing or saving live AI questions when quarantine lookup fails', async () => {
@@ -2721,13 +2726,21 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
     process.env.ANTHROPIC_API_KEY = 'test-key-matrix';
+    process.env.ADMIN_USER_IDS = 'user-1';
     mockMessagesCreate.mockReset();
     app = createApp();
   });
 
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ADMIN_USER_IDS;
   });
+
+  function localFingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
 
   it('invalid matrix pair (Biostatistics + Cardiovascular) increments matrixFailures', async () => {
     // One invalid pair question (will be rejected) + one valid question (will be accepted).
@@ -2819,6 +2832,114 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
     expect(res.body.telemetry.matrixFailures).toBeGreaterThanOrEqual(1);
     // ruleRejectedCandidates is unchanged — matrix failures are still counted inside it
     expect(res.body.telemetry.ruleRejectedCandidates).toBeGreaterThanOrEqual(res.body.telemetry.matrixFailures);
+  });
+
+  it('captures failed AI questions as validation_failed review candidates without returning them', async () => {
+    const invalidQ = makePromotableQuestion({
+      subject: 'Biostatistics',
+      system: 'Cardiovascular',
+      topic: 'Sample size',
+      testedConcept: 'biostatistics sample size failed candidate capture',
+      questionAngle: 'failed-candidate-capture',
+      stem: 'A researcher designing a clinical trial for a new antihypertensive drug needs to calculate the minimum required sample size. Which study design change most directly increases required sample size?',
+    });
+    const validQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism failed candidate companion',
+      topic: 'ACE inhibitors',
+      questionAngle: 'failed-candidate-valid-companion',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([invalidQ, validQ]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(1);
+    expect(res.body.questions[0].testedConcept).toBe('ACE inhibitor bradykinin cough mechanism failed candidate companion');
+
+    const candidates = await getRepositories().questions.findGeneratedBankReview({ status: 'validation_failed' });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].bankStatus).toBe('validation_failed');
+    expect((candidates[0].body as any).testedConcept).toBe('biostatistics sample size failed candidate capture');
+    expect((candidates[0].body as any).rejectionReasons.some((reason: string) => reason.startsWith('subject_system:'))).toBe(true);
+    expect((candidates[0].body as any).validationFailureSource).toBe('rule-validation');
+  });
+
+  it('does not reuse validation_failed questions from the generated bank', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const failedQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism failed bank row',
+      topic: 'ACE inhibitors',
+      questionAngle: 'failed-bank-row',
+    });
+    const fingerprint = localFingerprintOf(failedQ);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: failedQ.subject,
+      system: failedQ.system,
+      body: {
+        ...failedQ,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus: 'validation_failed',
+        validationStatus: 'fail',
+        validationScore: 0,
+        rejectionReasons: ['test_failure'],
+      },
+      source: 'ai',
+      bankStatus: 'validation_failed',
+      mode: 'practice',
+      difficulty: 'Balanced',
+      validationScore: 0,
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(503);
+
+    expect(res.body.code).toBe('NO_API_KEY');
+  });
+
+  it('allows admins to reject validation_failed candidates', async () => {
+    const failedQ = makePromotableQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism reject failed candidate',
+      topic: 'ACE inhibitors',
+      questionAngle: 'reject-failed-candidate',
+    });
+    const fingerprint = localFingerprintOf(failedQ);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: failedQ.subject,
+      system: failedQ.system,
+      body: {
+        ...failedQ,
+        id: fingerprint,
+        source: 'ai',
+        bankStatus: 'validation_failed',
+        validationStatus: 'fail',
+        validationScore: 0,
+        rejectionReasons: ['test_failure'],
+      },
+      source: 'ai',
+      bankStatus: 'validation_failed',
+      mode: 'practice',
+      difficulty: 'Balanced',
+      validationScore: 0,
+    });
+
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'rejected' })
+      .expect(200);
+
+    expect(res.body.question.bankStatus).toBe('rejected');
+    const logs = (getRepositories().auditLog as any).getAll();
+    expect(logs[0]).toMatchObject({
+      action: 'rejected',
+      previousStatus: 'validation_failed',
+      newStatus: 'rejected',
+    });
   });
 });
 

@@ -60,6 +60,8 @@ export interface IAnalyticsRepository {
   upsert(snapshot: Omit<AnalyticsSnapshot, 'id'>): Promise<AnalyticsSnapshot>;
 }
 
+export type GeneratedBankStatus = 'validated_generated' | 'approved' | 'quarantined' | 'validation_failed' | 'rejected';
+
 export interface IQuestionsRepository {
   /** Upsert a question by its content fingerprint. Returns the DB UUID. */
   upsertByExternalId(
@@ -87,18 +89,18 @@ export interface IQuestionsRepository {
     approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]>;
   countGeneratedBankReview(params: {
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
   }): Promise<number>;
   findGeneratedBankReview(params: {
     externalId?: string;
-    status?: 'validated_generated' | 'approved' | 'quarantined';
+    status?: GeneratedBankStatus;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
   }): Promise<Record<string, unknown>[]>;
   updateGeneratedBankStatus(
     externalId: string,
-    status: 'validated_generated' | 'approved' | 'quarantined',
+    status: GeneratedBankStatus,
   ): Promise<Record<string, unknown> | null>;
   getGeneratedBankMetrics(): Promise<{
     total: number;
@@ -106,6 +108,8 @@ export interface IQuestionsRepository {
     validatedGenerated: number;
     approved: number;
     quarantined: number;
+    validationFailed: number;
+    rejected: number;
     used: number;
     totalUsage: number;
     approvalRate: number;
