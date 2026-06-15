@@ -37,6 +37,7 @@ export interface ValidatorResult {
   expected?: string;
   detected?: string;
   confidence?: number;
+  details?: Array<Record<string, unknown>>;
 }
 
 export interface ValidationPolicy {

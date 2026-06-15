@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { useFlashcards } from './useFlashcards.js'
 
 vi.mock('../lib/dataProvider.js', () => ({
@@ -8,9 +8,16 @@ vi.mock('../lib/dataProvider.js', () => ({
   reviewFlashcard:              vi.fn(async () => {}),
   clearFlashcards:              vi.fn(async () => {}),
   syncLocalFlashcardsToBackend: vi.fn(async () => ({ skipped: true, reason: 'already synced' })),
+  getBackendFlashcards:         vi.fn(async () => null),
+  importBackendFlashcards:      vi.fn(() => 0),
 }))
 
-import { getAllFlashcards, syncLocalFlashcardsToBackend } from '../lib/dataProvider.js'
+import {
+  getAllFlashcards,
+  syncLocalFlashcardsToBackend,
+  getBackendFlashcards,
+  importBackendFlashcards,
+} from '../lib/dataProvider.js'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -46,7 +53,7 @@ describe('useFlashcards — initial state', () => {
     expect(result.current.error).toBeNull()
   })
 
-  it('source is always localStorage', () => {
+  it('source starts as localStorage', () => {
     const { result } = renderHook(() => useFlashcards())
     expect(result.current.source).toBe('localStorage')
   })
@@ -118,5 +125,93 @@ describe('useFlashcards — sync on mount', () => {
     const callsBefore = syncLocalFlashcardsToBackend.mock.calls.length
     act(() => result.current.refresh())
     expect(syncLocalFlashcardsToBackend.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('does not re-fetch backend on refresh (refresh reads localStorage only)', () => {
+    getAllFlashcards.mockReturnValue([])
+    const { result } = renderHook(() => useFlashcards())
+    const callsBefore = getBackendFlashcards.mock.calls.length
+    act(() => result.current.refresh())
+    expect(getBackendFlashcards.mock.calls.length).toBe(callsBefore)
+  })
+})
+
+describe('useFlashcards — backend read', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('source transitions to backend when getBackendFlashcards returns cards', async () => {
+    const backendCards = [makeCard('uuid-1')]
+    getBackendFlashcards.mockResolvedValue(backendCards)
+    getAllFlashcards.mockReturnValue(backendCards)
+
+    const { result } = renderHook(() => useFlashcards())
+    expect(result.current.source).toBe('localStorage')
+
+    await waitFor(() => {
+      expect(result.current.source).toBe('backend')
+    })
+  })
+
+  it('updates cards state after importing backend cards', async () => {
+    const backendCards = [makeCard('uuid-1'), makeCard('uuid-2')]
+    getBackendFlashcards.mockResolvedValue(backendCards)
+    getAllFlashcards
+      .mockReturnValueOnce([])
+      .mockReturnValue(backendCards)
+
+    const { result } = renderHook(() => useFlashcards())
+
+    await waitFor(() => {
+      expect(result.current.cards).toEqual(backendCards)
+    })
+  })
+
+  it('calls importBackendFlashcards with the fetched cards', async () => {
+    const backendCards = [makeCard('uuid-1')]
+    getBackendFlashcards.mockResolvedValue(backendCards)
+    getAllFlashcards.mockReturnValue(backendCards)
+
+    renderHook(() => useFlashcards())
+
+    await waitFor(() => {
+      expect(importBackendFlashcards).toHaveBeenCalledWith(backendCards)
+    })
+  })
+
+  it('source stays localStorage when backend returns null', async () => {
+    getBackendFlashcards.mockResolvedValue(null)
+    getAllFlashcards.mockReturnValue([makeCard('local-1')])
+
+    const { result } = renderHook(() => useFlashcards())
+
+    await waitFor(() => expect(syncLocalFlashcardsToBackend).toHaveBeenCalled())
+    expect(result.current.source).toBe('localStorage')
+    expect(importBackendFlashcards).not.toHaveBeenCalled()
+  })
+
+  it('source stays localStorage when backend returns empty array', async () => {
+    getBackendFlashcards.mockResolvedValue([])
+    getAllFlashcards.mockReturnValue([makeCard('local-1')])
+
+    const { result } = renderHook(() => useFlashcards())
+
+    await waitFor(() => expect(syncLocalFlashcardsToBackend).toHaveBeenCalled())
+    expect(result.current.source).toBe('localStorage')
+    expect(importBackendFlashcards).not.toHaveBeenCalled()
+  })
+
+  it('refresh resets source to localStorage after backend read', async () => {
+    const backendCards = [makeCard('uuid-1')]
+    getBackendFlashcards.mockResolvedValue(backendCards)
+    getAllFlashcards.mockReturnValue(backendCards)
+
+    const { result } = renderHook(() => useFlashcards())
+
+    await waitFor(() => {
+      expect(result.current.source).toBe('backend')
+    })
+
+    act(() => result.current.refresh())
+    expect(result.current.source).toBe('localStorage')
   })
 })

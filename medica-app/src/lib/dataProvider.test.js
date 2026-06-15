@@ -15,6 +15,7 @@ vi.mock('./storage.js', () => ({
   markFlashcardReviewed: vi.fn(),
   updateFlashcardStatus: vi.fn(),
   getFlashcards: vi.fn(() => []),
+  saveFlashcards: vi.fn(),
   clearFlashcards: vi.fn(),
 }));
 
@@ -41,6 +42,8 @@ import {
   reviewFlashcard,
   clearFlashcards,
   syncLocalFlashcardsToBackend,
+  getBackendFlashcards,
+  importBackendFlashcards,
 } from './dataProvider.js';
 
 // results shape — output of calculatePracticeResults
@@ -512,5 +515,305 @@ describe('syncLocalFlashcardsToBackend', () => {
     expect(sent[0].reinforcement_priority).toBe('high');
     expect(sent[0].review_count).toBe(3);
     expect(sent[0].ease).toBe('good');
+  });
+});
+
+describe('getBackendFlashcards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.flashcards.list.mockResolvedValue({ flashcards: [] });
+  });
+
+  it('returns null when no auth token', async () => {
+    api.getAuthToken.mockReturnValue(null);
+    const result = await getBackendFlashcards();
+    expect(result).toBeNull();
+  });
+
+  it('does not call api.flashcards.list when unauthenticated', async () => {
+    api.getAuthToken.mockReturnValue(null);
+    await getBackendFlashcards();
+    expect(api.flashcards.list).not.toHaveBeenCalled();
+  });
+
+  it('returns empty array when backend has no cards', async () => {
+    const result = await getBackendFlashcards();
+    expect(result).toEqual([]);
+  });
+
+  it('maps backend snake_case fields to frontend camelCase', async () => {
+    const backendCard = {
+      id: 'uuid-123',
+      front: 'Front text',
+      back: 'Back text',
+      tag: 'Cardio',
+      type: 'Pearl',
+      review_status: 'learning',
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      topic: 'Heart Failure',
+      source_question_id: 'q-abc',
+      canonical_topic: 'Heart Failure',
+      topic_slug: 'heart-failure',
+      source_mode: 'coach',
+      memory_anchor: 'anchor text',
+      common_trap: 'trap text',
+      source_pearl: 'pearl text',
+      weak_spot_category: 'Pathology',
+      reinforcement_priority: 'high',
+      review_count: 3,
+      ease: 'good',
+      last_missed_reason: 'missed reason',
+      created_at: '2026-01-01T00:00:00.000Z',
+      reviewed_at: '2026-01-02T00:00:00.000Z',
+    };
+    api.flashcards.list.mockResolvedValue({ flashcards: [backendCard] });
+
+    const result = await getBackendFlashcards();
+
+    expect(result).toHaveLength(1);
+    const card = result[0];
+    expect(card.id).toBe('uuid-123');
+    expect(card.reviewStatus).toBe('learning');
+    expect(card.sourceQuestionId).toBe('q-abc');
+    expect(card.canonicalTopic).toBe('Heart Failure');
+    expect(card.topicSlug).toBe('heart-failure');
+    expect(card.sourceMode).toBe('coach');
+    expect(card.memoryAnchor).toBe('anchor text');
+    expect(card.commonTrap).toBe('trap text');
+    expect(card.sourcePearl).toBe('pearl text');
+    expect(card.weakSpotCategory).toBe('Pathology');
+    expect(card.reinforcementPriority).toBe('high');
+    expect(card.reviewCount).toBe(3);
+    expect(card.ease).toBe('good');
+    expect(card.lastMissedReason).toBe('missed reason');
+    expect(card.createdAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(card.reviewedAt).toBe('2026-01-02T00:00:00.000Z');
+  });
+
+  it('fills in defaults for missing optional fields', async () => {
+    api.flashcards.list.mockResolvedValue({ flashcards: [{ id: 'uuid-min', front: 'Front', back: 'Back' }] });
+
+    const result = await getBackendFlashcards();
+
+    const card = result[0];
+    expect(card.tag).toBe('');
+    expect(card.type).toBe('Recall');
+    expect(card.reviewStatus).toBe('new');
+    expect(card.sourceQuestionId).toBe('');
+    expect(card.reinforcementPriority).toBe('normal');
+    expect(card.reviewCount).toBe(0);
+    expect(card.ease).toBeNull();
+    expect(card.memoryAnchor).toBeNull();
+    expect(card.createdAt).toBeNull();
+    expect(card.reviewedAt).toBeNull();
+  });
+
+  it('returns null when the api call throws', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    api.flashcards.list.mockRejectedValue(new Error('network error'));
+
+    const result = await getBackendFlashcards();
+
+    expect(result).toBeNull();
+    warnSpy.mockRestore();
+  });
+});
+
+describe('importBackendFlashcards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storage.getFlashcards.mockReturnValue([]);
+  });
+
+  // ── empty / no-op ────────────────────────────────────────────────────────
+
+  it('returns 0 for empty input without touching storage', () => {
+    const added = importBackendFlashcards([]);
+    expect(storage.saveFlashcards).not.toHaveBeenCalled();
+    expect(added).toBe(0);
+  });
+
+  // ── new inserts ──────────────────────────────────────────────────────────
+
+  it('inserts new backend card and returns count of 1', () => {
+    const bc = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'Cardio' };
+    storage.getFlashcards.mockReturnValue([]);
+
+    const added = importBackendFlashcards([bc]);
+
+    expect(storage.saveFlashcards).toHaveBeenCalledOnce();
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe('uuid-1');
+    expect(added).toBe(1);
+  });
+
+  it('preserves backend UUID as card id for new inserts', () => {
+    const cards = [
+      { id: 'uuid-abc', front: 'F1', back: 'B1', sourceQuestionId: 'q1', tag: 'A' },
+      { id: 'uuid-def', front: 'F2', back: 'B2', sourceQuestionId: 'q2', tag: 'B' },
+    ];
+    storage.getFlashcards.mockReturnValue([]);
+
+    importBackendFlashcards(cards);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].id).toBe('uuid-abc');
+    expect(saved[1].id).toBe('uuid-def');
+  });
+
+  it('does not add a card with duplicate normalized front text (secondary dedup)', () => {
+    const local = { id: 'fcg_1', front: 'What is ATP?', back: 'Energy unit', sourceQuestionId: 'q1', tag: 'A' };
+    const bc    = { id: 'uuid-2', front: 'What is  ATP?', back: 'Energy', sourceQuestionId: 'q9', tag: 'B' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    const added = importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved).toHaveLength(1);
+    expect(added).toBe(0);
+  });
+
+  // ── ID match (uuid→uuid): backend SRS and content fields overwrite local ─
+
+  it('updates SRS fields (reviewStatus, reviewCount, reviewedAt) when backend UUID matches local id', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    reviewStatus: 'new', reviewCount: 0, reviewedAt: null };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    reviewStatus: 'mastered', reviewCount: 5, reviewedAt: '2026-06-01T10:00:00Z' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].reviewCount).toBe(5);
+    expect(saved[0].reviewedAt).toBe('2026-06-01T10:00:00Z');
+  });
+
+  it('updates content/metadata fields for ID match', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: null, commonTrap: null };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: 'backend anchor', commonTrap: 'backend trap' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].memoryAnchor).toBe('backend anchor');
+    expect(saved[0].commonTrap).toBe('backend trap');
+  });
+
+  it('does not overwrite local content field when backend sends null (ID match)', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: 'local anchor' };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: null };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].memoryAnchor).toBe('local anchor');
+  });
+
+  it('never overwrites local ease (backend never stores ease updates)', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    ease: 'easy' };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    ease: null };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].ease).toBe('easy');
+  });
+
+  it('never overwrites local nextReview (local-only SRS field not in backend schema)', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    nextReview: '2026-07-01T00:00:00Z', reviewStatus: 'mastered' };
+    const bc    = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    reviewStatus: 'mastered' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].nextReview).toBe('2026-07-01T00:00:00Z');
+  });
+
+  it('does not duplicate when backend card matches existing by id (ID match returns 0)', () => {
+    const local = { id: 'uuid-1', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    const added = importBackendFlashcards([{ ...local }]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved).toHaveLength(1);
+    expect(added).toBe(0);
+  });
+
+  // ── Key-only match (fcg_ local, different uuid): local SRS wins ──────────
+
+  it('fills missing content fields for key-only match (fcg_ card)', () => {
+    const local = { id: 'fcg_local', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: null, commonTrap: null };
+    const bc    = { id: 'uuid-99', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    memoryAnchor: 'anchor', commonTrap: 'trap' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].memoryAnchor).toBe('anchor');
+    expect(saved[0].commonTrap).toBe('trap');
+  });
+
+  it('local SRS wins for key-only match (backend SRS frozen because fcg_ id 404s on backend)', () => {
+    const local = { id: 'fcg_local', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    reviewStatus: 'mastered', ease: 'easy', reviewCount: 10, reviewedAt: '2026-01-15' };
+    const bc    = { id: 'uuid-99', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C',
+                    reviewStatus: 'new', ease: null, reviewCount: 0, reviewedAt: null };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved[0].reviewStatus).toBe('mastered');
+    expect(saved[0].ease).toBe('easy');
+    expect(saved[0].reviewCount).toBe(10);
+    expect(saved[0].reviewedAt).toBe('2026-01-15');
+  });
+
+  it('does not duplicate when backend key-only matches local (local id preserved)', () => {
+    const local = { id: 'fcg_local', front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    const bc    = { id: 'uuid-99',  front: 'F', back: 'B', sourceQuestionId: 'q1', tag: 'C' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    const added = importBackendFlashcards([bc]);
+
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe('fcg_local');
+    expect(added).toBe(0);
+  });
+
+  // ── mixed: one update + one insert ───────────────────────────────────────
+
+  it('returns count of newly inserted cards only (updates counted as 0)', () => {
+    const local   = { id: 'uuid-1', front: 'F1', back: 'B1', sourceQuestionId: 'q1', tag: 'A' };
+    const update  = { id: 'uuid-1', front: 'F1', back: 'B1', sourceQuestionId: 'q1', tag: 'A', memoryAnchor: 'x' };
+    const newCard = { id: 'uuid-2', front: 'F2', back: 'B2', sourceQuestionId: 'q2', tag: 'B' };
+    storage.getFlashcards.mockReturnValue([local]);
+
+    const added = importBackendFlashcards([update, newCard]);
+
+    expect(added).toBe(1);
+    const saved = storage.saveFlashcards.mock.calls[0][0];
+    expect(saved).toHaveLength(2);
   });
 });

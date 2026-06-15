@@ -18,6 +18,7 @@ import {
   markFlashcardReviewed,
   updateFlashcardStatus,
   getFlashcards,
+  saveFlashcards as _storageSaveFlashcards,
   clearFlashcards as _storageFlashcards,
 } from './storage.js';
 
@@ -275,6 +276,144 @@ export async function clearFlashcards() {
 
 export function getAllFlashcards() {
   return getFlashcards();
+}
+
+function _mapBackendCardToFrontend(c) {
+  return {
+    id:                    c.id,
+    front:                 c.front,
+    back:                  c.back,
+    tag:                   c.tag ?? '',
+    type:                  c.type ?? 'Recall',
+    reviewStatus:          c.review_status ?? 'new',
+    subject:               c.subject ?? '',
+    system:                c.system ?? '',
+    topic:                 c.topic ?? '',
+    sourceQuestionId:      c.source_question_id ?? '',
+    canonicalTopic:        c.canonical_topic ?? '',
+    topicSlug:             c.topic_slug ?? '',
+    sourceMode:            c.source_mode ?? '',
+    memoryAnchor:          c.memory_anchor ?? null,
+    commonTrap:            c.common_trap ?? null,
+    sourcePearl:           c.source_pearl ?? null,
+    weakSpotCategory:      c.weak_spot_category ?? '',
+    reinforcementPriority: c.reinforcement_priority ?? 'normal',
+    reviewCount:           c.review_count ?? 0,
+    ease:                  c.ease ?? null,
+    lastMissedReason:      c.last_missed_reason ?? null,
+    createdAt:             c.created_at ?? null,
+    reviewedAt:            c.reviewed_at ?? null,
+  };
+}
+
+/**
+ * Fetch flashcards from the backend for authenticated users.
+ * Returns null when the backend is disabled, the user is not authenticated,
+ * or the call fails — callers should treat null as "keep current state".
+ */
+export async function getBackendFlashcards() {
+  if (!USE_BACKEND || !api.getAuthToken?.()) return null;
+  try {
+    const data = await api.flashcards.list();
+    const cards = data?.flashcards ?? [];
+    return cards.map(_mapBackendCardToFrontend);
+  } catch (err) {
+    console.warn('[dataProvider] Backend flashcard read failed:', err.message);
+    return null;
+  }
+}
+
+// Fields updated for an exact ID match (backend UUID === local id).
+// These cards use UUID in localStorage, so reviewFlashcard(uuid) reaches the backend
+// and backend SRS (reviewStatus, reviewCount, reviewedAt) stays current.
+// ease is excluded: backend updateStatus() only stores review_status, never ease,
+// so backend.ease is always null — overwriting would erase local ease values.
+// nextReview is local-only (not in backend schema) — never overwritten.
+const _BACKEND_OVERWRITE_FIELDS = [
+  'front', 'back', 'subject', 'system', 'topic',
+  'canonicalTopic', 'topicSlug', 'sourceMode', 'tag', 'type',
+  'memoryAnchor', 'commonTrap', 'sourcePearl',
+  'weakSpotCategory', 'reinforcementPriority', 'lastMissedReason',
+  'createdAt',
+  'reviewStatus', 'reviewCount', 'reviewedAt',
+];
+
+// Fields filled for a key-only match (sourceQuestionId::tag match, ids differ).
+// The local card has a fcg_... ID; reviewFlashcard(fcg_...) 404s on the backend,
+// so backend SRS is frozen at its initial sync value. Local SRS always wins here.
+const _BACKEND_FILL_FIELDS = [
+  'front', 'back', 'subject', 'system', 'topic',
+  'canonicalTopic', 'topicSlug', 'sourceMode', 'tag', 'type',
+  'memoryAnchor', 'commonTrap', 'sourcePearl',
+  'weakSpotCategory', 'reinforcementPriority', 'lastMissedReason',
+  'createdAt',
+];
+
+function _normFront(s) {
+  return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Upsert backend cards into localStorage.
+ *
+ * ID match (bc.id === local.id):
+ *   Backend non-null values update local, including SRS fields. Safe because these
+ *   cards carry their backend UUID in localStorage, so markReviewed(uuid) succeeds
+ *   and backend SRS stays current.
+ *
+ * Key-only match (sourceQuestionId::tag, ids differ):
+ *   Backend fills empty content/metadata fields only. Local SRS wins because the
+ *   local card's fcg_... ID causes markReviewed to 404, freezing backend SRS.
+ *
+ * No match: card inserted with backend UUID as id (cross-device population).
+ * Secondary dedup: normalized front text prevents visible duplicates.
+ *
+ * Null/undefined backend fields never overwrite populated local fields (either path).
+ * Anonymous users: only called after authenticated getBackendFlashcards() — safe.
+ *
+ * Returns count of new cards inserted (updates are not counted).
+ */
+export function importBackendFlashcards(backendCards) {
+  if (!Array.isArray(backendCards) || backendCards.length === 0) return 0;
+
+  const local    = getFlashcards();
+  const merged   = local.map(c => ({ ...c }));
+  const byId     = new Map(merged.map(c => [c.id, c]));
+  const byKey    = new Map(merged.map(c => [`${c.sourceQuestionId ?? ''}::${c.tag ?? ''}`, c]));
+  const frontSet = new Set(merged.map(c => _normFront(c.front)).filter(Boolean));
+
+  let added = 0;
+  for (const bc of backendCards) {
+    const key      = `${bc.sourceQuestionId ?? ''}::${bc.tag ?? ''}`;
+    const idMatch  = byId.get(bc.id);
+    const keyMatch = idMatch ? null : byKey.get(key);
+
+    if (idMatch) {
+      // Exact UUID match: backend SRS is current — overwrite non-null fields
+      for (const field of _BACKEND_OVERWRITE_FIELDS) {
+        if (bc[field] != null) idMatch[field] = bc[field];
+      }
+    } else if (keyMatch) {
+      // Key-only match: backend SRS is stale — fill missing content fields only
+      for (const field of _BACKEND_FILL_FIELDS) {
+        if (bc[field] != null && bc[field] !== '' && (keyMatch[field] == null || keyMatch[field] === '')) {
+          keyMatch[field] = bc[field];
+        }
+      }
+    } else {
+      const nf = _normFront(bc.front);
+      if (nf && frontSet.has(nf)) continue;
+      const card = { ...bc };
+      merged.push(card);
+      if (bc.id) byId.set(bc.id, card);
+      byKey.set(key, card);
+      if (nf) frontSet.add(nf);
+      added++;
+    }
+  }
+
+  _storageSaveFlashcards(merged);
+  return added;
 }
 
 // ── Analytics (backend-only reads) ───────────────────────────────────────
