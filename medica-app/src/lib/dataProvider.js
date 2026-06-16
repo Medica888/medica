@@ -11,6 +11,7 @@
 import * as api from './apiClient.js';
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js';
 import { normalizeQuestionTaxonomyFields } from './usmleTaxonomy.js';
+import { fetchAllBackendSessions } from './sessionNormalizer.js';
 import {
   saveCompletedSession,
   getSessionHistory,
@@ -97,9 +98,17 @@ export async function saveSession(results, sessionWithAnswers) {
   }
 }
 
-/** Get session history — always from localStorage (analytics engine reads from there). */
-export function getSessions() {
-  return getSessionHistory();
+/** Get session history — backend-first for authenticated users, localStorage fallback. */
+export async function getSessions() {
+  if (!USE_BACKEND || !api.getAuthToken?.()) {
+    return getSessionHistory();
+  }
+  try {
+    return await fetchAllBackendSessions();
+  } catch (err) {
+    console.warn('[dataProvider] Session fetch failed, falling back:', err.message);
+    return getSessionHistory();
+  }
 }
 
 // ── Flashcards ────────────────────────────────────────────────────────────

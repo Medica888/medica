@@ -10,6 +10,7 @@ import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
 import { restoreToken, setAuthToken, clearToken, auth } from './lib/apiClient'
+import { useSessionHistory } from './hooks/useSessionHistory'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
@@ -143,12 +144,13 @@ export default function App() {
     return map[activeNav] || 'Medica'
   }, [activeNav])
 
+  const { sessions: historySessions } = useSessionHistory()
+
   const readinessStatus = useMemo(() => {
-    const sessions = getSessionHistory()
-    if (sessions.length === 0) return { label: 'Getting Started', active: false }
-    if (sessions.length < 3)  return { label: 'Active',           active: true }
-    return                           { label: 'Improving',         active: true }
-  }, [])
+    if (historySessions.length === 0) return { label: 'Getting Started', active: false }
+    if (historySessions.length < 3)  return { label: 'Active',           active: true }
+    return                                   { label: 'Improving',         active: true }
+  }, [historySessions])
 
   const flashcardsDue = useMemo(() => {
     return getFlashcards().filter(isFlashcardDue).length

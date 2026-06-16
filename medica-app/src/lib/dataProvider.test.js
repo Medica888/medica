@@ -22,7 +22,10 @@ vi.mock('./storage.js', () => ({
 // Mock apiClient
 vi.mock('./apiClient.js', () => ({
   getAuthToken: vi.fn(() => 'token'),
-  exams: { create: vi.fn().mockResolvedValue({ id: 'sess-1' }) },
+  exams: {
+    create: vi.fn().mockResolvedValue({ id: 'sess-1' }),
+    list:   vi.fn().mockResolvedValue({ data: [], totalPages: 1 }),
+  },
   flashcards: {
     list: vi.fn().mockResolvedValue({ flashcards: [] }),
     createMany: vi.fn().mockResolvedValue({ flashcards: [] }),
@@ -164,10 +167,46 @@ describe('saveSession', () => {
 });
 
 describe('getSessions', () => {
-  it('returns localStorage history', () => {
+  it('returns localStorage sessions when unauthenticated', async () => {
+    api.getAuthToken.mockReturnValueOnce(null);
     storage.getSessionHistory.mockReturnValueOnce([{ id: 's1' }]);
-    const result = getSessions();
+    const result = await getSessions();
     expect(result).toEqual([{ id: 's1' }]);
+    expect(api.exams.list).not.toHaveBeenCalled();
+  });
+
+  it('returns normalized backend sessions for authenticated users', async () => {
+    api.exams.list.mockResolvedValueOnce({
+      data: [{
+        id:               'b1',
+        completed_at:     '2024-01-01T00:00:00.000Z',
+        mode:             'practice',
+        score:            8,
+        percentage:       80,
+        medica_score:     75,
+        readiness_label:  'Ready',
+        subject_breakdown: {},
+        system_breakdown:  {},
+        missed_questions:  [],
+        questions:         [],
+        answers:           {},
+        difficulty:        'Balanced',
+      }],
+      totalPages: 1,
+    });
+    const result = await getSessions();
+    expect(api.exams.list).toHaveBeenCalledWith(1, 100);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('b1');
+    expect(result[0].mode).toBe('practice');
+    expect(result[0].correct).toBe(8);
+  });
+
+  it('falls back to localStorage when backend throws', async () => {
+    api.exams.list.mockRejectedValueOnce(new Error('network error'));
+    storage.getSessionHistory.mockReturnValueOnce([{ id: 'local1' }]);
+    const result = await getSessions();
+    expect(result).toEqual([{ id: 'local1' }]);
   });
 });
 

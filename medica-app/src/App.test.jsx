@@ -1,9 +1,25 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App, { shouldEnterLocalFallback, shouldUseValidatedLocalFallback } from './App.jsx'
+import { useSessionHistory } from './hooks/useSessionHistory'
+
+vi.mock('./hooks/useSessionHistory', () => ({
+  useSessionHistory: vi.fn(() => ({
+    sessions: [],
+    loading: false,
+    error: null,
+    source: 'localStorage',
+    refresh: vi.fn(),
+  })),
+}))
 
 vi.mock('./components/Header', () => ({
-  default: ({ pageTitle }) => <header data-testid="header">{pageTitle}</header>,
+  default: ({ pageTitle, readinessStatus }) => (
+    <header data-testid="header">
+      {pageTitle}
+      {readinessStatus && <span data-testid="readiness-label">{readinessStatus.label}</span>}
+    </header>
+  ),
 }))
 
 vi.mock('./components/Sidebar', () => ({
@@ -316,5 +332,49 @@ describe('shouldEnterLocalFallback', () => {
 
   it('does not enter fallback when both fallback gates are false', () => {
     expect(shouldEnterLocalFallback(false, false)).toBe(false)
+  })
+})
+
+describe('readinessStatus header label', () => {
+  it('shows Getting Started when useSessionHistory returns no sessions', async () => {
+    vi.mocked(useSessionHistory).mockReturnValueOnce({
+      sessions: [], loading: false, error: null, source: 'localStorage', refresh: vi.fn(),
+    })
+    render(<App />)
+    expect(await screen.findByTestId('readiness-label')).toHaveTextContent('Getting Started')
+  })
+
+  it('shows Active when useSessionHistory returns 1 session', async () => {
+    vi.mocked(useSessionHistory).mockReturnValueOnce({
+      sessions: [{ id: 's1' }], loading: false, error: null, source: 'backend', refresh: vi.fn(),
+    })
+    render(<App />)
+    expect(await screen.findByTestId('readiness-label')).toHaveTextContent('Active')
+  })
+
+  it('shows Active when useSessionHistory returns 2 sessions', async () => {
+    vi.mocked(useSessionHistory).mockReturnValueOnce({
+      sessions: [{ id: 's1' }, { id: 's2' }], loading: false, error: null, source: 'backend', refresh: vi.fn(),
+    })
+    render(<App />)
+    expect(await screen.findByTestId('readiness-label')).toHaveTextContent('Active')
+  })
+
+  it('shows Improving when useSessionHistory returns 3 or more sessions', async () => {
+    vi.mocked(useSessionHistory).mockReturnValueOnce({
+      sessions: [{ id: 's1' }, { id: 's2' }, { id: 's3' }], loading: false, error: null, source: 'backend', refresh: vi.fn(),
+    })
+    render(<App />)
+    expect(await screen.findByTestId('readiness-label')).toHaveTextContent('Improving')
+  })
+
+  it('uses hook sessions not direct storage: label is Improving even when storage returns empty', async () => {
+    // storage mock returns [] throughout; hook mock returns 3 sessions → label must be Improving
+    vi.mocked(useSessionHistory).mockReturnValueOnce({
+      sessions: [{ id: 's1' }, { id: 's2' }, { id: 's3' }], loading: false, error: null, source: 'backend', refresh: vi.fn(),
+    })
+    render(<App />)
+    expect(await screen.findByTestId('readiness-label')).toHaveTextContent('Improving')
+    expect(vi.mocked(useSessionHistory)).toHaveBeenCalled()
   })
 })
