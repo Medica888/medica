@@ -37,8 +37,9 @@ export class PgAuthTokensRepository implements IAuthTokensRepository {
     );
   }
 
-  async markAllActiveUsedForUser(userId: string, type: AuthTokenType): Promise<void> {
-    await this.pool.query(
+  async markAllActiveUsedForUser(userId: string, type: AuthTokenType, tx?: unknown): Promise<void> {
+    const q = (tx as import('pg').PoolClient | undefined) ?? this.pool;
+    await q.query(
       `UPDATE auth_tokens SET used_at = now()
        WHERE user_id = $1 AND type = $2 AND used_at IS NULL AND expires_at > now()`,
       [userId, type],

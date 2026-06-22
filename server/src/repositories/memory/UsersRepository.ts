@@ -38,7 +38,7 @@ export class InMemoryUsersRepository implements IUsersRepository {
     }
   }
 
-  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
+  async updatePasswordHash(id: string, passwordHash: string, _tx?: unknown): Promise<void> {
     const user = this.store.get(id);
     if (user) user.password_hash = passwordHash;
   }
@@ -76,5 +76,19 @@ export class InMemoryUsersRepository implements IUsersRepository {
   /** Test helper — clear all data */
   _clear(): void {
     this.store.clear();
+  }
+
+  /** Test helper — seed a user with a specific id (bypasses UUID generation) */
+  _seedWithId(id: string): void {
+    this.store.set(id, {
+      id,
+      email: `${id}@test.local`,
+      name: id,
+      password_hash: 'test-hash',
+      email_verified: false,
+      email_verified_at: null,
+      deleted_at: null,
+      created_at: new Date(),
+    });
   }
 }

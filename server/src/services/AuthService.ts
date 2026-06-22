@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { config } from '../config.js';
+import { withTransaction } from '../config/db.js';
 import type { IUsersRepository } from '../repositories/interfaces.js';
 import type { IAuthTokensRepository } from '../repositories/interfaces.js';
 import type { User } from '../types/index.js';
@@ -84,8 +85,10 @@ export class AuthService {
     if (!record) throw new Error('INVALID_OR_EXPIRED_TOKEN');
 
     const password_hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await this.users.updatePasswordHash(record.user_id, password_hash);
-    await this.authTokens.markAllActiveUsedForUser(record.user_id, 'password_reset');
+    await withTransaction(async (tx) => {
+      await this.users.updatePasswordHash(record.user_id, password_hash, tx);
+      await this.authTokens.markAllActiveUsedForUser(record.user_id, 'password_reset', tx);
+    });
   }
 
   async requestEmailVerification(userId: string): Promise<{ devToken?: string }> {

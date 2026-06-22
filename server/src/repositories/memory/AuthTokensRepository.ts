@@ -44,7 +44,7 @@ export class InMemoryAuthTokensRepository implements IAuthTokensRepository {
     if (token) token.used_at = new Date();
   }
 
-  async markAllActiveUsedForUser(userId: string, type: AuthTokenType): Promise<void> {
+  async markAllActiveUsedForUser(userId: string, type: AuthTokenType, _tx?: unknown): Promise<void> {
     const now = new Date();
     for (const token of this.store.values()) {
       if (

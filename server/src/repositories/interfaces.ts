@@ -29,7 +29,7 @@ export interface IAuthTokensRepository {
   findActiveByHash(tokenHash: string, type: AuthTokenType): Promise<AuthToken | null>;
   markUsed(id: string): Promise<void>;
   /** Mark all active (non-expired, non-used) tokens of the given type for a user as used. */
-  markAllActiveUsedForUser(userId: string, type: AuthTokenType): Promise<void>;
+  markAllActiveUsedForUser(userId: string, type: AuthTokenType, tx?: unknown): Promise<void>;
   deleteExpired(): Promise<void>;
 }
 
@@ -45,7 +45,7 @@ export interface IUsersRepository {
   /** Soft-deletes the user by setting deleted_at. Returns false if already deleted or not found. */
   delete(id: string): Promise<boolean>;
   setEmailVerified(id: string): Promise<void>;
-  updatePasswordHash(id: string, passwordHash: string): Promise<void>;
+  updatePasswordHash(id: string, passwordHash: string, tx?: unknown): Promise<void>;
 }
 
 export interface IExamSessionsRepository {

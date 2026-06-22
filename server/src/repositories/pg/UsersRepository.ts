@@ -77,8 +77,9 @@ export class PgUsersRepository implements IUsersRepository {
     );
   }
 
-  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
-    await this.pool.query(
+  async updatePasswordHash(id: string, passwordHash: string, tx?: unknown): Promise<void> {
+    const q = (tx as import('pg').PoolClient | undefined) ?? this.pool;
+    await q.query(
       'UPDATE users SET password_hash = $2 WHERE id = $1',
       [id, passwordHash],
     );

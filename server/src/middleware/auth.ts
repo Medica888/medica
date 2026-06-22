@@ -26,7 +26,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
   // DB errors propagate as 500, not 401 — this is outside the JWT try/catch intentionally
   const raw = await getRepositories().users.findByIdWithHash(userId);
-  if (raw?.deleted_at) {
+  if (!raw || raw.deleted_at) {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }

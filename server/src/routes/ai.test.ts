@@ -26,6 +26,7 @@ import {
 } from '../lib/questionValidator.js';
 import type { MedicalReviewResult } from '../lib/questionValidator.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
+import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.js';
 import { setRepositories, createInMemoryRepositories, getRepositories } from '../repositories/index.js';
 import { config } from '../config.js';
 import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
@@ -36,6 +37,12 @@ let _idCounter = 0;
 
 function authHeader(userId = 'user-1') {
   return `Bearer ${jwt.sign({ sub: userId }, config.jwtSecret)}`;
+}
+
+function seedAuthUsers(): void {
+  const users = getRepositories().users as InMemoryUsersRepository;
+  users._seedWithId('user-1');
+  users._seedWithId('user-999');
 }
 
 /**
@@ -832,6 +839,7 @@ describe('quarantine filter — end-to-end data flow proof', () => {
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
   });
 
   // ── 1. Quarantine threshold logic ─────────────────────────────────────────────
@@ -1026,6 +1034,7 @@ describe('generated question bank', () => {
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
     delete process.env.ANTHROPIC_API_KEY;
     // user-1 is the admin for governance tests; non-admin tests use user-999.
     process.env.ADMIN_USER_IDS = 'user-1';
@@ -1651,6 +1660,7 @@ describe('hybrid question bank fill', () => {
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
     process.env.ANTHROPIC_API_KEY = 'test-key-hybrid';
     mockMessagesCreate.mockReset();
     app = createApp();
@@ -2113,6 +2123,7 @@ describe('Phase 2 governance', () => {
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.REQUIRE_APPROVAL_FOR_PRODUCTION;
     delete process.env.ALLOW_VALIDATED_REUSE;
@@ -2725,6 +2736,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
   beforeEach(() => {
     setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
     process.env.ANTHROPIC_API_KEY = 'test-key-matrix';
     process.env.ADMIN_USER_IDS = 'user-1';
     mockMessagesCreate.mockReset();

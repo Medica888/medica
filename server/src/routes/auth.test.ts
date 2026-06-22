@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { createApp } from '../app.js';
 import { createInMemoryRepositories, setRepositories } from '../repositories/index.js';
 import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.js';
@@ -74,6 +75,12 @@ describe('POST /api/auth/login', () => {
 });
 
 describe('GET /api/auth/me', () => {
+  it('returns 401 when JWT sub points to a non-existent user', async () => {
+    const ghostToken = jwt.sign({ sub: '00000000-0000-0000-0000-000000000000' }, config.jwtSecret);
+    const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${ghostToken}`);
+    expect(res.status).toBe(401);
+  });
+
   it('returns profile when authenticated', async () => {
     const reg = await request(app).post('/api/auth/register').send({
       email: 'me@example.com',
