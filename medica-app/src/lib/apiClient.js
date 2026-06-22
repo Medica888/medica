@@ -38,6 +38,18 @@ export const auth = {
 
   me: () => request('GET', '/api/auth/me'),
 
+  forgotPassword: (email) =>
+    request('POST', '/api/auth/forgot-password', { email }),
+
+  resetPassword: (token, password) =>
+    request('POST', '/api/auth/reset-password', { token, password }),
+
+  verifyEmail: (token) =>
+    request('POST', '/api/auth/verify-email', { token }),
+
+  resendVerification: () =>
+    request('POST', '/api/auth/resend-verification'),
+
   deleteAccount: (password) =>
     request('DELETE', '/api/auth/account', { password }),
 };

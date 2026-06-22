@@ -104,3 +104,48 @@ describe('health.check', () => {
     expect(result.status).toBe('ok');
   });
 });
+
+describe('auth.forgotPassword', () => {
+  it('POSTs to /api/auth/forgot-password', async () => {
+    mockResponse({ message: 'If that email is registered, you will receive a reset link' });
+    await auth.forgotPassword('a@b.com');
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/forgot-password'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('auth.resetPassword', () => {
+  it('POSTs to /api/auth/reset-password', async () => {
+    mockResponse({ message: 'Password updated successfully' });
+    await auth.resetPassword('rawtoken', 'newpassword');
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/reset-password'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('auth.verifyEmail', () => {
+  it('POSTs to /api/auth/verify-email', async () => {
+    mockResponse({ message: 'Email verified successfully' });
+    await auth.verifyEmail('rawtoken');
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/verify-email'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('auth.resendVerification', () => {
+  it('POSTs to /api/auth/resend-verification', async () => {
+    setAuthToken('tok');
+    mockResponse({ message: 'Verification email sent' });
+    await auth.resendVerification();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/resend-verification'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
