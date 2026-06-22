@@ -37,6 +37,9 @@ export const auth = {
     request('POST', '/api/auth/login', { email, password }),
 
   me: () => request('GET', '/api/auth/me'),
+
+  deleteAccount: (password) =>
+    request('DELETE', '/api/auth/account', { password }),
 };
 
 // ── Exams ─────────────────────────────────────────────────────────────────

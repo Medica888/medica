@@ -8,7 +8,17 @@ export class PgUsersRepository implements IUsersRepository {
 
   async findById(id: string): Promise<User | null> {
     const res = await this.pool.query<User>(
-      'SELECT id, email, name, created_at FROM users WHERE id = $1',
+      `SELECT id, email, name, email_verified, email_verified_at, created_at
+       FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [id],
+    );
+    return res.rows[0] ?? null;
+  }
+
+  async findByIdWithHash(id: string): Promise<UserWithHash | null> {
+    const res = await this.pool.query<UserWithHash>(
+      `SELECT id, email, name, password_hash, email_verified, email_verified_at, deleted_at, created_at
+       FROM users WHERE id = $1`,
       [id],
     );
     return res.rows[0] ?? null;
@@ -16,7 +26,17 @@ export class PgUsersRepository implements IUsersRepository {
 
   async findByEmail(email: string): Promise<UserWithHash | null> {
     const res = await this.pool.query<UserWithHash>(
-      'SELECT id, email, name, password_hash, created_at FROM users WHERE LOWER(email) = LOWER($1)',
+      `SELECT id, email, name, password_hash, email_verified, email_verified_at, deleted_at, created_at
+       FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
+      [email],
+    );
+    return res.rows[0] ?? null;
+  }
+
+  async findByEmailIncludingDeleted(email: string): Promise<UserWithHash | null> {
+    const res = await this.pool.query<UserWithHash>(
+      `SELECT id, email, name, password_hash, email_verified, email_verified_at, deleted_at, created_at
+       FROM users WHERE LOWER(email) = LOWER($1)`,
       [email],
     );
     return res.rows[0] ?? null;
@@ -27,7 +47,7 @@ export class PgUsersRepository implements IUsersRepository {
     const res = await this.pool.query<User>(
       `INSERT INTO users (id, email, name, password_hash)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, email, name, created_at`,
+       RETURNING id, email, name, email_verified, email_verified_at, created_at`,
       [id, data.email, data.name, data.password_hash],
     );
     return res.rows[0]!;
@@ -35,15 +55,32 @@ export class PgUsersRepository implements IUsersRepository {
 
   async updateName(id: string, name: string): Promise<User | null> {
     const res = await this.pool.query<User>(
-      `UPDATE users SET name = $2 WHERE id = $1
-       RETURNING id, email, name, created_at`,
+      `UPDATE users SET name = $2 WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, email, name, email_verified, email_verified_at, created_at`,
       [id, name],
     );
     return res.rows[0] ?? null;
   }
 
   async delete(id: string): Promise<boolean> {
-    const res = await this.pool.query('DELETE FROM users WHERE id = $1', [id]);
+    const res = await this.pool.query(
+      'UPDATE users SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL',
+      [id],
+    );
     return (res.rowCount ?? 0) > 0;
+  }
+
+  async setEmailVerified(id: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE users SET email_verified = true, email_verified_at = now() WHERE id = $1',
+      [id],
+    );
+  }
+
+  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE users SET password_hash = $2 WHERE id = $1',
+      [id, passwordHash],
+    );
   }
 }

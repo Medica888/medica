@@ -21,6 +21,15 @@ export const registerLimiter = rateLimit({
   message: { error: 'Too many registration attempts, please try again in 10 minutes' },
 });
 
+export const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  skip: () => isTest,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many password reset requests, please try again in an hour' },
+});
+
 // AI generation rate limiter — applied after optionalAuth so userId is available.
 // Keyed by userId when authenticated (per-user bucket) or IP when anonymous.
 // Limit: 20 requests / 15 min per bucket. Skipped in test environment.

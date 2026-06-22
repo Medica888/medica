@@ -3,15 +3,23 @@ import type { Response } from 'express';
 import { AuthService } from '../services/AuthService.js';
 import { validate } from '../middleware/validate.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
-import { registerSchema, loginSchema } from '../schemas/auth.js';
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
+  deleteAccountSchema,
+} from '../schemas/auth.js';
 import { getRepositories } from '../repositories/index.js';
-import { loginLimiter, registerLimiter } from '../middleware/rateLimiter.js';
+import { loginLimiter, registerLimiter, passwordResetLimiter } from '../middleware/rateLimiter.js';
 import { getAdminUserIds } from '../middleware/requireAdmin.js';
 
 const router = Router();
 
 function getService(): AuthService {
-  return new AuthService(getRepositories().users);
+  const repos = getRepositories();
+  return new AuthService(repos.users, repos.authTokens);
 }
 
 router.post('/register', registerLimiter, validate(registerSchema), async (req, res: Response) => {
@@ -51,6 +59,77 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     res.json({ user, isAdmin });
   } catch {
     res.status(404).json({ error: 'User not found' });
+  }
+});
+
+router.post('/forgot-password', passwordResetLimiter, validate(forgotPasswordSchema), async (req, res: Response) => {
+  try {
+    const { email } = req.body as { email: string };
+    const result = await getService().requestPasswordReset(email);
+    res.json({ message: 'If that email is registered, you will receive a reset link', ...result });
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/reset-password', validate(resetPasswordSchema), async (req, res: Response) => {
+  try {
+    const { token, password } = req.body as { token: string; password: string };
+    await getService().resetPassword(token, password);
+    res.json({ message: 'Password updated successfully' });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'UNKNOWN';
+    if (msg === 'INVALID_OR_EXPIRED_TOKEN') {
+      res.status(400).json({ error: 'Invalid or expired reset token' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+router.post('/verify-email', validate(verifyEmailSchema), async (req, res: Response) => {
+  try {
+    const { token } = req.body as { token: string };
+    await getService().verifyEmail(token);
+    res.json({ message: 'Email verified successfully' });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'UNKNOWN';
+    if (msg === 'INVALID_OR_EXPIRED_TOKEN') {
+      res.status(400).json({ error: 'Invalid or expired verification token' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+router.post('/resend-verification', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await getService().requestEmailVerification(req.userId!);
+    res.json({ message: 'Verification email sent', ...result });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'UNKNOWN';
+    if (msg === 'NOT_FOUND') {
+      res.status(404).json({ error: 'User not found' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+router.delete('/account', requireAuth, validate(deleteAccountSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const { password } = req.body as { password: string };
+    await getService().deleteAccount(req.userId!, password);
+    res.status(204).end();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'UNKNOWN';
+    if (msg === 'INVALID_CREDENTIALS') {
+      res.status(401).json({ error: 'Invalid password' });
+    } else if (msg === 'NOT_FOUND') {
+      res.status(404).json({ error: 'User not found' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

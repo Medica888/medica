@@ -13,6 +13,7 @@ export const config = {
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5174')
     .split(',')
     .map((o) => o.trim()),
+  authDevTokensEnabled: process.env.AUTH_DEV_TOKENS_ENABLED === 'true',
 } as const;
 
 if (config.nodeEnv === 'production') {
@@ -29,5 +30,9 @@ if (config.nodeEnv === 'production') {
       '[config] ALLOWED_ORIGINS must be set to production domains. ' +
         'Only localhost origins detected — refusing to start.',
     );
+  }
+
+  if (process.env.AUTH_DEV_TOKENS_ENABLED === 'true') {
+    throw new Error('[config] AUTH_DEV_TOKENS_ENABLED must be false in production');
   }
 }

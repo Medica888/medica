@@ -2,11 +2,26 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  email_verified: boolean;
+  email_verified_at: Date | null;
   created_at: Date;
 }
 
 export interface UserWithHash extends User {
   password_hash: string;
+  deleted_at: Date | null;
+}
+
+export type AuthTokenType = 'password_reset' | 'email_verification';
+
+export interface AuthToken {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  type: AuthTokenType;
+  expires_at: Date;
+  used_at: Date | null;
+  created_at: Date;
 }
 
 export interface ExamSession {

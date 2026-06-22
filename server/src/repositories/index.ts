@@ -1,6 +1,7 @@
 import { getPool } from '../config/db.js';
 
 import { InMemoryUsersRepository } from './memory/UsersRepository.js';
+import { InMemoryAuthTokensRepository } from './memory/AuthTokensRepository.js';
 import { InMemoryExamSessionsRepository } from './memory/ExamSessionsRepository.js';
 import { InMemoryQuestionAttemptsRepository } from './memory/QuestionAttemptsRepository.js';
 import { InMemoryFlashcardsRepository } from './memory/FlashcardsRepository.js';
@@ -16,6 +17,7 @@ import { InMemoryAuditLogRepository } from './memory/AuditLogRepository.js';
 import { InMemoryTaxonomyCandidatesRepository } from './memory/TaxonomyCandidatesRepository.js';
 
 import { PgUsersRepository } from './pg/UsersRepository.js';
+import { PgAuthTokensRepository } from './pg/AuthTokensRepository.js';
 import { PgExamSessionsRepository } from './pg/ExamSessionsRepository.js';
 import { PgQuestionAttemptsRepository } from './pg/QuestionAttemptsRepository.js';
 import { PgFlashcardsRepository } from './pg/FlashcardsRepository.js';
@@ -31,6 +33,7 @@ import { PgAuditLogRepository } from './pg/AuditLogRepository.js';
 import { PgTaxonomyCandidatesRepository } from './pg/TaxonomyCandidatesRepository.js';
 
 import type { IUsersRepository } from './interfaces.js';
+import type { IAuthTokensRepository } from './interfaces.js';
 import type { IExamSessionsRepository } from './interfaces.js';
 import type { IQuestionAttemptsRepository } from './interfaces.js';
 import type { IFlashcardsRepository } from './interfaces.js';
@@ -49,6 +52,7 @@ import { config } from '../config.js';
 
 export interface Repositories {
   users: IUsersRepository;
+  authTokens: IAuthTokensRepository;
   examSessions: IExamSessionsRepository;
   questionAttempts: IQuestionAttemptsRepository;
   flashcards: IFlashcardsRepository;
@@ -78,6 +82,7 @@ export function getRepositories(): Repositories {
 export function createInMemoryRepositories(): Repositories {
   return {
     users:              new InMemoryUsersRepository(),
+    authTokens:         new InMemoryAuthTokensRepository(),
     examSessions:       new InMemoryExamSessionsRepository(),
     questionAttempts:   new InMemoryQuestionAttemptsRepository(),
     flashcards:         new InMemoryFlashcardsRepository(),
@@ -99,6 +104,7 @@ export function createPgRepositories(): Repositories {
   if (!pool) throw new Error('[db] createPgRepositories called without DATABASE_URL');
   return {
     users:              new PgUsersRepository(pool),
+    authTokens:         new PgAuthTokensRepository(pool),
     examSessions:       new PgExamSessionsRepository(pool),
     questionAttempts:   new PgQuestionAttemptsRepository(pool),
     flashcards:         new PgFlashcardsRepository(pool),

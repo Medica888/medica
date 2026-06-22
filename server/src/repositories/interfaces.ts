@@ -1,6 +1,8 @@
 import type {
   User,
   UserWithHash,
+  AuthToken,
+  AuthTokenType,
   ExamSession,
   QuestionAttempt,
   Flashcard,
@@ -17,12 +19,33 @@ import type {
   PaginatedResult,
 } from '../types/index.js';
 
+export interface IAuthTokensRepository {
+  create(data: {
+    userId: string;
+    tokenHash: string;
+    type: AuthTokenType;
+    expiresAt: Date;
+  }): Promise<AuthToken>;
+  findActiveByHash(tokenHash: string, type: AuthTokenType): Promise<AuthToken | null>;
+  markUsed(id: string): Promise<void>;
+  /** Mark all active (non-expired, non-used) tokens of the given type for a user as used. */
+  markAllActiveUsedForUser(userId: string, type: AuthTokenType): Promise<void>;
+  deleteExpired(): Promise<void>;
+}
+
 export interface IUsersRepository {
   findById(id: string): Promise<User | null>;
+  /** Returns the full row including soft-deleted users. Use for auth checks that must detect deleted_at. */
+  findByIdWithHash(id: string): Promise<UserWithHash | null>;
   findByEmail(email: string): Promise<UserWithHash | null>;
+  /** Like findByEmail but includes soft-deleted rows. Use in register to keep deleted emails reserved. */
+  findByEmailIncludingDeleted(email: string): Promise<UserWithHash | null>;
   create(data: { email: string; name: string; password_hash: string }): Promise<User>;
   updateName(id: string, name: string): Promise<User | null>;
+  /** Soft-deletes the user by setting deleted_at. Returns false if already deleted or not found. */
   delete(id: string): Promise<boolean>;
+  setEmailVerified(id: string): Promise<void>;
+  updatePasswordHash(id: string, passwordHash: string): Promise<void>;
 }
 
 export interface IExamSessionsRepository {
