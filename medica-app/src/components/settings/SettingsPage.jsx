@@ -124,6 +124,12 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
                   />
                 </div>
 
+                {tab === 'login' && (
+                  <a className="stg-inline-link" href="/forgot-password">
+                    Forgot password?
+                  </a>
+                )}
+
                 {error   && <p className="stg-error">{error}</p>}
                 {success && <p className="stg-success">{success}</p>}
 
@@ -132,7 +138,7 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
                   className="stg-submit-btn"
                   disabled={loading}
                 >
-                  {loading ? 'Connecting…' : tab === 'login' ? 'Log In' : 'Create Account'}
+                  {loading ? 'Connecting...' : tab === 'login' ? 'Log In' : 'Create Account'}
                 </button>
               </form>
             </div>
