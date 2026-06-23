@@ -29,7 +29,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
         topic: sessionConfig?.topic || sessionConfig?.clinicalFocus,
       })
       if (saved) setReported(true)
-    } catch { /* local storage failure — swallow so review is never blocked */ }
+    } catch { /* Local storage failure should never block review. */ }
   }
   const correctLetter = getCorrectLetter(question)
   const userLetter    = getUserLetter(userAnswer)
@@ -124,11 +124,11 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       {/* Answer summary */}
       <div className="erv-answer-summary">
         {isSkipped ? (
-          <span className="erv-ans-skipped">Not answered · Correct answer: <strong>{correctLetter}</strong></span>
+          <span className="erv-ans-skipped">Not answered - Correct answer: <strong>{correctLetter}</strong></span>
         ) : isCorrect ? (
-          <span className="erv-ans-correct">You chose <strong>{userLetter}</strong> · Correct</span>
+          <span className="erv-ans-correct">You chose <strong>{userLetter}</strong> - Correct</span>
         ) : (
-          <span className="erv-ans-wrong">You chose <strong>{userLetter}</strong> · Correct answer: <strong>{correctLetter}</strong></span>
+          <span className="erv-ans-wrong">You chose <strong>{userLetter}</strong> - Correct answer: <strong>{correctLetter}</strong></span>
         )}
       </div>
 

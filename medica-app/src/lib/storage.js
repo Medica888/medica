@@ -105,7 +105,7 @@ export function saveQuestionReport(question, reason, context = {}) {
     const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
     localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
-    // Best-effort backend sync â€” fire-and-forget, never blocks the UI
+    // Best-effort backend sync - fire-and-forget, never blocks the UI.
     _postReportToBackend(report, question, context)
     return report
   } catch {
@@ -115,7 +115,7 @@ export function saveQuestionReport(question, reason, context = {}) {
 
 /**
  * Fire-and-forget: mirrors the local report to the backend so cross-user
- * quarantine thresholds can accumulate.  Silently swallows all errors â€”
+ * quarantine thresholds can accumulate. Silently swallows all errors -
  * localStorage is the primary store; backend is best-effort.
  *
  * Only runs when VITE_USE_BACKEND_API === 'true' (i.e. the backend is reachable).
@@ -307,11 +307,11 @@ export function getTrustedGeneratedQuestionsForConfig(config = {}) {
 /**
  * Removes questions from trusted storage whose id or fingerprint is in `staleIds`.
  * Called when re-validation under updated rules finds a previously-trusted question
- * no longer meets quality standards â€” the stale entry is purged so the AI fill
+ * no longer meets quality standards - the stale entry is purged so the AI fill
  * step regenerates a fresh replacement on the next session.
  *
- * @param {Set<string>} staleIds  â€” set of id or fingerprint strings to remove
- * @returns {number}              â€” count of entries removed
+ * @param {Set<string>} staleIds - set of id or fingerprint strings to remove
+ * @returns {number} - count of entries removed
  */
 export function purgeStaleQuestionsFromTrusted(staleIds) {
   if (!staleIds?.size || typeof window === 'undefined') return 0
@@ -648,4 +648,3 @@ export function clearSessionHistory() {
     localStorage.removeItem(SESSION_HISTORY_KEY)
   } catch { /* ignore */ }
 }
-

@@ -146,7 +146,7 @@ export const generate = {
     }, options),
 };
 
-// â”€â”€ Question Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Question Reports
 export const questionReports = {
   create: (payload) => request('POST', '/api/question-reports', payload),
 };

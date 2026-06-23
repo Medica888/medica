@@ -101,7 +101,7 @@ export default function ResetPasswordPage({ token }) {
             className="stg-submit-btn"
             disabled={status === 'loading'}
           >
-            {status === 'loading' ? 'Updating…' : 'Update Password'}
+            {status === 'loading' ? 'Updating...' : 'Update Password'}
           </button>
         </form>
       </div>

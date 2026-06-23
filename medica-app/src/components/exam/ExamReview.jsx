@@ -47,7 +47,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
                  : filter === 'unanswered' ? unansweredQs
                  : questions
 
-  const emptyMsg = filter === 'incorrect'  ? 'No incorrect answers — well done!'
+  const emptyMsg = filter === 'incorrect'  ? 'No incorrect answers - well done!'
                  : filter === 'marked'     ? 'No questions were marked for review.'
                  : filter === 'unanswered' ? 'All questions were answered.'
                  : 'No questions in this session.'
@@ -113,7 +113,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
         </button>
       </div>
 
-      {/* Question Navigator — outside the scrollable list */}
+      {/* Question Navigator outside the scrollable list */}
       <QuestionNavigator
         questions={questions}
         currentIndex={focusedIdx}
@@ -124,7 +124,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
           if (el) {
             el.scrollIntoView({ block: 'start', behavior: 'smooth' })
           } else {
-            // Card is filtered out — switch to 'all' then scroll once it renders
+            // Card is filtered out - switch to 'all' then scroll once it renders.
             setFilter('all')
             setPendingScrollId(q.id)
           }
@@ -138,7 +138,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
         mode="review"
       />
 
-      {/* Cards list — scrolls independently */}
+      {/* Cards list scrolls independently */}
       <div className="erv-list">
         {filtered.length === 0 ? (
           <div className="erv-empty">

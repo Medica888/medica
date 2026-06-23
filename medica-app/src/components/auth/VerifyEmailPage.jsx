@@ -28,7 +28,7 @@ export default function VerifyEmailPage({ token }) {
       <div className="stg-page">
         <div className="stg-card">
           <h2>Verifying Email</h2>
-          <p>Please wait…</p>
+          <p>Please wait...</p>
         </div>
       </div>
     );
