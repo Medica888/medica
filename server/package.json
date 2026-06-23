@@ -33,6 +33,7 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^8.0.4",
+    "nodemailer": "^9.0.1",
     "pg": "^8.21.0",
     "zod": "^4.4.3"
   },
@@ -42,6 +43,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.9.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
     "supertest": "^7.2.2",

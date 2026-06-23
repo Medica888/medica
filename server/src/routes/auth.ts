@@ -12,6 +12,7 @@ import {
   deleteAccountSchema,
 } from '../schemas/auth.js';
 import { getRepositories } from '../repositories/index.js';
+import { getEmailSender } from '../lib/email.js';
 import { loginLimiter, registerLimiter, passwordResetLimiter } from '../middleware/rateLimiter.js';
 import { getAdminUserIds } from '../middleware/requireAdmin.js';
 
@@ -19,7 +20,7 @@ const router = Router();
 
 function getService(): AuthService {
   const repos = getRepositories();
-  return new AuthService(repos.users, repos.authTokens);
+  return new AuthService(repos.users, repos.authTokens, getEmailSender());
 }
 
 router.post('/register', registerLimiter, validate(registerSchema), async (req, res: Response) => {

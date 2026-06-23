@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { withTransaction } from '../config/db.js';
 import type { IUsersRepository } from '../repositories/interfaces.js';
 import type { IAuthTokensRepository } from '../repositories/interfaces.js';
+import type { IEmailSender } from '../lib/email.js';
 import type { User } from '../types/index.js';
 
 const BCRYPT_ROUNDS = config.nodeEnv === 'test' ? 10 : 12;
@@ -23,6 +24,7 @@ export class AuthService {
   constructor(
     private users: IUsersRepository,
     private authTokens: IAuthTokensRepository,
+    private emailSender: IEmailSender,
   ) {}
 
   async register(email: string, name: string, password: string): Promise<{ user: User; token: string }> {
@@ -74,7 +76,16 @@ export class AuthService {
       expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
     });
 
-    // TODO(production): send rawToken via email before enabling this for real users
+    const resetUrl = `${config.appBaseUrl}/reset-password?token=${rawToken}`;
+    try {
+      await this.emailSender.send({
+        to: user.email,
+        subject: 'Reset your Medica password',
+        text: `Click the link below to reset your password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you did not request a password reset, you can ignore this email.`,
+      });
+    } catch (err) {
+      console.error('[AuthService] reset email failed:', err);
+    }
     if (config.authDevTokensEnabled) return { devToken: rawToken };
     return {};
   }
@@ -106,7 +117,12 @@ export class AuthService {
       expiresAt: new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
     });
 
-    // TODO(production): send rawToken via email before enabling this for real users
+    const verifyUrl = `${config.appBaseUrl}/verify-email?token=${rawToken}`;
+    await this.emailSender.send({
+      to: user.email,
+      subject: 'Verify your Medica email address',
+      text: `Click the link below to verify your email address.\n\n${verifyUrl}\n\nIf you did not create a Medica account, you can ignore this email.`,
+    });
     if (config.authDevTokensEnabled) return { devToken: rawToken };
     return {};
   }

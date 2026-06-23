@@ -4,12 +4,17 @@ import jwt from 'jsonwebtoken';
 import { createApp } from '../app.js';
 import { createInMemoryRepositories, setRepositories } from '../repositories/index.js';
 import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.js';
+import { InMemoryEmailSender, setEmailSender, type IEmailSender } from '../lib/email.js';
 import { config } from '../config.js';
 
 const app = createApp();
 
+let emailSender: InMemoryEmailSender;
+
 beforeEach(() => {
   setRepositories(createInMemoryRepositories());
+  emailSender = new InMemoryEmailSender();
+  setEmailSender(emailSender);
 });
 
 describe('POST /api/auth/register', () => {
@@ -377,6 +382,67 @@ describe('DELETE /api/auth/account', () => {
   });
 });
 
+describe('email delivery', () => {
+  it('forgot-password sends reset email to existing user', async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'emailreset@example.com',
+      name: 'Email User',
+      password: 'password123',
+    });
+    await request(app).post('/api/auth/forgot-password').send({ email: 'emailreset@example.com' });
+    expect(emailSender.sent).toHaveLength(1);
+    expect(emailSender.sent[0].to).toBe('emailreset@example.com');
+    expect(emailSender.sent[0].text).toContain('/reset-password?token=');
+  });
+
+  it('forgot-password sends no email for unknown address (no enumeration)', async () => {
+    await request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' });
+    expect(emailSender.sent).toHaveLength(0);
+  });
+
+  it('resend-verification sends verification email to authenticated user', async () => {
+    const reg = await request(app).post('/api/auth/register').send({
+      email: 'emailverify@example.com',
+      name: 'Verify User',
+      password: 'password123',
+    });
+    await request(app)
+      .post('/api/auth/resend-verification')
+      .set('Authorization', `Bearer ${reg.body.token as string}`);
+    expect(emailSender.sent).toHaveLength(1);
+    expect(emailSender.sent[0].to).toBe('emailverify@example.com');
+    expect(emailSender.sent[0].text).toContain('/verify-email?token=');
+  });
+
+  it('forgot-password does not include devToken when AUTH_DEV_TOKENS_ENABLED is false', async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'notoken@example.com',
+      name: 'No Token User',
+      password: 'password123',
+    });
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'notoken@example.com' });
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty('devToken');
+  });
+
+  it('email send failure does not leak 500 for forgot-password (safe failure)', async () => {
+    const failSender: IEmailSender = { send: vi.fn().mockRejectedValue(new Error('SMTP down')) };
+    setEmailSender(failSender);
+    await request(app).post('/api/auth/register').send({
+      email: 'failmail@example.com',
+      name: 'Fail User',
+      password: 'password123',
+    });
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'failmail@example.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If that email');
+  });
+});
+
 describe('config production guards', () => {
   it('throws if AUTH_DEV_TOKENS_ENABLED=true in production', async () => {
     const saved = {
@@ -394,6 +460,33 @@ describe('config production guards', () => {
       await expect(import('../config.js')).rejects.toThrow(
         'AUTH_DEV_TOKENS_ENABLED must be false in production',
       );
+    } finally {
+      for (const [key, val] of Object.entries(saved)) {
+        if (val === undefined) delete process.env[key];
+        else process.env[key] = val;
+      }
+      vi.resetModules();
+    }
+  });
+
+  it('throws if SMTP_HOST is not set in production', async () => {
+    const saved = {
+      NODE_ENV: process.env.NODE_ENV,
+      JWT_SECRET: process.env.JWT_SECRET,
+      ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+      AUTH_DEV_TOKENS_ENABLED: process.env.AUTH_DEV_TOKENS_ENABLED,
+      SMTP_HOST: process.env.SMTP_HOST,
+      EMAIL_FROM: process.env.EMAIL_FROM,
+      APP_BASE_URL: process.env.APP_BASE_URL,
+    };
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
+      delete process.env.AUTH_DEV_TOKENS_ENABLED;
+      delete process.env.SMTP_HOST;
+      vi.resetModules();
+      await expect(import('../config.js')).rejects.toThrow('SMTP_HOST');
     } finally {
       for (const [key, val] of Object.entries(saved)) {
         if (val === undefined) delete process.env[key];
