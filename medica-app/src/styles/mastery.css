@@ -570,7 +570,11 @@
   font-size: 12px; font-weight: 700; cursor: pointer;
 }
 .question-report-btn:hover { color: var(--t1); border-color: var(--accent); }
-.question-report-status { color: var(--good); font-size: 12px; font-weight: 700; }
+.question-report-status {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  color: var(--good); font-size: 12px; font-weight: 700;
+}
+.question-report-detail { color: var(--t3); font-size: 11px; font-weight: 500; }
 
 /* Question report analytics */
 .an-report-card { display: flex; flex-direction: column; gap: 12px; }

@@ -270,6 +270,7 @@ describe('ExamReviewCard — confirmation after report', () => {
     expect(screen.queryByText('Saved')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /report/i }))
     expect(screen.getByText('Saved')).toBeInTheDocument()
+    expect(screen.getByText(/hidden from future sessions and sent for review/i)).toBeInTheDocument()
   })
 
   it('clears confirmation when reason is changed after reporting', () => {

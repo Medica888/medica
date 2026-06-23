@@ -270,6 +270,7 @@ mark.hl-pink   { background: rgba(244,114,182,.28); color: inherit; border-radiu
 .question-report-select { background: var(--card); }
 .question-report-btn    { background: transparent; }
 .question-report-status { color: var(--green); }
+.exam-report-status .question-report-detail { color: var(--t3); font-size: 10.5px; font-weight: 500; }
 
 /* ── Dark mode ──────────────────────────────────────────────────── */
 .dark .quiz-drawer          { background: var(--card); border-left-color: var(--border); }

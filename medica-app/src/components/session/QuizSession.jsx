@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { saveQuestionReport, saveQuizSession } from '../../lib/storage'
+import { saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
 import QuestionNavigator from './QuestionNavigator'
@@ -10,6 +10,7 @@ import CalculatorDrawer from './CalculatorDrawer'
 import SubmitConfirmModal from './SubmitConfirmModal'
 import QuizUtilityBar from './QuizUtilityBar'
 import QuizHighlightToolbar from './QuizHighlightToolbar'
+import QuestionReportControl from './QuestionReportControl'
 
 function normalizeMode(mode) {
   if (mode === 'timed')       return 'exam'
@@ -69,8 +70,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
       : null
   )
   const [marked, setMarked]             = useState({})
-  const [reportReason, setReportReason] = useState('wrong_answer')
-  const [reportedQuestionId, setReportedQuestionId] = useState(null)
   const [confidences, setConfidences]   = useState({})
   const [notes, setNotes]               = useState({})
   const [openDrawer, setOpenDrawer]     = useState(null)
@@ -157,11 +156,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     const newAnswers = { ...answers, [question.id]: letter }
     updateSession({ answers: newAnswers })
     if (!isExam) setShowExpl(true)
-  }
-
-  const handleReport = () => {
-    const saved = saveQuestionReport(question, reportReason, { mode })
-    if (saved) setReportedQuestionId(question.id)
   }
 
   const handleNav = (dir) => {
@@ -387,26 +381,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
               />
             )}
 
-            {/* Report row */}
-            <div className="exam-report-row">
-              <select
-                className="exam-report-select"
-                value={reportReason}
-                onChange={e => { setReportReason(e.target.value); setReportedQuestionId(null) }}
-                aria-label="Report question reason"
-              >
-                <option value="wrong_answer">Wrong answer</option>
-                <option value="bad_explanation">Bad explanation</option>
-                <option value="off_topic">Off topic</option>
-                <option value="ambiguous_or_insufficient_clues">Ambiguous / insufficient clinical clues</option>
-              </select>
-              <button type="button" className="exam-report-btn" onClick={handleReport}>
-                Report
-              </button>
-              {reportedQuestionId === question.id && (
-                <span className="exam-report-status">Saved</span>
-              )}
-            </div>
+            <QuestionReportControl question={question} context={{ mode }} variant="exam" />
 
           </div>
         </main>

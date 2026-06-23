@@ -45,7 +45,7 @@ describe('AdminReviewQueue', () => {
   it('renders loading state', () => {
     useReviewQueue.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
-    expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Loading...').length).toBeGreaterThan(0)
   })
 
   it('renders empty state', () => {
@@ -115,7 +115,7 @@ describe('AdminReviewQueue', () => {
     const q = makeQuestion({ bankStatus: 'approved' })
     useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
     render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
-    // "Approved" appears in filter tab + badge — verify badge class exists
+    // "Approved" appears in filter tab + badge - verify badge class exists
     const badges = document.querySelectorAll('.adm-badge-approved')
     expect(badges.length).toBeGreaterThan(0)
   })
@@ -124,7 +124,7 @@ describe('AdminReviewQueue', () => {
     const q = makeQuestion({ bankStatus: 'quarantined' })
     useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
     render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
-    // "Quarantined" appears in filter tab + badge — verify badge class exists
+    // "Quarantined" appears in filter tab + badge - verify badge class exists
     const badges = document.querySelectorAll('.adm-badge-quarantined')
     expect(badges.length).toBeGreaterThan(0)
   })

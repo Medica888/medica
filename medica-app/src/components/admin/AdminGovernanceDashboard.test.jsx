@@ -38,7 +38,7 @@ describe('AdminGovernanceDashboard', () => {
 
   it('renders loading state', () => {
     render(<AdminGovernanceDashboard />)
-    expect(screen.getByText('Loading metrics…')).toBeTruthy()
+    expect(screen.getByText('Loading metrics...')).toBeTruthy()
   })
 
   it('renders error state', () => {
@@ -94,12 +94,12 @@ describe('AdminGovernanceDashboard', () => {
     expect(screen.getByText('approved')).toBeTruthy()
   })
 
-  it('shows — when averageValidationScore is null', () => {
+  it('shows - when averageValidationScore is null', () => {
     const data = makeMetrics({ averageValidationScore: null })
     useGovernanceMetrics.mockReturnValue({ data: { ...data, metrics: { ...data.metrics, averageValidationScore: null } }, loading: false, error: null })
     render(<AdminGovernanceDashboard />)
-    // The '—' should appear somewhere
-    const dashes = screen.getAllByText('—')
+    // The '-' should appear somewhere
+    const dashes = screen.getAllByText('-')
     expect(dashes.length).toBeGreaterThan(0)
   })
 })

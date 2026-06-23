@@ -28,7 +28,7 @@ async function request(method, path, body, options = {}) {
   return data;
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────
+// Auth
 export const auth = {
   register: (email, name, password) =>
     request('POST', '/api/auth/register', { email, name, password }),
@@ -54,7 +54,7 @@ export const auth = {
     request('DELETE', '/api/auth/account', { password }),
 };
 
-// ── Exams ─────────────────────────────────────────────────────────────────
+// Exams
 export const exams = {
   create: (session) => request('POST', '/api/exams', session),
 
@@ -66,14 +66,14 @@ export const exams = {
   delete: (id) => request('DELETE', `/api/exams/${id}`),
 };
 
-// ── Analytics ─────────────────────────────────────────────────────────────
+// Analytics
 export const analytics = {
   get: () => request('GET', '/api/analytics'),
 
   progress: () => request('GET', '/api/analytics/progress'),
 };
 
-// ── Flashcards ────────────────────────────────────────────────────────────
+// Flashcards
 export const flashcards = {
   list: () => request('GET', '/api/flashcards'),
 
@@ -86,12 +86,12 @@ export const flashcards = {
   clearAll: () => request('DELETE', '/api/flashcards'),
 };
 
-// ── Health ────────────────────────────────────────────────────────────────
+// Health
 export const health = {
   check: () => request('GET', '/api/health'),
 };
 
-// ── Mastery ───────────────────────────────────────────────────────────────
+// Mastery
 export const mastery = {
   overview: () =>
     request('GET', '/api/mastery/overview'),
@@ -135,7 +135,7 @@ export const mastery = {
     request('GET', '/api/mastery/review-stats'),
 };
 
-// ── Generate ──────────────────────────────────────────────────────────────
+// Generate
 export const generate = {
   flashcards: (count = 10, config = {}) =>
     request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
@@ -151,7 +151,7 @@ export const questionReports = {
   create: (payload) => request('POST', '/api/question-reports', payload),
 };
 
-// ── Governance (admin) ────────────────────────────────────────────────────
+// Governance (admin)
 export const governance = {
   list: ({ status, limit = 50, page = 1, sort } = {}) => {
     const params = new URLSearchParams();
@@ -171,7 +171,7 @@ export const governance = {
     request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/status`, { status }),
 };
 
-// ── Taxonomy Candidates (admin) ───────────────────────────────────────────
+// Taxonomy Candidates (admin)
 export const taxonomyCandidates = {
   list: ({ status, limit = 100, page = 1 } = {}) => {
     const params = new URLSearchParams();
@@ -188,7 +188,7 @@ export const taxonomyCandidates = {
     }),
 };
 
-// ── Token persistence helpers ─────────────────────────────────────────────
+// Token persistence helpers
 const TOKEN_KEY = 'medica_jwt';
 
 export function persistToken(token) {

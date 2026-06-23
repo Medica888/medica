@@ -18,7 +18,7 @@ const STATUS_CLASS = {
 }
 
 function fmt(dateStr) {
-  if (!dateStr) return '—'
+  if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
@@ -26,7 +26,7 @@ function fmt(dateStr) {
 }
 
 function fmtDate(dateStr) {
-  if (!dateStr) return '—'
+  if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -77,7 +77,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
   if (loading) {
     return (
       <div className="adm-page">
-        <div className="adm-detail-loading">Loading question…</div>
+        <div className="adm-detail-loading">Loading question...</div>
       </div>
     )
   }
@@ -85,7 +85,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
   if (error || !question) {
     return (
       <div className="adm-page">
-        <button className="adm-btn-back" onClick={onBack}>← Back to Queue</button>
+        <button className="adm-btn-back" onClick={onBack}>Back to Queue</button>
         <div className="adm-error" role="alert">
           {error ? `Failed to load: ${error.message}` : 'Question not found.'}
         </div>
@@ -106,13 +106,13 @@ export default function AdminReviewDetail({ questionId, onBack }) {
       )}
 
       <div className="adm-detail-hdr">
-        <button className="adm-btn-back" onClick={onBack}>← Back to Queue</button>
+        <button className="adm-btn-back" onClick={onBack}>Back to Queue</button>
         <div className="adm-detail-meta-row">
           <span className={STATUS_CLASS[currentStatus] ?? 'adm-badge'}>
             {STATUS_LABEL[currentStatus] ?? currentStatus}
           </span>
           <span className="adm-detail-id" title={questionId}>
-            {questionId?.slice(0, 32)}{questionId?.length > 32 ? '…' : ''}
+            {questionId?.slice(0, 32)}{questionId?.length > 32 ? '...' : ''}
           </span>
         </div>
       </div>
@@ -170,7 +170,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
                   >
                     <span className="adm-option-letter">{OPTION_LETTERS[i] ?? i}</span>
                     <span className="adm-option-text">{opt}</span>
-                    {i === correctIdx && <span className="adm-option-check" aria-label="Correct answer">✓</span>}
+                    {i === correctIdx && <span className="adm-option-check" aria-label="Correct answer">Correct</span>}
                   </div>
                 ))}
               </div>
@@ -213,10 +213,10 @@ export default function AdminReviewDetail({ questionId, onBack }) {
           <div className="adm-section">
             <div className="adm-section-label">Metadata</div>
             <dl className="adm-dl">
-              <dt>Subject</dt>       <dd>{question.subject || '—'}</dd>
-              <dt>System</dt>        <dd>{question.system || '—'}</dd>
-              <dt>Difficulty</dt>    <dd>{question.difficulty || '—'}</dd>
-              <dt>Mode</dt>          <dd>{question.mode || '—'}</dd>
+              <dt>Subject</dt>       <dd>{question.subject || '-'}</dd>
+              <dt>System</dt>        <dd>{question.system || '-'}</dd>
+              <dt>Difficulty</dt>    <dd>{question.difficulty || '-'}</dd>
+              <dt>Mode</dt>          <dd>{question.mode || '-'}</dd>
               <dt>Usage Count</dt>   <dd>{question.usageCount ?? 0}</dd>
               <dt>Last Used</dt>     <dd>{fmtDate(question.lastUsedAt)}</dd>
               <dt>Created</dt>       <dd>{fmtDate(question.createdAt)}</dd>
@@ -230,20 +230,20 @@ export default function AdminReviewDetail({ questionId, onBack }) {
               <dt>Status</dt>
               <dd>
                 <span className={`adm-vscore${body.validationStatus === 'pass' ? ' pass' : body.validationStatus === 'repaired' ? ' warn' : ' fail'}`}>
-                  {body.validationStatus ?? '—'}
+                  {body.validationStatus ?? '-'}
                 </span>
               </dd>
               <dt>Score</dt>
-              <dd>{question.validationScore != null ? `${question.validationScore}%` : '—'}</dd>
+              <dd>{question.validationScore != null ? `${question.validationScore}%` : '-'}</dd>
               <dt>Validator</dt>
-              <dd className="adm-dd-muted">{body.validationVersion ?? '—'}</dd>
+              <dd className="adm-dd-muted">{body.validationVersion ?? '-'}</dd>
             </dl>
           </div>
 
           {/* Audit History */}
           <div className="adm-section">
             <div className="adm-section-label">Audit History</div>
-            {histLoading && <div className="adm-hist-empty">Loading…</div>}
+            {histLoading && <div className="adm-hist-empty">Loading...</div>}
             {!histLoading && history.length === 0 && (
               <div className="adm-hist-empty">No history recorded.</div>
             )}
@@ -252,12 +252,12 @@ export default function AdminReviewDetail({ questionId, onBack }) {
                 <div className="adm-hist-action">{entry.action}</div>
                 <div className="adm-hist-status">
                   {entry.previousStatus && <span className="adm-hist-prev">{entry.previousStatus}</span>}
-                  {entry.previousStatus && <span className="adm-hist-arrow"> → </span>}
+                  {entry.previousStatus && <span className="adm-hist-arrow"> to </span>}
                   <span className="adm-hist-new">{entry.newStatus}</span>
                 </div>
                 <div className="adm-hist-meta">
-                  {entry.userId && <span>{entry.userId.slice(0, 8)}…</span>}
-                  {entry.createdAt && <span> · {fmt(entry.createdAt)}</span>}
+                  {entry.userId && <span>{entry.userId.slice(0, 8)}...</span>}
+                  {entry.createdAt && <span> - {fmt(entry.createdAt)}</span>}
                 </div>
               </div>
             ))}

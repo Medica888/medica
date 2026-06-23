@@ -1,7 +1,7 @@
 import { useGovernanceMetrics } from '../../hooks/useAdminGovernance'
 
 function pct(val) {
-  if (val == null) return '—'
+  if (val == null) return '-'
   return `${Math.round(val * 100)}%`
 }
 
@@ -22,7 +22,7 @@ function ActionEntry({ entry }) {
     <div className="adm-recent-entry">
       <div className="adm-recent-action">{entry.action}</div>
       <div className="adm-recent-id" title={entry.questionId}>
-        {String(entry.questionId || '').slice(0, 24)}…
+        {String(entry.questionId || '').slice(0, 24)}...
       </div>
       {entry.createdAt && (
         <div className="adm-recent-time">
@@ -58,7 +58,7 @@ export default function AdminGovernanceDashboard() {
         </div>
       )}
 
-      {loading && <div className="adm-detail-loading">Loading metrics…</div>}
+      {loading && <div className="adm-detail-loading">Loading metrics...</div>}
 
       {!loading && !error && (
         <>
@@ -71,7 +71,7 @@ export default function AdminGovernanceDashboard() {
             <MetricCard label="Quarantine Rate"     value={pct(m.quarantineRate)} />
             <MetricCard
               label="Avg Validation Score"
-              value={m.averageValidationScore != null ? `${m.averageValidationScore}%` : '—'}
+              value={m.averageValidationScore != null ? `${m.averageValidationScore}%` : '-'}
             />
             <MetricCard label="Used in Sessions"   value={m.used ?? 0} sub={`${m.totalUsage ?? 0} total uses`} />
           </div>

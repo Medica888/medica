@@ -275,7 +275,10 @@
   font-family: Poppins, sans-serif; cursor: pointer; transition: all .12s;
 }
 .exam-report-btn:hover { color: var(--t1); border-color: var(--t3); }
-.exam-report-status { color: var(--green); font-size: 11px; font-weight: 700; }
+.exam-report-status {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  color: var(--green); font-size: 11px; font-weight: 700;
+}
 
 /* ── Footer navigation bar ─────────────────────────────────────── */
 .exam-footer {

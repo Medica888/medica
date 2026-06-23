@@ -32,7 +32,7 @@ const STATUS_LABEL = {
 }
 
 function fmt(dateStr) {
-  if (!dateStr) return '—'
+  if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -69,7 +69,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
         <div>
           <h1 className="adm-page-title">Review Queue</h1>
           <p className="adm-page-sub">
-            {loading ? 'Loading…' : `${total.toLocaleString()} question${total !== 1 ? 's' : ''}`}
+            {loading ? 'Loading...' : `${total.toLocaleString()} question${total !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button className="adm-btn-ghost adm-refresh" onClick={refetch} aria-label="Refresh">
@@ -134,7 +134,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="adm-table-empty">Loading…</td>
+                  <td colSpan={9} className="adm-table-empty">Loading...</td>
                 </tr>
               )}
               {!loading && questions.length === 0 && (
@@ -149,12 +149,12 @@ export default function AdminReviewQueue({ onSelectDetail }) {
                       {STATUS_LABEL[q.bankStatus] ?? q.bankStatus}
                     </span>
                   </td>
-                  <td className="adm-cell-text">{q.subject || '—'}</td>
-                  <td className="adm-cell-text">{q.system || '—'}</td>
-                  <td className="adm-cell-text">{q.difficulty || '—'}</td>
+                  <td className="adm-cell-text">{q.subject || '-'}</td>
+                  <td className="adm-cell-text">{q.system || '-'}</td>
+                  <td className="adm-cell-text">{q.difficulty || '-'}</td>
                   <td>
                     <span style={{ color: scoreColor(q.validationScore), fontVariantNumeric: 'tabular-nums' }}>
-                      {q.validationScore != null ? `${q.validationScore}%` : '—'}
+                      {q.validationScore != null ? `${q.validationScore}%` : '-'}
                     </span>
                   </td>
                   <td className="adm-cell-date">{fmt(q.createdAt)}</td>
@@ -183,7 +183,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
           disabled={!hasPrev}
           aria-label="Previous page"
         >
-          ← Previous
+          Previous
         </button>
         <span className="adm-page-info">Page {page}</span>
         <button
@@ -192,7 +192,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
           disabled={!hasMore}
           aria-label="Next page"
         >
-          Next →
+          Next
         </button>
       </div>
     </div>

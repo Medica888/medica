@@ -47,7 +47,7 @@ beforeEach(() => {
 describe('AdminReviewDetail', () => {
   it('shows loading state', () => {
     render(<AdminReviewDetail questionId="fp-1" onBack={vi.fn()} />)
-    expect(screen.getByText('Loading question…')).toBeTruthy()
+    expect(screen.getByText('Loading question...')).toBeTruthy()
   })
 
   it('shows error when question not found', () => {
@@ -157,7 +157,7 @@ describe('AdminReviewDetail', () => {
     const onBack = vi.fn()
     useReviewDetail.mockReturnValue({ data: makeDetail(), loading: false, error: null })
     render(<AdminReviewDetail questionId="fp-test-abc" onBack={onBack} />)
-    fireEvent.click(screen.getByText('← Back to Queue'))
+    fireEvent.click(screen.getByText('Back to Queue'))
     expect(onBack).toHaveBeenCalled()
   })
 
@@ -168,7 +168,7 @@ describe('AdminReviewDetail', () => {
       loading: false, error: null,
     })
     render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)
-    // "approved" may appear multiple times (action + new status) — check at least one exists
+    // "approved" may appear multiple times (action + new status) - check at least one exists
     expect(screen.getAllByText('approved').length).toBeGreaterThan(0)
   })
 

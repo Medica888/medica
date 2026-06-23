@@ -1,11 +1,10 @@
-import { useState } from 'react'
 import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
 import PracticeAnswerOption from './PracticeAnswerOption'
 import PracticeExplanationPanel from './PracticeExplanationPanel'
-import { saveQuestionReport } from '../../lib/storage'
 import HighlightedText from '../session/HighlightedText'
 import QuizUtilityBar from '../session/QuizUtilityBar'
 import QuizHighlightToolbar from '../session/QuizHighlightToolbar'
+import QuestionReportControl from '../session/QuestionReportControl'
 
 /**
  * @param {{
@@ -30,8 +29,6 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
   const normalizedCorrect  = getQuestionCorrectLetter(question)
   const normalizedAnswered = normalizeAnswerLetter(answered)
   const isCorrect = normalizedAnswered === normalizedCorrect
-  const [reportReason, setReportReason] = useState('wrong_answer')
-  const [reported, setReported] = useState(false)
 
   const getOptionState = (opt) => {
     if (!normalizedAnswered) return 'default'
@@ -39,11 +36,6 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
     if (opt.letter === normalizedCorrect) return 'correct'
     if (opt.letter === normalizedAnswered && !isCorrect) return 'wrong'
     return 'neutral'
-  }
-
-  const handleReport = () => {
-    const saved = saveQuestionReport(question, reportReason, { mode: 'practice' })
-    if (saved) setReported(true)
   }
 
   return (
@@ -78,23 +70,7 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
         />
       </div>
 
-      <div className="question-report-row">
-        <select
-          className="question-report-select"
-          value={reportReason}
-          onChange={e => { setReportReason(e.target.value); setReported(false) }}
-          aria-label="Report question reason"
-        >
-          <option value="wrong_answer">Wrong answer</option>
-          <option value="bad_explanation">Bad explanation</option>
-          <option value="off_topic">Off topic</option>
-          <option value="ambiguous_or_insufficient_clues">Ambiguous / insufficient clinical clues</option>
-        </select>
-        <button type="button" className="question-report-btn" onClick={handleReport}>
-          Report
-        </button>
-        {reported && <span className="question-report-status">Saved</span>}
-      </div>
+      <QuestionReportControl question={question} context={{ mode: 'practice' }} />
 
       <div className="pi-options" role="group" aria-label="Answer options">
         {options.map(opt => (
