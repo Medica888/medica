@@ -399,7 +399,7 @@ router.patch(
   },
 );
 
-router.post('/generate', aiLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
+router.post('/generate', requireAuth, aiLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
   const { skillId, guide, customSkill } = req.body ?? {};
 
   if (!guide?.trim()) {
@@ -491,7 +491,7 @@ Schema:
   "integration": "One sentence linking to real clinical practice, surgery, or imaging"
 }`;
 
-router.post('/explain', aiLimiter, validate(explainSchema), async (req: Request, res: Response) => {
+router.post('/explain', requireAuth, aiLimiter, validate(explainSchema), async (req: Request, res: Response) => {
   const { stem, options, correct, field, pearl } = req.body ?? {};
 
   if (!stem || !Array.isArray(options) || typeof correct !== 'number') {
@@ -1913,6 +1913,11 @@ router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQue
     config = topicIntake.config;
     scope = resolveScope(config);
     specific = isSpecific(scope);
+
+    if (!req.userId) {
+      res.status(401).json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' });
+      return;
+    }
 
     // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
     // Requires an authenticated user (optionalAuth sets req.userId when token is present).

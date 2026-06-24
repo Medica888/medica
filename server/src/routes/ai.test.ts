@@ -1052,6 +1052,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1070,6 +1071,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'Cardiac arrhythmias' } });
 
     expect(res.body.source).not.toBe('generated-bank');
@@ -1078,6 +1080,7 @@ describe('generated question bank', () => {
   it('rejects non-medical manual topics before live AI is required', async () => {
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'banana heart magic' } })
       .expect(400);
 
@@ -1088,6 +1091,7 @@ describe('generated question bank', () => {
   it('allows medical unknown manual topics to continue into the AI generation path', async () => {
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
       .expect(503);
 
@@ -1097,6 +1101,7 @@ describe('generated question bank', () => {
   it('allows orthopedic medical unknown manual topics to continue into the AI generation path', async () => {
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'patellar dislocations' } })
       .expect(503);
 
@@ -1106,6 +1111,7 @@ describe('generated question bank', () => {
   it('accepts known topic aliases before prompt construction', async () => {
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({
         config: {
           mode: 'practice',
@@ -1133,6 +1139,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, system: 'Dermatology', difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1167,6 +1174,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, system: 'Dermatology', difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1187,6 +1195,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, system: 'Nephrology', difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1372,6 +1381,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1390,6 +1400,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     expect(res.status).toBe(503);
@@ -1407,6 +1418,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).toBe(503);
@@ -1421,6 +1433,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     expect(res.status).toBe(503);
@@ -1454,6 +1467,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     expect(res.status).toBe(503);
@@ -1463,6 +1477,7 @@ describe('generated question bank', () => {
   it('rejects truly unknown subject labels at the AI request boundary', async () => {
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Space Medicine', difficulty: 'Balanced' } })
       .expect(400);
 
@@ -1475,6 +1490,7 @@ describe('generated question bank', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'exam', questionCount: 40, difficulty: 'Balanced' } })
       .expect(503);
 
@@ -1618,6 +1634,15 @@ describe('generated question bank', () => {
     expect(res.body.history[0].action).toBe('quarantined');
     expect(res.body.history[1].action).toBe('approved');
   });
+
+  it('returns 401 AUTH_REQUIRED for unauthenticated generate-questions request', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(401);
+
+    expect(res.body.code).toBe('AUTH_REQUIRED');
+  });
 });
 
 // ── Hybrid question bank fill ─────────────────────────────────────────────────
@@ -1686,6 +1711,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).not.toBe(200);
@@ -1705,6 +1731,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(503);
 
@@ -1736,6 +1763,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
       .expect(200);
 
@@ -1798,11 +1826,13 @@ describe('hybrid question bank fill', () => {
 
     await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'breast cancers' } })
       .expect(200);
 
     await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, difficulty: 'Balanced', topic: 'breast cancers' } })
       .expect(200);
 
@@ -1836,6 +1866,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 3, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).toBe(200);
@@ -1866,6 +1897,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).toBe(200);
@@ -1891,6 +1923,7 @@ describe('hybrid question bank fill', () => {
 
     await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     // Exactly 2 bank rows: original + AI fill. Not 3 — bank question was not re-saved.
@@ -1916,6 +1949,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).toBe(200);
@@ -1936,6 +1970,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -1969,6 +2004,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     expect(res.status).toBe(200);
@@ -2021,6 +2057,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'NBME Difficult' } });
 
     expect(res.status).toBe(200);
@@ -2071,6 +2108,7 @@ describe('hybrid question bank fill', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'NBME Difficult' } });
 
     expect(res.status).toBe(200);
@@ -2208,6 +2246,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     // With no approved questions and no API key, expect 503 (no API key) — not served from bank
@@ -2223,6 +2262,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2236,6 +2276,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2253,6 +2294,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     // validated_generated must not be served — no approved questions and no API key → 503
@@ -2268,6 +2310,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2287,6 +2330,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2307,6 +2351,7 @@ describe('Phase 2 governance', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
     expect(res.status).toBe(503);
@@ -2774,6 +2819,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2795,6 +2841,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2812,6 +2859,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2837,6 +2885,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2864,6 +2913,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(200);
 
@@ -2907,6 +2957,7 @@ describe('matrix telemetry — Phase 1 loop counters', () => {
 
     const res = await request(app)
       .post('/api/generate-questions')
+      .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
       .expect(503);
 
@@ -3034,5 +3085,53 @@ describe('runAdaptiveRefill — matrix telemetry accumulation', () => {
     expect(typeof result.totalMatrixPasses).toBe('number');
     expect(typeof result.totalMatrixWarnings).toBe('number');
     expect(typeof result.totalMatrixFailures).toBe('number');
+  });
+});
+
+// ── Auth enforcement — /generate and /explain ─────────────────────────────────
+
+describe('AI endpoint auth enforcement', () => {
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
+    app = createApp();
+  });
+
+  it('POST /api/generate returns 401 for unauthenticated request', async () => {
+    const res = await request(app)
+      .post('/api/generate')
+      .send({ skillId: 'medical-explainer', guide: 'Explain ACE inhibitors' })
+      .expect(401);
+
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('POST /api/explain returns 401 for unauthenticated request', async () => {
+    const res = await request(app)
+      .post('/api/explain')
+      .send({ stem: 'A patient presents with...', options: ['A', 'B', 'C', 'D'], correct: 0, field: 'Pharmacology' })
+      .expect(401);
+
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('POST /api/generate-questions returns 401 AUTH_REQUIRED for unauthenticated request after topic validation', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(401);
+
+    expect(res.body.code).toBe('AUTH_REQUIRED');
+  });
+
+  it('POST /api/generate-questions still returns 400 INVALID_TOPIC before auth check', async () => {
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced', topic: 'banana heart magic' } })
+      .expect(400);
+
+    expect(res.body.code).toBe('INVALID_TOPIC');
   });
 });
