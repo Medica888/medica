@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { randomUUID } from 'crypto';
 import { config } from './config.js';
 import { csrfProtection } from './middleware/csrf.js';
 import healthRouter from './routes/health.js';
@@ -22,6 +23,14 @@ export function createApp(): express.Application {
   app.use(cookieParser());
   app.use(express.json({ limit: '2mb' }));
   app.use(csrfProtection);
+  // Attach a per-request correlation ID for log tracing.
+  // Available as (req as any).requestId in handlers.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const id = randomUUID();
+    (req as any).requestId = id;
+    res.setHeader('X-Request-Id', id);
+    next();
+  });
 
   app.use('/api/health', healthRouter);
   app.use('/api/auth', authRouter);

@@ -475,7 +475,8 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
     if (isAbort) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
     } else {
-      console.error('[generate]', err instanceof Error ? err.message : String(err));
+      const rid = (req as any).requestId ?? '-';
+      console.error('[generate]', rid, err instanceof Error ? err.message : String(err));
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
     }
     res.end();
@@ -557,7 +558,8 @@ Write concise UWorld-style explanations for each option and a one-sentence clini
     if (isAbort) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
     } else {
-      console.error('[explain]', err instanceof Error ? err.message : String(err));
+      const rid = (req as any).requestId ?? '-';
+      console.error('[explain]', rid, err instanceof Error ? err.message : String(err));
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Explanation generation failed' })}\n\n`);
     }
     res.end();
@@ -2371,8 +2373,9 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     const msg      = err instanceof Error ? err.message : String(err);
     const errName  = err instanceof Error ? err.constructor.name : typeof err;
     const errStatus = (err as any)?.status;
-    // Safe: logs error class + HTTP status, never the API key or full payload.
-    console.error('[generate-questions] error', errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
+    const rid = (req as any).requestId ?? '-';
+    // Safe: logs correlation ID, error class + HTTP status. Never logs question content, API keys, or PII.
+    console.error('[generate-questions] error', rid, errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
     res.status(500).json({ error: 'Question generation failed', code: 'GENERATION_FAILED' });
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
