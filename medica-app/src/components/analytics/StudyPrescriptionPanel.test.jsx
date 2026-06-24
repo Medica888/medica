@@ -5,7 +5,7 @@ import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 vi.mock('../../lib/apiClient', () => ({
-  getAuthToken:  vi.fn(() => 'test-token'),
+  isAuthenticated: vi.fn(() => true),
   mastery: {
     reviewConcept: vi.fn(),
   },
@@ -137,7 +137,7 @@ function setup() {
 describe('StudyPrescriptionPanel — ease review buttons', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiClient.getAuthToken.mockReturnValue('test-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_WITH_REVIEW)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
@@ -230,7 +230,7 @@ describe('StudyPrescriptionPanel — ease review buttons', () => {
   })
 
   it('returns null and renders nothing when unauthenticated', () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { container } = setup()
     expect(container.firstChild).toBeNull()
   })
@@ -239,7 +239,7 @@ describe('StudyPrescriptionPanel — ease review buttons', () => {
 describe('StudyPrescriptionPanel — unified review queue (Phase 5.4)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiClient.getAuthToken.mockReturnValue('test-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
@@ -329,7 +329,7 @@ describe('StudyPrescriptionPanel — unified review queue (Phase 5.4)', () => {
 describe('StudyPrescriptionPanel — review analytics (Phase 5.5)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiClient.getAuthToken.mockReturnValue('test-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
@@ -392,7 +392,7 @@ describe('StudyPrescriptionPanel — review analytics (Phase 5.5)', () => {
 describe('StudyPrescriptionPanel — retention layer (Phase 5.6)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiClient.getAuthToken.mockReturnValue('test-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDailyStudyPlan.mockReturnValue(DAILY_PLAN_EMPTY)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
@@ -484,7 +484,7 @@ describe('StudyPrescriptionPanel — retention layer (Phase 5.6)', () => {
 describe('StudyPrescriptionPanel — USMLE taxonomy chips', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiClient.getAuthToken.mockReturnValue('test-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     useMasteryModule.useStudyPrescription.mockReturnValue(RX_DISABLED)
     useMasteryModule.useDueReviews.mockReturnValue(DUE_REVIEWS_EMPTY)
     useMasteryModule.useReviewStats.mockReturnValue(REVIEW_STATS_EMPTY)

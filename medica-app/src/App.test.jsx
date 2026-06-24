@@ -151,9 +151,13 @@ vi.mock('./lib/dataProvider', () => ({
 }))
 
 vi.mock('./lib/apiClient', () => ({
-  restoreToken: vi.fn(() => null),
-  setAuthToken: vi.fn(),
-  clearToken: vi.fn(),
+  isAuthenticated: vi.fn(() => false),
+  setAuthenticated: vi.fn(),
+  setCurrentUserId: vi.fn(),
+  auth: {
+    me: vi.fn(() => Promise.reject(new Error('no session'))),
+    logout: vi.fn(() => Promise.resolve(null)),
+  },
 }))
 
 vi.mock('./lib/ai/generateAIQuestions', () => ({

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAuthToken } from '../lib/apiClient.js'
+import { isAuthenticated } from '../lib/apiClient.js'
 import { getSessionHistory } from '../lib/storage.js'
 import { normalizeBackendSession, fetchAllBackendSessions } from '../lib/sessionNormalizer.js'
 
@@ -12,7 +12,7 @@ export function useSessionHistory() {
   // Both flags must be true: VITE_USE_BACKEND gates the write path in dataProvider
   // — if backend writes are disabled the backend has no data, so reads must also stay local.
   const useBackend = import.meta.env.VITE_USE_BACKEND === 'true'
-  const isReady    = useBackend && !!getAuthToken()
+  const isReady    = useBackend && isAuthenticated()
 
   const [sessions, setSessions] = useState(getSessionHistory)
   const [loading, setLoading]   = useState(isReady)
@@ -25,7 +25,7 @@ export function useSessionHistory() {
   const refresh = useCallback(() => {
     cancelRef.current = false
     const backendEnabled = import.meta.env.VITE_USE_BACKEND === 'true'
-    if (!backendEnabled || !getAuthToken()) {
+    if (!backendEnabled || !isAuthenticated()) {
       setSessions(getSessionHistory())
       setSource('localStorage')
       setLoading(false)

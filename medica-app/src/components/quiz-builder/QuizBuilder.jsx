@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getAuthToken } from '../../lib/apiClient'
+import { isAuthenticated } from '../../lib/apiClient'
 import { useMasteryAdaptivePreview } from '../../hooks/useMastery'
 import {
   DEFAULT_CONFIG,
@@ -47,7 +47,7 @@ export default function QuizBuilder({ onStart, generationError = null }) {
 
   // Adaptive preview — shown only when backend+auth, non-standardized, global scope
   const isGlobalScope = !config.topic && !config.clinicalFocus
-  const showAdaptive  = getAuthToken() && !isStandardized && isGlobalScope
+  const showAdaptive  = isAuthenticated() && !isStandardized && isGlobalScope
   const adaptive      = useMasteryAdaptivePreview()
 
   const update = (key, val) => {

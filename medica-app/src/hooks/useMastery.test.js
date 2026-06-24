@@ -6,7 +6,7 @@ import StudyPrescriptionPanel from '../components/analytics/StudyPrescriptionPan
 
 // Mock the entire apiClient module
 vi.mock('../lib/apiClient', () => ({
-  getAuthToken: vi.fn(),
+  isAuthenticated: vi.fn(),
   mastery: {
     overview:                  vi.fn(),
     weakest:                   vi.fn(),
@@ -49,7 +49,7 @@ beforeEach(() => {
 
 describe('useMasteryOverview', () => {
   it('returns loading=true initially', () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.overview.mockReturnValue(new Promise(() => {}))
     const { result } = renderHook(() => useMasteryOverview())
     expect(result.current.loading).toBe(true)
@@ -57,7 +57,7 @@ describe('useMasteryOverview', () => {
   })
 
   it('returns data when fetch succeeds', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.overview.mockResolvedValue(OVERVIEW_DATA)
     const { result } = renderHook(() => useMasteryOverview())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -66,7 +66,7 @@ describe('useMasteryOverview', () => {
   })
 
   it('skips fetch and returns loading=false when no token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { result } = renderHook(() => useMasteryOverview())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.overview).not.toHaveBeenCalled()
@@ -74,7 +74,7 @@ describe('useMasteryOverview', () => {
   })
 
   it('sets error when fetch rejects (non-401)', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = new Error('Server error')
     apiClient.mastery.overview.mockRejectedValue(err)
     const { result } = renderHook(() => useMasteryOverview())
@@ -84,7 +84,7 @@ describe('useMasteryOverview', () => {
   })
 
   it('sets error on 401 — caller decides whether to show it', async () => {
-    apiClient.getAuthToken.mockReturnValue('expired-token')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = Object.assign(new Error('Unauthorized'), { status: 401 })
     apiClient.mastery.overview.mockRejectedValue(err)
     const { result } = renderHook(() => useMasteryOverview())
@@ -95,7 +95,7 @@ describe('useMasteryOverview', () => {
 
 describe('useMasteryWeakest', () => {
   it('returns weakest concepts data', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.weakest.mockResolvedValue(WEAKEST_DATA)
     const { result } = renderHook(() => useMasteryWeakest(5, 1))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -103,7 +103,7 @@ describe('useMasteryWeakest', () => {
   })
 
   it('passes limit and minAttempts to the API call', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.weakest.mockResolvedValue({ concepts: [], count: 0 })
     renderHook(() => useMasteryWeakest(8, 2))
     await waitFor(() => expect(apiClient.mastery.weakest).toHaveBeenCalledWith(8, 2))
@@ -112,7 +112,7 @@ describe('useMasteryWeakest', () => {
 
 describe('useMasteryStrongest', () => {
   it('returns empty data without error when fetch returns empty list', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.strongest.mockResolvedValue({ concepts: [], count: 0 })
     const { result } = renderHook(() => useMasteryStrongest(5, 1))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -121,7 +121,7 @@ describe('useMasteryStrongest', () => {
   })
 
   it('skips fetch when no auth token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     renderHook(() => useMasteryStrongest(5, 1))
     expect(apiClient.mastery.strongest).not.toHaveBeenCalled()
   })
@@ -170,7 +170,7 @@ const DAILY_PLAN_DATA = {
 
 describe('useReadiness', () => {
   it('returns loading=true initially', () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.readiness.mockReturnValue(new Promise(() => {}))
     const { result } = renderHook(() => useReadiness())
     expect(result.current.loading).toBe(true)
@@ -178,7 +178,7 @@ describe('useReadiness', () => {
   })
 
   it('returns data on success', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.readiness.mockResolvedValue(READINESS_DATA)
     const { result } = renderHook(() => useReadiness())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -187,7 +187,7 @@ describe('useReadiness', () => {
   })
 
   it('skips fetch and returns loading=false when no token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { result } = renderHook(() => useReadiness())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.readiness).not.toHaveBeenCalled()
@@ -195,7 +195,7 @@ describe('useReadiness', () => {
   })
 
   it('sets error on API failure', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = new Error('Server error')
     apiClient.mastery.readiness.mockRejectedValue(err)
     const { result } = renderHook(() => useReadiness())
@@ -205,7 +205,7 @@ describe('useReadiness', () => {
   })
 
   it('sets error.status=401 on auth failure — caller handles display', async () => {
-    apiClient.getAuthToken.mockReturnValue('expired')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = Object.assign(new Error('Unauthorized'), { status: 401 })
     apiClient.mastery.readiness.mockRejectedValue(err)
     const { result } = renderHook(() => useReadiness())
@@ -216,7 +216,7 @@ describe('useReadiness', () => {
 
 describe('useTopicReadiness', () => {
   it('returns topic readiness data for a given conceptId', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.topicReadiness.mockResolvedValue(TOPIC_RD_DATA)
     const { result } = renderHook(() => useTopicReadiness('c1'))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -225,7 +225,7 @@ describe('useTopicReadiness', () => {
   })
 
   it('resolves to null without calling API when no conceptId', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const { result } = renderHook(() => useTopicReadiness(null))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.topicReadiness).not.toHaveBeenCalled()
@@ -233,7 +233,7 @@ describe('useTopicReadiness', () => {
   })
 
   it('skips fetch when no auth token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     renderHook(() => useTopicReadiness('c1'))
     expect(apiClient.mastery.topicReadiness).not.toHaveBeenCalled()
   })
@@ -241,7 +241,7 @@ describe('useTopicReadiness', () => {
 
 describe('useDailyStudyPlan', () => {
   it('returns daily plan data on success', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.dailyPlan.mockResolvedValue(DAILY_PLAN_DATA)
     const { result } = renderHook(() => useDailyStudyPlan())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -250,7 +250,7 @@ describe('useDailyStudyPlan', () => {
   })
 
   it('skips fetch when no auth token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { result } = renderHook(() => useDailyStudyPlan())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.dailyPlan).not.toHaveBeenCalled()
@@ -267,7 +267,7 @@ const SUBJECTS_DATA = {
 
 describe('useMasterySubjects', () => {
   it('returns loading=true initially', () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.subjects.mockReturnValue(new Promise(() => {}))
     const { result } = renderHook(() => useMasterySubjects())
     expect(result.current.loading).toBe(true)
@@ -275,7 +275,7 @@ describe('useMasterySubjects', () => {
   })
 
   it('returns subjects data on success', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.subjects.mockResolvedValue(SUBJECTS_DATA)
     const { result } = renderHook(() => useMasterySubjects())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -284,7 +284,7 @@ describe('useMasterySubjects', () => {
   })
 
   it('skips fetch and returns loading=false when no token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { result } = renderHook(() => useMasterySubjects())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.subjects).not.toHaveBeenCalled()
@@ -292,7 +292,7 @@ describe('useMasterySubjects', () => {
   })
 
   it('sets error on API failure', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = new Error('Server error')
     apiClient.mastery.subjects.mockRejectedValue(err)
     const { result } = renderHook(() => useMasterySubjects())
@@ -302,7 +302,7 @@ describe('useMasterySubjects', () => {
   })
 
   it('sets error.status=401 on auth failure', async () => {
-    apiClient.getAuthToken.mockReturnValue('expired')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = Object.assign(new Error('Unauthorized'), { status: 401 })
     apiClient.mastery.subjects.mockRejectedValue(err)
     const { result } = renderHook(() => useMasterySubjects())
@@ -322,7 +322,7 @@ const SUBJECT_CONCEPTS_DATA = {
 
 describe('useMasterySubjectConcepts', () => {
   it('returns loading=true initially when subject is provided', () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.subjectConcepts.mockReturnValue(new Promise(() => {}))
     const { result } = renderHook(() => useMasterySubjectConcepts('Pharmacology'))
     expect(result.current.loading).toBe(true)
@@ -330,7 +330,7 @@ describe('useMasterySubjectConcepts', () => {
   })
 
   it('returns data on success', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.subjectConcepts.mockResolvedValue(SUBJECT_CONCEPTS_DATA)
     const { result } = renderHook(() => useMasterySubjectConcepts('Pharmacology'))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -340,7 +340,7 @@ describe('useMasterySubjectConcepts', () => {
   })
 
   it('resolves to null without calling API when subject is null', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const { result } = renderHook(() => useMasterySubjectConcepts(null))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(apiClient.mastery.subjectConcepts).not.toHaveBeenCalled()
@@ -348,13 +348,13 @@ describe('useMasterySubjectConcepts', () => {
   })
 
   it('skips fetch when no auth token', async () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     renderHook(() => useMasterySubjectConcepts('Pharmacology'))
     expect(apiClient.mastery.subjectConcepts).not.toHaveBeenCalled()
   })
 
   it('refetches when subject changes', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.subjectConcepts.mockResolvedValue(SUBJECT_CONCEPTS_DATA)
     const { rerender } = renderHook(({ s }) => useMasterySubjectConcepts(s), { initialProps: { s: 'Pharmacology' } })
     await waitFor(() => expect(apiClient.mastery.subjectConcepts).toHaveBeenCalledWith('Pharmacology'))
@@ -363,7 +363,7 @@ describe('useMasterySubjectConcepts', () => {
   })
 
   it('sets error on API failure', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     const err = new Error('Server error')
     apiClient.mastery.subjectConcepts.mockRejectedValue(err)
     const { result } = renderHook(() => useMasterySubjectConcepts('Pharmacology'))
@@ -395,7 +395,7 @@ const PRESCRIPTION_DATA = {
 
 describe('StudyPrescriptionPanel daily plan render', () => {
   it('shows the daily plan at the top of the existing prescription panel', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.prescription.mockResolvedValue(PRESCRIPTION_DATA)
     apiClient.mastery.dailyPlan.mockResolvedValue(DAILY_PLAN_DATA)
     apiClient.mastery.dueReviews.mockResolvedValue({ reviews: [], total: 0, overdueCount: 0 })
@@ -411,7 +411,7 @@ describe('StudyPrescriptionPanel daily plan render', () => {
   })
 
   it('renders the daily plan empty state alongside insufficient prescription data', async () => {
-    apiClient.getAuthToken.mockReturnValue('tok')
+    apiClient.isAuthenticated.mockReturnValue(true)
     apiClient.mastery.dueReviews.mockResolvedValue({ reviews: [], total: 0, overdueCount: 0 })
     apiClient.mastery.reviewStats.mockResolvedValue({ reviewedToday: 0, reviewedThisWeek: 0, currentStreak: 0, totalReviewed: 0, todayBreakdown: { again: 0, hard: 0, good: 0, easy: 0 }, longestStreak: 0, activeDaysThisWeek: 0, dailyGoal: 20, goalProgress: 0, activity30Days: [], dueToday: 0, completionPercent: null })
     apiClient.mastery.prescription.mockResolvedValue({

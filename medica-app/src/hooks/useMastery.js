@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { mastery as masteryApi, getAuthToken } from '../lib/apiClient'
+import { mastery as masteryApi, isAuthenticated } from '../lib/apiClient'
 
 function useApiCall(fetcher, deps = []) {
   const [data,    setData]    = useState(null)
@@ -8,7 +8,7 @@ function useApiCall(fetcher, deps = []) {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!getAuthToken()) { setLoading(false); return }
+    if (!isAuthenticated()) { setLoading(false); return }
     let cancelled = false
     setLoading(true); setError(null)
     fetcher()

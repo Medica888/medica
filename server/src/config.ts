@@ -20,6 +20,7 @@ export const config = {
   smtpPass: process.env.SMTP_PASS,
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@medica.app',
   appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:5173',
+  cookieSecure: process.env.NODE_ENV === 'production',
 } as const;
 
 if (config.nodeEnv === 'production') {

@@ -497,6 +497,109 @@ describe('config production guards', () => {
   });
 });
 
+describe('Cookie auth', () => {
+  it('register sets medica_session HttpOnly SameSite=Lax cookie', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'cookie@example.com',
+      name: 'Cookie User',
+      password: 'password123',
+    });
+    expect(res.status).toBe(201);
+    const raw = res.headers['set-cookie'] as string[] | string | undefined;
+    const cookieStr = Array.isArray(raw) ? raw.join('; ') : (raw ?? '');
+    expect(cookieStr).toContain('medica_session=');
+    expect(cookieStr).toContain('HttpOnly');
+    expect(cookieStr).toMatch(/SameSite=Lax/i);
+  });
+
+  it('login sets medica_session cookie', async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'cooklogin@example.com',
+      name: 'Cook Login',
+      password: 'password123',
+    });
+    const res = await request(app).post('/api/auth/login').send({
+      email: 'cooklogin@example.com',
+      password: 'password123',
+    });
+    expect(res.status).toBe(200);
+    const raw = res.headers['set-cookie'] as string[] | string | undefined;
+    const cookieStr = Array.isArray(raw) ? raw.join('; ') : (raw ?? '');
+    expect(cookieStr).toContain('medica_session=');
+  });
+
+  it('GET /me authenticates via cookie without Bearer header', async () => {
+    const reg = await request(app).post('/api/auth/register').send({
+      email: 'cookiemetest@example.com',
+      name: 'Cookie Me',
+      password: 'password123',
+    });
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', `medica_session=${reg.body.token as string}`);
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe('cookiemetest@example.com');
+  });
+
+  it('POST /logout returns 204 and clears the cookie', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'medica_session=anything');
+    expect(res.status).toBe(204);
+    const raw = res.headers['set-cookie'] as string[] | string | undefined;
+    const cookieStr = Array.isArray(raw) ? raw.join('; ') : (raw ?? '');
+    expect(cookieStr).toMatch(/medica_session=(?:;|$)|Max-Age=0/);
+  });
+});
+
+describe('CSRF protection', () => {
+  it('rejects POST with cookie and disallowed Origin', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'medica_session=any')
+      .set('Origin', 'https://evil.com');
+    expect(res.status).toBe(403);
+  });
+
+  it('allows POST with cookie and allowed Origin', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'medica_session=any')
+      .set('Origin', 'http://localhost:5173');
+    expect(res.status).toBe(204);
+  });
+
+  it('allows POST with cookie and no Origin in non-production mode', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'medica_session=any');
+    expect(res.status).toBe(204);
+  });
+
+  it('allows unsafe method via Bearer with disallowed Origin (no cookie = no CSRF check)', async () => {
+    const reg = await request(app).post('/api/auth/register').send({
+      email: 'bearercsrf@example.com',
+      name: 'Bearer CSRF User',
+      password: 'password123',
+    });
+    const res = await request(app)
+      .delete('/api/auth/account')
+      .set('Authorization', `Bearer ${reg.body.token as string}`)
+      .set('Origin', 'https://evil.com')
+      .send({ password: 'password123' });
+    expect(res.status).toBe(204);
+  });
+
+  it('does not apply CSRF to safe GET methods', async () => {
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', 'medica_session=invalid')
+      .set('Origin', 'https://evil.com');
+    // CSRF skips for GET — falls through to requireAuth which rejects the invalid token
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('InMemoryUsersRepository.delete', () => {
   it('returns false when called on an already soft-deleted user', async () => {
     const repo = new InMemoryUsersRepository();

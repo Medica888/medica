@@ -1,4 +1,4 @@
-import { getAuthToken } from '../../lib/apiClient'
+import { isAuthenticated } from '../../lib/apiClient'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 
 function Delta({ value, label, invert = false }) {
@@ -43,7 +43,7 @@ export default function ProgressPanel({ progressHook, timelineHook }) {
   const { data: progress, loading: pLoading, error: pErr } = progressHook
   const { data: timeline, loading: tLoading }              = timelineHook
 
-  if (!getAuthToken()) return null
+  if (!isAuthenticated()) return null
   if (pLoading && tLoading) return (
     <div className="an-intel-card pp-panel">
       <div className="an-intel-card-title">Learning Progress</div>

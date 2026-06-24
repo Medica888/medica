@@ -15,8 +15,18 @@ import { getRepositories } from '../repositories/index.js';
 import { getEmailSender } from '../lib/email.js';
 import { loginLimiter, registerLimiter, passwordResetLimiter } from '../middleware/rateLimiter.js';
 import { getAdminUserIds } from '../middleware/requireAdmin.js';
+import { config } from '../config.js';
 
 const router = Router();
+const SESSION_COOKIE = 'medica_session';
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: config.cookieSecure,
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 604800 * 1000, // 7 days in ms
+};
 
 function getService(): AuthService {
   const repos = getRepositories();
@@ -27,6 +37,7 @@ router.post('/register', registerLimiter, validate(registerSchema), async (req, 
   try {
     const { email, name, password } = req.body as { email: string; name: string; password: string };
     const result = await getService().register(email, name, password);
+    res.cookie(SESSION_COOKIE, result.token, cookieOptions);
     res.status(201).json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'UNKNOWN';
@@ -42,6 +53,7 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req, res: Resp
   try {
     const { email, password } = req.body as { email: string; password: string };
     const result = await getService().login(email, password);
+    res.cookie(SESSION_COOKIE, result.token, cookieOptions);
     res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'UNKNOWN';
@@ -51,6 +63,11 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req, res: Resp
       res.status(500).json({ error: 'Internal server error' });
     }
   }
+});
+
+router.post('/logout', (_req, res: Response) => {
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.status(204).end();
 });
 
 router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
@@ -121,6 +138,7 @@ router.delete('/account', requireAuth, validate(deleteAccountSchema), async (req
   try {
     const { password } = req.body as { password: string };
     await getService().deleteAccount(req.userId!, password);
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
     res.status(204).end();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'UNKNOWN';

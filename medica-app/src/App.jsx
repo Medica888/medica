@@ -9,7 +9,7 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
-import { restoreToken, setAuthToken, clearToken, auth } from './lib/apiClient'
+import { setAuthenticated, setCurrentUserId, auth } from './lib/apiClient'
 import { useSessionHistory } from './hooks/useSessionHistory'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
@@ -103,28 +103,33 @@ export default function App() {
   const [authUser, setAuthUser]           = useState(null)
   const [adminDetailId, setAdminDetailId] = useState(null)
 
-  // Restore saved JWT on mount — call /me to get isAdmin flag
+  // On mount: attempt session restore via HttpOnly cookie; one-time cleanup of legacy JWT key
   useEffect(() => {
-    const token = restoreToken()
-    if (!token) return
-    setAuthUser({ restored: true }) // eslint-disable-line react-hooks/set-state-in-effect
+    try { localStorage.removeItem('medica_jwt') } catch { /* ignore */ }
     auth.me()
-      .then(({ user, isAdmin }) => setAuthUser({ ...user, isAdmin: !!isAdmin }))
-      .catch(() => { clearToken(); setAuthUser(null) })
+      .then(({ user, isAdmin }) => {
+        setAuthenticated(true)
+        setCurrentUserId(user.id)
+        setAuthUser({ ...user, isAdmin: !!isAdmin })
+      })
+      .catch(() => { /* no active session — user needs to log in */ })
   }, [])
 
-  const handleLogin = useCallback(async (token, user) => {
-    setAuthToken(token)
-    try { localStorage.setItem('medica_jwt', token) } catch { /* ignore */ }
+  const handleLogin = useCallback(async (_token, user) => {
+    setAuthenticated(true)
+    setCurrentUserId(user.id)
     setAuthUser(user)
     try {
       const { user: fullUser, isAdmin } = await auth.me()
+      setCurrentUserId(fullUser.id)
       setAuthUser({ ...fullUser, isAdmin: !!isAdmin })
     } catch { /* fallback to login user without isAdmin */ }
   }, [])
 
-  const handleLogout = useCallback(() => {
-    clearToken()
+  const handleLogout = useCallback(async () => {
+    try { await auth.logout() } catch { /* ignore network errors on logout */ }
+    setAuthenticated(false)
+    setCurrentUserId('')
     setAuthUser(null)
   }, [])
 

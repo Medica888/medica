@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { normalizeBackendSession, useSessionHistory } from './useSessionHistory.js'
 
 vi.mock('../lib/apiClient.js', () => ({
-  getAuthToken: vi.fn(),
+  isAuthenticated: vi.fn(),
   exams: { list: vi.fn() },
 }))
 
@@ -11,7 +11,7 @@ vi.mock('../lib/storage.js', () => ({
   getSessionHistory: vi.fn(() => []),
 }))
 
-import { getAuthToken, exams } from '../lib/apiClient.js'
+import { isAuthenticated, exams } from '../lib/apiClient.js'
 import { getSessionHistory } from '../lib/storage.js'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ describe('useSessionHistory', () => {
     vi.clearAllMocks()
     // Default: backend disabled, no token
     vi.stubEnv('VITE_USE_BACKEND', 'false')
-    getAuthToken.mockReturnValue(null)
+    isAuthenticated.mockReturnValue(false)
     getSessionHistory.mockReturnValue([])
   })
 
@@ -178,7 +178,7 @@ describe('useSessionHistory', () => {
   })
 
   it('token present but USE_BACKEND=false: still uses localStorage', () => {
-    getAuthToken.mockReturnValue('some-token')
+    isAuthenticated.mockReturnValue(true)
     getSessionHistory.mockReturnValue([{ id: 'local-1' }])
     const { result } = renderHook(() => useSessionHistory())
     expect(result.current.source).toBe('localStorage')
@@ -187,7 +187,7 @@ describe('useSessionHistory', () => {
 
   it('USE_BACKEND=true + token: fetches from backend, source=backend', async () => {
     vi.stubEnv('VITE_USE_BACKEND', 'true')
-    getAuthToken.mockReturnValue('token-xyz')
+    isAuthenticated.mockReturnValue(true)
     exams.list.mockResolvedValue({
       data: [makeBackendSession({ id: 'be-1' })],
       totalPages: 1,
@@ -204,7 +204,7 @@ describe('useSessionHistory', () => {
 
   it('backend failure: falls back to localStorage, source=fallback, error set', async () => {
     vi.stubEnv('VITE_USE_BACKEND', 'true')
-    getAuthToken.mockReturnValue('token-xyz')
+    isAuthenticated.mockReturnValue(true)
     getSessionHistory.mockReturnValue([{ id: 'local-1' }])
     exams.list.mockRejectedValue(new Error('Network error'))
 
@@ -218,7 +218,7 @@ describe('useSessionHistory', () => {
 
   it('empty backend response: source=backend, sessions=[]', async () => {
     vi.stubEnv('VITE_USE_BACKEND', 'true')
-    getAuthToken.mockReturnValue('token-xyz')
+    isAuthenticated.mockReturnValue(true)
     getSessionHistory.mockReturnValue([{ id: 'local-1' }])
     exams.list.mockResolvedValue({ data: [], totalPages: 1 })
 
@@ -231,7 +231,7 @@ describe('useSessionHistory', () => {
 
   it('pagination: fetches all pages until totalPages exhausted', async () => {
     vi.stubEnv('VITE_USE_BACKEND', 'true')
-    getAuthToken.mockReturnValue('token-xyz')
+    isAuthenticated.mockReturnValue(true)
 
     exams.list
       .mockResolvedValueOnce({
@@ -252,7 +252,7 @@ describe('useSessionHistory', () => {
 
   it('refresh() re-fetches on demand', async () => {
     vi.stubEnv('VITE_USE_BACKEND', 'true')
-    getAuthToken.mockReturnValue('token-xyz')
+    isAuthenticated.mockReturnValue(true)
     exams.list.mockResolvedValue({ data: [], totalPages: 1 })
 
     const { result } = renderHook(() => useSessionHistory())

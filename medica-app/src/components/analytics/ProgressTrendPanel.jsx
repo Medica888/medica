@@ -1,4 +1,4 @@
-import { getAuthToken } from '../../lib/apiClient'
+import { isAuthenticated } from '../../lib/apiClient'
 import MasteryTimelineChart from './MasteryTimelineChart'
 
 // ── Local helpers ──────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export default function ProgressTrendPanel({ progressHook, timelineHook }) {
   const { data: progress, loading: pLoading, error: pErr } = progressHook
   const { data: timeline, loading: tLoading }              = timelineHook
 
-  if (!getAuthToken()) return null
+  if (!isAuthenticated()) return null
   if (pLoading || tLoading) return (
     <div className="an-intel-card ptp-panel">
       <div className="an-intel-card-title">Learning Timeline</div>

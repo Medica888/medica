@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getAuthToken } from '../../lib/apiClient'
+import { isAuthenticated } from '../../lib/apiClient'
 import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useMasterySubjects, useMasterySubjectConcepts } from '../../hooks/useMastery'
 import ConceptDetailModal from './ConceptDetailModal'
 
@@ -168,7 +168,7 @@ export default function MasteryPanel() {
   const subjects  = useMasterySubjects()
 
   // Only render when authenticated
-  if (!getAuthToken()) return null
+  if (!isAuthenticated()) return null
 
   // Hide entire panel while all three are still loading first time
   if (overview.loading && weakest.loading && strongest.loading) {

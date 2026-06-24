@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { getAuthToken, generate as generateApi } from '../../lib/apiClient'
+import { isAuthenticated, generate as generateApi } from '../../lib/apiClient'
 import { useFlashcards } from '../../hooks/useFlashcards.js'
 import * as dataProvider from '../../lib/dataProvider.js'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
@@ -87,7 +87,7 @@ export default function FlashcardsPage({ onNavigate }) {
     }
   }
 
-  const showAdaptiveCTA = getAuthToken() && import.meta.env.VITE_USE_BACKEND === 'true'
+  const showAdaptiveCTA = isAuthenticated() && import.meta.env.VITE_USE_BACKEND === 'true'
 
   // Derived counts
   const newCount      = cards.filter(c => getCardStatus(c) === 'new').length

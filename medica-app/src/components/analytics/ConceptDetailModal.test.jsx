@@ -5,7 +5,7 @@ import ConceptDetailModal from './ConceptDetailModal'
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
 vi.mock('../../lib/apiClient', () => ({
-  getAuthToken: vi.fn(() => 'test-token'),
+  isAuthenticated: vi.fn(() => true),
   mastery: {
     concept:        vi.fn(),
     topicReadiness: vi.fn(),

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getAuthToken, mastery as masteryApi } from '../../lib/apiClient'
+import { isAuthenticated, mastery as masteryApi } from '../../lib/apiClient'
 import { useDailyStudyPlan, useDueReviews, useReviewStats, useStudyPrescription } from '../../hooks/useMastery'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
@@ -364,7 +364,7 @@ export default function StudyPrescriptionPanel() {
   const { data: dueData,     loading: dueLoading                       } = useDueReviews()
   const { data: reviewStats, loading: statsLoading                     } = useReviewStats()
 
-  if (!getAuthToken()) return null
+  if (!isAuthenticated()) return null
   if (loading || planLoading || dueLoading || statsLoading) return (
     <div className="an-intel-card spp-panel">
       <div className="an-intel-card-title">Study Prescription</div>

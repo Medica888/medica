@@ -5,15 +5,23 @@ import { getRepositories } from '../repositories/index.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
+  authSource?: 'cookie' | 'bearer';
+}
+
+function extractToken(req: AuthRequest): string | null {
+  const cookie = req.cookies?.medica_session;
+  if (cookie) return cookie;
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) return header.slice(7);
+  return null;
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
+  const token = extractToken(req);
+  if (!token) {
     res.status(401).json({ error: 'Missing or invalid authorization header' });
     return;
   }
-  const token = header.slice(7);
 
   let userId: string;
   try {
@@ -32,5 +40,6 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 
   req.userId = userId;
+  req.authSource = req.cookies?.medica_session ? 'cookie' : 'bearer';
   next();
 }

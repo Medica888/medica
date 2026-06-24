@@ -100,7 +100,7 @@ export async function saveSession(results, sessionWithAnswers) {
 
 /** Get session history — backend-first for authenticated users, localStorage fallback. */
 export async function getSessions() {
-  if (!USE_BACKEND || !api.getAuthToken?.()) {
+  if (!USE_BACKEND || !api.isAuthenticated?.()) {
     return getSessionHistory();
   }
   try {
@@ -146,16 +146,6 @@ function _mapCardToBackendPayload(c) {
   };
 }
 
-function _getUserIdFromToken(token) {
-  try {
-    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(b64));
-    return String(payload.sub ?? '');
-  } catch {
-    return '';
-  }
-}
-
 function _setFlag(key) {
   try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
 }
@@ -165,9 +155,7 @@ function _clearFlag(key) {
 }
 
 function _markDirty() {
-  const token = api.getAuthToken?.();
-  if (!token) return;
-  const userId = _getUserIdFromToken(token);
+  const userId = api.getCurrentUserId?.();
   if (userId) _setFlag(`${SYNC_DIRTY_PREFIX}${userId}`);
 }
 
@@ -213,12 +201,11 @@ export async function saveFlashcards(cards) {
     backendSynced: false,
   };
 
-  const _syncToken = api.getAuthToken?.();
-  if (!USE_BACKEND || !added || !_syncToken || savedCards.length === 0) {
+  if (!USE_BACKEND || !added || !api.isAuthenticated?.() || savedCards.length === 0) {
     return result;
   }
 
-  const _syncUserId = _getUserIdFromToken(_syncToken);
+  const _syncUserId = api.getCurrentUserId?.() ?? '';
 
   try {
     const mapped = savedCards.map(_mapCardToBackendPayload);
@@ -242,9 +229,8 @@ export async function saveFlashcards(cards) {
  */
 export async function syncLocalFlashcardsToBackend() {
   if (!USE_BACKEND) return { skipped: true, reason: 'backend disabled' };
-  const token = api.getAuthToken?.();
-  if (!token) return { skipped: true, reason: 'unauthenticated' };
-  const userId = _getUserIdFromToken(token);
+  if (!api.isAuthenticated?.()) return { skipped: true, reason: 'unauthenticated' };
+  const userId = api.getCurrentUserId?.() ?? '';
   if (!userId) return { skipped: true, reason: 'unresolvable user id' };
 
   const flagKey  = `${SYNC_FLAG_PREFIX}${userId}`;
@@ -288,7 +274,7 @@ export async function syncLocalFlashcardsToBackend() {
 export async function setFlashcardStatus(id, status) {
   updateFlashcardStatus(id, status);
 
-  if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
   const backendId = _resolveBackendId(id);
   if (!backendId) { _markDirty(); return; }
   try {
@@ -302,7 +288,7 @@ export async function setFlashcardStatus(id, status) {
 export async function reviewFlashcard(id, ease) {
   markFlashcardReviewed(id, ease);
 
-  if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
   const backendId = _resolveBackendId(id);
   if (!backendId) { _markDirty(); return; }
   try {
@@ -316,7 +302,7 @@ export async function reviewFlashcard(id, ease) {
 export async function clearFlashcards() {
   _storageFlashcards();
 
-  if (!USE_BACKEND || !api.getAuthToken?.()) return;
+  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
   try {
     await api.flashcards.clearAll();
   } catch (err) {
@@ -364,7 +350,7 @@ function _mapBackendCardToFrontend(c) {
  * or the call fails — callers should treat null as "keep current state".
  */
 export async function getBackendFlashcards() {
-  if (!USE_BACKEND || !api.getAuthToken?.()) return null;
+  if (!USE_BACKEND || !api.isAuthenticated?.()) return null;
   try {
     const data = await api.flashcards.list();
     const cards = data?.flashcards ?? [];

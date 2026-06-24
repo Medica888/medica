@@ -1,22 +1,20 @@
 const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:4000';
 
-let _token = null;
+let _isAuthenticated = false;
+let _currentUserId = '';
 
-export function setAuthToken(token) {
-  _token = token;
-}
-
-export function getAuthToken() {
-  return _token;
-}
+export function setAuthenticated(val) { _isAuthenticated = !!val; }
+export function isAuthenticated() { return _isAuthenticated; }
+export function setCurrentUserId(id) { _currentUserId = id ?? ''; }
+export function getCurrentUserId() { return _currentUserId; }
 
 async function request(method, path, body, options = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  if (_token) headers['Authorization'] = `Bearer ${_token}`;
 
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers,
+    credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal: options.signal,
   });
@@ -37,6 +35,8 @@ export const auth = {
     request('POST', '/api/auth/login', { email, password }),
 
   me: () => request('GET', '/api/auth/me'),
+
+  logout: () => request('POST', '/api/auth/logout'),
 
   forgotPassword: (email) =>
     request('POST', '/api/auth/forgot-password', { email }),
@@ -187,24 +187,3 @@ export const taxonomyCandidates = {
       ...(note !== undefined ? { note } : {}),
     }),
 };
-
-// Token persistence helpers
-const TOKEN_KEY = 'medica_jwt';
-
-export function persistToken(token) {
-  _token = token;
-  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
-}
-
-export function clearToken() {
-  _token = null;
-  try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
-}
-
-export function restoreToken() {
-  try {
-    const saved = localStorage.getItem(TOKEN_KEY);
-    if (saved) { _token = saved; return saved; }
-  } catch { /* ignore */ }
-  return null;
-}

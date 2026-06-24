@@ -9,7 +9,7 @@ vi.mock('./storage.js', () => ({
 }))
 
 vi.mock('./apiClient.js', () => ({
-  getAuthToken: vi.fn(() => null),
+  isAuthenticated: vi.fn(() => false),
 }))
 
 import { filterReportedQuestions, getSessionHistory } from './storage.js'

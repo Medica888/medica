@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setAuthToken, getAuthToken, auth, exams, flashcards, health } from './apiClient.js';
+import { setAuthenticated, isAuthenticated, setCurrentUserId, getCurrentUserId, auth, exams, flashcards, health } from './apiClient.js';
 
 const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockClear();
-  setAuthToken(null);
+  setAuthenticated(false);
+  setCurrentUserId('');
 });
 
 afterEach(() => {
@@ -21,16 +22,29 @@ function mockResponse(body, status = 200) {
   });
 }
 
-describe('setAuthToken / getAuthToken', () => {
-  it('stores and retrieves token', () => {
-    setAuthToken('abc123');
-    expect(getAuthToken()).toBe('abc123');
+describe('setAuthenticated / isAuthenticated', () => {
+  it('stores and retrieves authentication state', () => {
+    setAuthenticated(true);
+    expect(isAuthenticated()).toBe(true);
   });
 
   it('can be cleared', () => {
-    setAuthToken('abc');
-    setAuthToken(null);
-    expect(getAuthToken()).toBeNull();
+    setAuthenticated(true);
+    setAuthenticated(false);
+    expect(isAuthenticated()).toBe(false);
+  });
+});
+
+describe('setCurrentUserId / getCurrentUserId', () => {
+  it('stores and retrieves user id', () => {
+    setCurrentUserId('user-abc');
+    expect(getCurrentUserId()).toBe('user-abc');
+  });
+
+  it('can be cleared', () => {
+    setCurrentUserId('user-abc');
+    setCurrentUserId('');
+    expect(getCurrentUserId()).toBe('');
   });
 });
 
@@ -67,18 +81,34 @@ describe('auth.login', () => {
 });
 
 describe('auth.me', () => {
-  it('sends Authorization header when token is set', async () => {
-    setAuthToken('mytoken');
+  it('sends credentials: include on every request', async () => {
     mockResponse({ user: { id: '1' } });
     await auth.me();
     const [, opts] = mockFetch.mock.calls[0];
-    expect(opts.headers['Authorization']).toBe('Bearer mytoken');
+    expect(opts.credentials).toBe('include');
+  });
+
+  it('does not set Authorization header', async () => {
+    mockResponse({ user: { id: '1' } });
+    await auth.me();
+    const [, opts] = mockFetch.mock.calls[0];
+    expect(opts.headers['Authorization']).toBeUndefined();
+  });
+});
+
+describe('auth.logout', () => {
+  it('POSTs to /api/auth/logout', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204, json: async () => null });
+    await auth.logout();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/logout'),
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 });
 
 describe('exams.create', () => {
   it('POSTs session to /api/exams', async () => {
-    setAuthToken('tok');
     mockResponse({ session: { id: 'sess1' } }, 201);
     const result = await exams.create({ mode: 'practice' });
     expect(result.session.id).toBe('sess1');
@@ -87,7 +117,6 @@ describe('exams.create', () => {
 
 describe('flashcards.createMany', () => {
   it('wraps cards in flashcards key', async () => {
-    setAuthToken('tok');
     mockResponse({ flashcards: [] }, 201);
     await flashcards.createMany([{ front: 'Q', back: 'A' }]);
     const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
@@ -140,7 +169,6 @@ describe('auth.verifyEmail', () => {
 
 describe('auth.resendVerification', () => {
   it('POSTs to /api/auth/resend-verification', async () => {
-    setAuthToken('tok');
     mockResponse({ message: 'Verification email sent' });
     await auth.resendVerification();
     expect(mockFetch).toHaveBeenCalledWith(

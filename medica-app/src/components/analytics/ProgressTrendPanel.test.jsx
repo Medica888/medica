@@ -3,10 +3,10 @@ import { render, screen } from '@testing-library/react'
 import ProgressTrendPanel from './ProgressTrendPanel'
 
 vi.mock('../../lib/apiClient', () => ({
-  getAuthToken: vi.fn(),
+  isAuthenticated: vi.fn(),
 }))
 
-import { getAuthToken } from '../../lib/apiClient'
+import { isAuthenticated } from '../../lib/apiClient'
 
 // Helper: build the hook-shaped objects ProgressTrendPanel now receives as props
 const makeHooks = (progressData, timelineData, opts = {}) => ({
@@ -55,13 +55,13 @@ beforeEach(() => {
 
 describe('ProgressTrendPanel', () => {
   it('renders nothing when no auth token', () => {
-    getAuthToken.mockReturnValue(null)
+    isAuthenticated.mockReturnValue(false)
     const { container } = render(<ProgressTrendPanel {...makeHooks(null, null)} />)
     expect(container.firstChild).toBeNull()
   })
 
   it('renders loading skeleton while fetching', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks(null, null, { pLoading: true, tLoading: true })} />)
     expect(screen.getByText('Learning Timeline')).toBeTruthy()
     const skeletons = document.querySelectorAll('.mp-skeleton-row')
@@ -69,19 +69,19 @@ describe('ProgressTrendPanel', () => {
   })
 
   it('renders nothing on 401 error', () => {
-    getAuthToken.mockReturnValue('expired')
+    isAuthenticated.mockReturnValue(true)
     const { container } = render(<ProgressTrendPanel {...makeHooks(null, null, { pErr: { status: 401 } })} />)
     expect(container.firstChild).toBeNull()
   })
 
   it('renders empty state when sessionCount is 0', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks({ ...PROGRESS_1_SESSION, sessionCount: 0 }, null)} />)
     expect(screen.getByText(/first session/i)).toBeTruthy()
   })
 
   it('renders all three trend cards with populated data', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     expect(screen.getByText('Overall Mastery')).toBeTruthy()
     expect(screen.getByText('Priority Concepts')).toBeTruthy()
@@ -89,20 +89,20 @@ describe('ProgressTrendPanel', () => {
   })
 
   it('shows current mastery value formatted as percentage', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     // 0.58 → 58%
     expect(screen.getByText('58%')).toBeTruthy()
   })
 
   it('shows session count in subtitle', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
     expect(screen.getByText(/2 sessions/i)).toBeTruthy()
   })
 
   it('shows hint when only one session exists', () => {
-    getAuthToken.mockReturnValue('tok')
+    isAuthenticated.mockReturnValue(true)
     const singleTimeline = {
       trend: [TIMELINE_2.trend[0]],
       weakConceptTrend: [TIMELINE_2.weakConceptTrend[0]],

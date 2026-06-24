@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Shared sync-state constants used across saveFlashcards and syncLocalFlashcardsToBackend tests.
-// FAKE_TOKEN encodes payload { sub: 'user-123' }.
-// btoa('{"sub":"user-123"}') === 'eyJzdWIiOiJ1c2VyLTEyMyJ9'
-const FAKE_TOKEN = 'header.eyJzdWIiOiJ1c2VyLTEyMyJ9.sig';
-const FLAG_KEY   = 'medica_flashcards_synced_v9_user-123';
-const DIRTY_KEY  = 'medica_flashcards_dirty_v9_user-123';
+const FLAG_KEY  = 'medica_flashcards_synced_v9_user-123';
+const DIRTY_KEY = 'medica_flashcards_dirty_v9_user-123';
 
 // Mock storage module before importing dataProvider
 vi.mock('./storage.js', () => ({
@@ -21,7 +17,8 @@ vi.mock('./storage.js', () => ({
 
 // Mock apiClient
 vi.mock('./apiClient.js', () => ({
-  getAuthToken: vi.fn(() => 'token'),
+  isAuthenticated: vi.fn(() => true),
+  getCurrentUserId: vi.fn(() => 'user-123'),
   exams: {
     create: vi.fn().mockResolvedValue({ id: 'sess-1' }),
     list:   vi.fn().mockResolvedValue({ data: [], totalPages: 1 }),
@@ -89,7 +86,8 @@ const sessionWithAnswers = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  api.getAuthToken.mockReturnValue('token');
+  api.isAuthenticated.mockReturnValue(true);
+  api.getCurrentUserId.mockReturnValue('user-123');
   storage.appendFlashcards.mockReturnValue(0);
   storage.getFlashcards.mockReturnValue([]);
 });
@@ -168,7 +166,7 @@ describe('saveSession', () => {
 
 describe('getSessions', () => {
   it('returns localStorage sessions when unauthenticated', async () => {
-    api.getAuthToken.mockReturnValueOnce(null);
+    api.isAuthenticated.mockReturnValueOnce(false);
     storage.getSessionHistory.mockReturnValueOnce([{ id: 's1' }]);
     const result = await getSessions();
     expect(result).toEqual([{ id: 's1' }]);
@@ -248,7 +246,7 @@ describe('saveFlashcards', () => {
 
   it('does not call backend when the user is not logged in', async () => {
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
-    api.getAuthToken.mockReturnValueOnce(null);
+    api.isAuthenticated.mockReturnValueOnce(false);
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards
       .mockReturnValueOnce([])
@@ -317,7 +315,7 @@ describe('saveFlashcards', () => {
 
   it('sets dirty flag when backend write fails for an authenticated user', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
@@ -331,7 +329,7 @@ describe('saveFlashcards', () => {
 
   it('does not set dirty flag when user is not authenticated', async () => {
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
-    api.getAuthToken.mockReturnValueOnce(null);
+    api.isAuthenticated.mockReturnValueOnce(false);
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
 
@@ -341,7 +339,7 @@ describe('saveFlashcards', () => {
   });
 
   it('does not set dirty flag when backend write succeeds', async () => {
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards.mockReturnValueOnce([]).mockReturnValueOnce(cards);
@@ -367,7 +365,7 @@ describe('reviewFlashcard', () => {
   });
 
   it('still writes locally even when user is not authenticated', async () => {
-    api.getAuthToken.mockReturnValueOnce(null);
+    api.isAuthenticated.mockReturnValueOnce(false);
     await reviewFlashcard('fc-1', 'good');
     expect(storage.markFlashcardReviewed).toHaveBeenCalledWith('fc-1', 'good');
     expect(api.flashcards.markReviewed).not.toHaveBeenCalled();
@@ -386,7 +384,8 @@ describe('syncLocalFlashcardsToBackend', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
+    api.getCurrentUserId.mockReturnValue('user-123');
     api.flashcards.list.mockResolvedValue({ flashcards: [] });
     api.flashcards.createMany.mockResolvedValue({ flashcards: [] });
     try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }
@@ -399,7 +398,7 @@ describe('syncLocalFlashcardsToBackend', () => {
   });
 
   it('skips when user is not authenticated', async () => {
-    api.getAuthToken.mockReturnValue(null);
+    api.isAuthenticated.mockReturnValue(false);
     storage.getFlashcards.mockReturnValue([LOCAL_CARD]);
 
     const result = await syncLocalFlashcardsToBackend();
@@ -561,18 +560,19 @@ describe('syncLocalFlashcardsToBackend', () => {
 describe('getBackendFlashcards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
+    api.getCurrentUserId.mockReturnValue('user-123');
     api.flashcards.list.mockResolvedValue({ flashcards: [] });
   });
 
   it('returns null when no auth token', async () => {
-    api.getAuthToken.mockReturnValue(null);
+    api.isAuthenticated.mockReturnValue(false);
     const result = await getBackendFlashcards();
     expect(result).toBeNull();
   });
 
   it('does not call api.flashcards.list when unauthenticated', async () => {
-    api.getAuthToken.mockReturnValue(null);
+    api.isAuthenticated.mockReturnValue(false);
     await getBackendFlashcards();
     expect(api.flashcards.list).not.toHaveBeenCalled();
   });
@@ -1003,7 +1003,8 @@ describe('importBackendFlashcards', () => {
 describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
+    api.getCurrentUserId.mockReturnValue('user-123');
     storage.getFlashcards.mockReturnValue([]);
   });
 
@@ -1032,7 +1033,7 @@ describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
   });
 
   it('marks dirty and skips backend when fcg_ card has no backendId', async () => {
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
     const localCard = { id: 'fcg_x', front: 'F', back: 'B' };
     storage.getFlashcards.mockReturnValue([localCard]);
 
@@ -1057,7 +1058,8 @@ describe('reviewFlashcard — backendId resolution (alpha.8)', () => {
 describe('setFlashcardStatus — backendId resolution (alpha.8)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
+    api.getCurrentUserId.mockReturnValue('user-123');
     storage.getFlashcards.mockReturnValue([]);
   });
 
@@ -1111,7 +1113,7 @@ describe('setFlashcardStatus — backendId resolution (alpha.8)', () => {
   });
 
   it('does not call backend when user is not authenticated', async () => {
-    api.getAuthToken.mockReturnValue(null);
+    api.isAuthenticated.mockReturnValue(false);
 
     await setFlashcardStatus('11111111-2222-3333-4444-555555555555', 'mastered');
 
@@ -1127,7 +1129,7 @@ describe('saveFlashcards — _writeBackendIds (alpha.8)', () => {
   it('writes backendId to local fcg_ card after successful createMany', async () => {
     const fcgCard = { id: 'fcg_x', front: 'Q', back: 'A', sourceQuestionId: 'q1', tag: 'Bio' };
     const backendResponse = { flashcards: [{ id: 'uuid-new', source_question_id: 'q1', tag: 'Bio' }] };
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards
       .mockReturnValueOnce([])         // beforeKeys
@@ -1144,7 +1146,7 @@ describe('saveFlashcards — _writeBackendIds (alpha.8)', () => {
 
   it('does not call saveFlashcards when createMany returns no cards', async () => {
     const fcgCard = { id: 'fcg_y', front: 'Q', back: 'A', sourceQuestionId: 'q2', tag: 'Neuro' };
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards
       .mockReturnValueOnce([])
@@ -1161,7 +1163,8 @@ describe('saveFlashcards — _writeBackendIds (alpha.8)', () => {
 describe('syncLocalFlashcardsToBackend — _writeBackendIds (alpha.8)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAuthToken.mockReturnValue(FAKE_TOKEN);
+    api.isAuthenticated.mockReturnValue(true);
+    api.getCurrentUserId.mockReturnValue('user-123');
     api.flashcards.list.mockResolvedValue({ flashcards: [] });
     api.flashcards.createMany.mockResolvedValue({ flashcards: [] });
     try { localStorage.removeItem(FLAG_KEY);  } catch { /* ignore */ }

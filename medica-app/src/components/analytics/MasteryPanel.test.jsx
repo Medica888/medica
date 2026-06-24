@@ -5,7 +5,7 @@ import MasteryPanel from './MasteryPanel'
 // ── Mock hooks and apiClient ──────────────────────────────────────────────────
 
 vi.mock('../../lib/apiClient', () => ({
-  getAuthToken: vi.fn(() => 'test-token'),
+  isAuthenticated: vi.fn(() => true),
 }))
 
 vi.mock('../../hooks/useMastery', () => ({
@@ -68,7 +68,7 @@ const SUBJECT_CONCEPTS_DATA = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  apiClient.getAuthToken.mockReturnValue('test-token')
+  apiClient.isAuthenticated.mockReturnValue(true)
   useMasteryModule.useMasteryOverview.mockReturnValue(OVERVIEW_DATA)
   useMasteryModule.useMasteryWeakest.mockReturnValue(WEAKEST_DATA)
   useMasteryModule.useMasteryStrongest.mockReturnValue(STRONGEST_DATA)
@@ -124,7 +124,7 @@ describe('MasteryPanel — subject breakdown (Row 3)', () => {
   })
 
   it('returns null when not authenticated', () => {
-    apiClient.getAuthToken.mockReturnValue(null)
+    apiClient.isAuthenticated.mockReturnValue(false)
     const { container } = render(<MasteryPanel />)
     expect(container.firstChild).toBeNull()
   })
