@@ -24,9 +24,27 @@ async function bootstrap(): Promise<void> {
 
   const app = createApp();
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`\n  MEDICA API\n  Running at → http://localhost:${config.port}\n`);
   });
+
+  // Graceful shutdown: stop accepting new connections, wait up to 30s for
+  // in-flight requests (AI generations) to complete, then exit.
+  const shutdown = (signal: string) => {
+    console.log(`\n[shutdown] ${signal} received — draining…`);
+    server.close(() => {
+      console.log('[shutdown] All connections closed. Exiting.');
+      process.exit(0);
+    });
+    // Force exit if drain takes too long (e.g. hung AI stream).
+    setTimeout(() => {
+      console.warn('[shutdown] Drain timeout — forcing exit.');
+      process.exit(1);
+    }, 30_000).unref();
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT',  () => shutdown('SIGINT'));
 }
 
 bootstrap().catch((err: Error) => {
