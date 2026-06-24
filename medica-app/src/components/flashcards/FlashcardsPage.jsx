@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { isAuthenticated, generate as generateApi } from '../../lib/apiClient'
+import { generate as generateApi } from '../../lib/apiClient'
 import { useFlashcards } from '../../hooks/useFlashcards.js'
+import { useAuthState } from '../../hooks/useAuthState.js'
 import * as dataProvider from '../../lib/dataProvider.js'
 import { useAdaptiveFlashcardsPreview } from '../../hooks/useMastery'
 import AdaptiveGenerateCTA from './AdaptiveGenerateCTA'
@@ -28,6 +29,7 @@ import {
 import { normalizeSubjectLabel, normalizeSystemLabel } from '../../lib/usmleTaxonomy.js'
 
 export default function FlashcardsPage({ onNavigate }) {
+  const authState = useAuthState()
   // Core state
   const { cards, refresh } = useFlashcards()
   const [reviewMode, setReviewMode]   = useState(false)
@@ -87,7 +89,7 @@ export default function FlashcardsPage({ onNavigate }) {
     }
   }
 
-  const showAdaptiveCTA = isAuthenticated() && import.meta.env.VITE_USE_BACKEND === 'true'
+  const showAdaptiveCTA = authState.isAuthenticated && import.meta.env.VITE_USE_BACKEND === 'true'
 
   // Derived counts
   const newCount      = cards.filter(c => getCardStatus(c) === 'new').length

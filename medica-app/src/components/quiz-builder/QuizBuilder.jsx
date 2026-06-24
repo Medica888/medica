@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { isAuthenticated } from '../../lib/apiClient'
 import { useMasteryAdaptivePreview } from '../../hooks/useMastery'
+import { useAuthState } from '../../hooks/useAuthState'
 import {
   DEFAULT_CONFIG,
   STANDARDIZED_40Q_BLOCK,
@@ -33,6 +33,7 @@ const LOCKED_CONFIG = {
 
 /** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null }} props */
 export default function QuizBuilder({ onStart, generationError = null }) {
+  const authState = useAuthState()
   const [config, setConfig] = useState(() => {
     const saved = getLastQuizConfig()
     return saved ? { ...DEFAULT_CONFIG, ...saved } : { ...DEFAULT_CONFIG }
@@ -47,7 +48,7 @@ export default function QuizBuilder({ onStart, generationError = null }) {
 
   // Adaptive preview — shown only when backend+auth, non-standardized, global scope
   const isGlobalScope = !config.topic && !config.clinicalFocus
-  const showAdaptive  = isAuthenticated() && !isStandardized && isGlobalScope
+  const showAdaptive  = authState.isAuthenticated && !isStandardized && isGlobalScope
   const adaptive      = useMasteryAdaptivePreview()
 
   const update = (key, val) => {

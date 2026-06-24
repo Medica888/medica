@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import MCQView from './MCQView'
+import { generate as generateApi } from '../lib/apiClient.js'
+import { useAuthState } from '../hooks/useAuthState.js'
 
 marked.setOptions({ breaks: true })
 
@@ -19,7 +21,10 @@ export default function Workspace({ skill, onBack }) {
   const [mcqData, setMcqData] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [error, setError] = useState(null)
   const scrollRef = useRef(null)
+  const requestRef = useRef(null)
+  const authState = useAuthState()
 
   const accent = CATEGORY_COLORS[skill.category] || '#1769C8'
 
@@ -29,18 +34,27 @@ export default function Workspace({ skill, onBack }) {
     }
   }, [output])
 
+  useEffect(() => () => requestRef.current?.abort(), [])
+
   const handleGenerate = async () => {
     if (!guide.trim() || isGenerating) return
+    if (!authState.isAuthenticated) {
+      setError('Sign in from Settings to use live AI generation.')
+      return
+    }
     setOutput('')
     setMcqData(null)
+    setError(null)
     setIsGenerating(true)
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
 
     try {
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillId: skill.id, guide })
-      })
+      const response = await generateApi.skillStream(
+        { skillId: skill.id, guide },
+        { signal: controller.signal },
+      )
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -72,14 +86,25 @@ export default function Workspace({ skill, onBack }) {
               }
               setIsGenerating(false)
             } else if (data.type === 'error') {
+              setError(data.message || 'Generation failed. Please try again.')
               setIsGenerating(false)
             }
           } catch { /* skip malformed SSE */ }
         }
       }
     } catch (err) {
-      console.error(err)
+      if (err?.name !== 'AbortError') {
+        setError(
+          err?.status === 429
+            ? 'AI generation is temporarily at capacity. Please try again shortly.'
+            : err?.status === 401
+            ? 'Your session expired. Sign in again from Settings.'
+            : err?.message || 'Generation failed. Please try again.',
+        )
+      }
       setIsGenerating(false)
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null
     }
   }
 
@@ -116,7 +141,9 @@ export default function Workspace({ skill, onBack }) {
         <div className="ws-form-panel">
           <div className="ws-form-hdr">Your Guide</div>
           <div className="ws-form-body">
+            <label className="sr-only" htmlFor="workspace-guide">Content generation guide</label>
             <textarea
+              id="workspace-guide"
               className="ws-textarea"
               placeholder={skill.template || 'Fill in the details for your content...'}
               value={guide}
@@ -124,11 +151,15 @@ export default function Workspace({ skill, onBack }) {
             />
           </div>
           <div className="ws-form-footer">
+            {!authState.isAuthenticated && (
+              <p className="ws-auth-note">Sign in from Settings to use live AI generation.</p>
+            )}
+            {error && <p className="ws-error" role="alert">{error}</p>}
             <button
               className="btn-generate"
               style={{ background: accent }}
               onClick={handleGenerate}
-              disabled={!guide.trim() || isGenerating}
+              disabled={!guide.trim() || isGenerating || !authState.isAuthenticated}
             >
               {isGenerating ? (
                 <>
@@ -153,7 +184,7 @@ export default function Workspace({ skill, onBack }) {
             <span className="ws-out-hdr-left">Output</span>
             {hasOutput && (
               <button className={`ws-out-copy${copied ? ' copied' : ''}`} onClick={handleCopy}>
-                {copied ? '✓ Copied' : 'Copy'}
+                {copied ? 'Copied' : 'Copy'}
               </button>
             )}
           </div>

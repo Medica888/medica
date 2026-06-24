@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useCallback, useMemo, useEffect } from 'react'
+import { lazy, Suspense, useState, useCallback, useMemo } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
@@ -9,8 +9,8 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
-import { setAuthenticated, setCurrentUserId, auth } from './lib/apiClient'
 import { useSessionHistory } from './hooks/useSessionHistory'
+import { useAuth } from './context/AuthContext'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
@@ -100,38 +100,9 @@ function buildAISession(config, questions, seenState) {
 export default function App() {
   const [selectedSkill, setSelectedSkill] = useState(null)
   const [activeNav, setActiveNav]         = useState('dashboard')
-  const [authUser, setAuthUser]           = useState(null)
   const [adminDetailId, setAdminDetailId] = useState(null)
-
-  // On mount: attempt session restore via HttpOnly cookie; one-time cleanup of legacy JWT key
-  useEffect(() => {
-    try { localStorage.removeItem('medica_jwt') } catch { /* ignore */ }
-    auth.me()
-      .then(({ user, isAdmin }) => {
-        setAuthenticated(true)
-        setCurrentUserId(user.id)
-        setAuthUser({ ...user, isAdmin: !!isAdmin })
-      })
-      .catch(() => { /* no active session — user needs to log in */ })
-  }, [])
-
-  const handleLogin = useCallback(async (_token, user) => {
-    setAuthenticated(true)
-    setCurrentUserId(user.id)
-    setAuthUser(user)
-    try {
-      const { user: fullUser, isAdmin } = await auth.me()
-      setCurrentUserId(fullUser.id)
-      setAuthUser({ ...fullUser, isAdmin: !!isAdmin })
-    } catch { /* fallback to login user without isAdmin */ }
-  }, [])
-
-  const handleLogout = useCallback(async () => {
-    try { await auth.logout() } catch { /* ignore network errors on logout */ }
-    setAuthenticated(false)
-    setCurrentUserId('')
-    setAuthUser(null)
-  }, [])
+  const [, setStorageRevision] = useState(0)
+  const { authStatus, authUser, login: handleLogin, logout: handleLogout } = useAuth()
 
   const pageTitle = useMemo(() => {
     const map = {
@@ -157,9 +128,9 @@ export default function App() {
     return                                   { label: 'Improving',         active: true }
   }, [historySessions])
 
-  const flashcardsDue = useMemo(() => {
-    return getFlashcards().filter(isFlashcardDue).length
-  }, [])
+  const flashcardsDue = authStatus === 'restoring'
+    ? 0
+    : getFlashcards().filter(isFlashcardDue).length
   // 'builder' | 'loading' | 'session' | 'practice-results' | 'practice-review' | 'coach-results' | 'exam-results' | 'exam-review'
   const [quizPhase, setQuizPhase]         = useState('builder')
   const [quizConfig, setQuizConfig]       = useState(null)
@@ -344,6 +315,10 @@ export default function App() {
 
   const showQuizBuilder = !selectedSkill && activeNav === 'create-quiz'
 
+  if (authStatus === 'restoring') {
+    return <MainLoading />
+  }
+
   const renderMain = () => {
     if (selectedSkill) {
       return <Workspace key={selectedSkill.id} skill={selectedSkill} onBack={handleHome} />
@@ -366,7 +341,14 @@ export default function App() {
     }
 
     if (activeNav === 'settings') {
-      return <SettingsPage authUser={authUser} onLogin={handleLogin} onLogout={handleLogout} />
+      return (
+        <SettingsPage
+          authUser={authUser}
+          onLogin={handleLogin}
+          onLogout={handleLogout}
+          onDataMigration={() => setStorageRevision(value => value + 1)}
+        />
+      )
     }
 
     if (activeNav === 'admin-review' || activeNav === 'admin-governance' || activeNav === 'admin-taxonomy') {
@@ -504,6 +486,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <Header
         onHome={handleHome}
         pageTitle={pageTitle}
@@ -516,7 +499,7 @@ export default function App() {
         flashcardsDue={flashcardsDue}
         authUser={authUser}
       />
-      <main className="main" id="main-content">
+      <main className="main" id="main-content" tabIndex={-1}>
         <Suspense fallback={<MainLoading />}>
           {renderMain()}
         </Suspense>

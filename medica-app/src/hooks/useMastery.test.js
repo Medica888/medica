@@ -4,9 +4,18 @@ import { render, renderHook, screen, waitFor } from '@testing-library/react'
 import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useReadiness, useTopicReadiness, useMasterySubjects, useMasterySubjectConcepts, useDailyStudyPlan } from './useMastery'
 import StudyPrescriptionPanel from '../components/analytics/StudyPrescriptionPanel'
 
+const authMocks = vi.hoisted(() => {
+  const isAuthenticated = vi.fn()
+  return {
+    isAuthenticated,
+    getAuthStateSnapshot: vi.fn(() => isAuthenticated() ? 'authenticated:test-user' : 'anonymous:'),
+    subscribeAuthState: vi.fn(() => () => {}),
+  }
+})
+
 // Mock the entire apiClient module
 vi.mock('../lib/apiClient', () => ({
-  isAuthenticated: vi.fn(),
+  ...authMocks,
   mastery: {
     overview:                  vi.fn(),
     weakest:                   vi.fn(),

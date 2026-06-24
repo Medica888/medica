@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { isAuthenticated } from '../lib/apiClient.js'
 import { getSessionHistory } from '../lib/storage.js'
 import { normalizeBackendSession, fetchAllBackendSessions } from '../lib/sessionNormalizer.js'
+import { useAuthState } from './useAuthState.js'
 
 export { normalizeBackendSession }
 
@@ -12,22 +12,43 @@ export function useSessionHistory() {
   // Both flags must be true: VITE_USE_BACKEND gates the write path in dataProvider
   // — if backend writes are disabled the backend has no data, so reads must also stay local.
   const useBackend = import.meta.env.VITE_USE_BACKEND === 'true'
-  const isReady    = useBackend && isAuthenticated()
+  const authState  = useAuthState()
+  const isReady    = useBackend && (authState.isRestoring || authState.isAuthenticated)
 
   const [sessions, setSessions] = useState(getSessionHistory)
   const [loading, setLoading]   = useState(isReady)
   const [error, setError]       = useState(null)
-  const [source, setSource]     = useState(isReady ? 'backend' : 'localStorage')
+  const [source, setSource]     = useState(authState.isRestoring && useBackend ? 'restoring' : isReady ? 'backend' : 'localStorage')
 
-  // cancelRef is set to true on unmount so in-flight multi-page fetches drop their results.
-  const cancelRef = useRef(false)
+  // Request ids prevent a previous user's slower request from overwriting current state.
+  const requestRef = useRef({ id: 0, scopeKey: '' })
 
   const refresh = useCallback(() => {
-    cancelRef.current = false
+    const requestId = requestRef.current.id + 1
+    const requestScope = authState.scopeKey
+    requestRef.current = { id: requestId, scopeKey: requestScope }
+    const isCurrentRequest = () => (
+      requestRef.current.id === requestId
+      && requestRef.current.scopeKey === requestScope
+    )
     const backendEnabled = import.meta.env.VITE_USE_BACKEND === 'true'
-    if (!backendEnabled || !isAuthenticated()) {
+    if (!backendEnabled) {
       setSessions(getSessionHistory())
       setSource('localStorage')
+      setError(null)
+      setLoading(false)
+      return
+    }
+    if (authState.isRestoring) {
+      setSource('restoring')
+      setError(null)
+      setLoading(true)
+      return
+    }
+    if (!authState.isAuthenticated) {
+      setSessions(getSessionHistory())
+      setSource('localStorage')
+      setError(null)
       setLoading(false)
       return
     }
@@ -35,26 +56,28 @@ export function useSessionHistory() {
     setError(null)
     fetchAllBackendSessions()
       .then(data => {
-        if (cancelRef.current) return
+        if (!isCurrentRequest()) return
         setSessions(data)
         setSource('backend')
       })
       .catch(err => {
-        if (cancelRef.current) return
+        if (!isCurrentRequest()) return
         console.warn('[useSessionHistory] Backend fetch failed, falling back:', err.message)
         setSessions(getSessionHistory())
         setSource('fallback')
         setError(err.message)
       })
       .finally(() => {
-        if (!cancelRef.current) setLoading(false)
+        if (isCurrentRequest()) setLoading(false)
       })
-  }, [])
+  }, [authState.isAuthenticated, authState.isRestoring, authState.scopeKey])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh()
-    return () => { cancelRef.current = true }
+    return () => {
+      requestRef.current = { ...requestRef.current, id: requestRef.current.id + 1 }
+    }
   }, [refresh])
 
   return { sessions, loading, error, source, refresh }

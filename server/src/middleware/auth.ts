@@ -8,24 +8,36 @@ export interface AuthRequest extends Request {
   authSource?: 'cookie' | 'bearer';
 }
 
-function extractToken(req: AuthRequest): string | null {
+// Try cookie first (preferred); if the cookie is invalid/expired, fall through to Bearer.
+// This prevents a stale HttpOnly cookie from blocking a valid Bearer token.
+function extractVerifiedToken(req: AuthRequest): { token: string; source: 'cookie' | 'bearer' } | null {
+  const candidates: Array<{ token: string; source: 'cookie' | 'bearer' }> = [];
   const cookie = req.cookies?.medica_session;
-  if (cookie) return cookie;
+  if (cookie) candidates.push({ token: cookie, source: 'cookie' });
   const header = req.headers.authorization;
-  if (header?.startsWith('Bearer ')) return header.slice(7);
+  if (header?.startsWith('Bearer ')) candidates.push({ token: header.slice(7), source: 'bearer' });
+
+  for (const candidate of candidates) {
+    try {
+      jwt.verify(candidate.token, config.jwtSecret);
+      return candidate;
+    } catch {
+      // Token invalid/expired — try next candidate
+    }
+  }
   return null;
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  const token = extractToken(req);
-  if (!token) {
+  const extracted = extractVerifiedToken(req);
+  if (!extracted) {
     res.status(401).json({ error: 'Missing or invalid authorization header' });
     return;
   }
 
   let userId: string;
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as { sub: string };
+    const payload = jwt.verify(extracted.token, config.jwtSecret) as { sub: string };
     userId = payload.sub;
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
@@ -40,6 +52,6 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 
   req.userId = userId;
-  req.authSource = req.cookies?.medica_session ? 'cookie' : 'bearer';
+  req.authSource = extracted.source;
   next();
 }

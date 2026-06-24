@@ -6,11 +6,19 @@ import {
   appendTrustedGeneratedQuestions,
   getQuestionReportAnalytics,
   getQuestionReports,
+  getFlashcards,
+  getSessionHistory,
   getTrustedGeneratedQuestionsForConfig,
+  hasPendingAnonymousDataMigration,
+  importAnonymousStudyData,
+  keepAnonymousStudyDataSeparate,
   markFlashcardReviewed,
+  saveCompletedSession,
+  saveFlashcards,
   saveQuestionReport,
   unreportQuestion,
 } from './storage.js'
+import { setAuthSession } from './apiClient.js'
 
 const question = (id, overrides = {}) => ({
   id,
@@ -19,6 +27,82 @@ const question = (id, overrides = {}) => ({
   subject: 'Pharmacology',
   system: 'Cardiovascular',
   ...overrides,
+})
+
+describe('user-scoped study storage', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setAuthSession('anonymous')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    setAuthSession('anonymous')
+  })
+
+  it('isolates sessions and flashcards between browser users', () => {
+    setAuthSession('authenticated', 'user-a')
+    saveCompletedSession({ id: 'session-a', completedAt: '2026-06-24T10:00:00.000Z' })
+    saveFlashcards([{ id: 'card-a', front: 'A?', back: 'A' }])
+
+    setAuthSession('authenticated', 'user-b')
+    expect(getSessionHistory()).toEqual([])
+    expect(getFlashcards()).toEqual([])
+
+    saveCompletedSession({ id: 'session-b', completedAt: '2026-06-24T11:00:00.000Z' })
+    setAuthSession('authenticated', 'user-a')
+    expect(getSessionHistory().map(item => item.id)).toEqual(['session-a'])
+    expect(getFlashcards().map(item => item.id)).toEqual(['card-a'])
+  })
+
+  it('imports anonymous study data only after explicit approval', () => {
+    saveCompletedSession({ id: 'anonymous-session', completedAt: '2026-06-24T10:00:00.000Z' })
+    saveFlashcards([{ id: 'anonymous-card', front: 'Q?', back: 'A' }])
+
+    setAuthSession('authenticated', 'user-a')
+    expect(hasPendingAnonymousDataMigration('user-a')).toBe(true)
+    expect(getSessionHistory()).toEqual([])
+
+    const result = importAnonymousStudyData('user-a')
+    expect(result.error).toBeUndefined()
+    expect(getSessionHistory().map(item => item.id)).toEqual(['anonymous-session'])
+    expect(getFlashcards().map(item => item.id)).toEqual(['anonymous-card'])
+    expect(hasPendingAnonymousDataMigration('user-a')).toBe(false)
+
+    setAuthSession('anonymous')
+    expect(getSessionHistory()).toEqual([])
+    expect(getFlashcards()).toEqual([])
+  })
+
+  it('keeps anonymous data intact when the user declines import', () => {
+    saveCompletedSession({ id: 'anonymous-session', completedAt: '2026-06-24T10:00:00.000Z' })
+
+    setAuthSession('authenticated', 'user-a')
+    expect(keepAnonymousStudyDataSeparate('user-a')).toBe(true)
+    expect(hasPendingAnonymousDataMigration('user-a')).toBe(false)
+    expect(getSessionHistory()).toEqual([])
+
+    setAuthSession('anonymous')
+    expect(getSessionHistory().map(item => item.id)).toEqual(['anonymous-session'])
+  })
+
+  it('rolls back account writes if an anonymous import cannot complete', () => {
+    saveCompletedSession({ id: 'anonymous-session', completedAt: '2026-06-24T10:00:00.000Z' })
+    saveFlashcards([{ id: 'anonymous-card', front: 'Q?', back: 'A' }])
+    setAuthSession('authenticated', 'user-a')
+
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function setItem(key, value) {
+      if (key === 'medica:flashcards:user:user-a') throw new Error('Quota exceeded')
+      return originalSetItem.call(this, key, value)
+    })
+
+    const result = importAnonymousStudyData('user-a')
+    expect(result.error).toBe('Import could not be completed')
+    expect(localStorage.getItem('medica_session_history')).not.toBeNull()
+    expect(localStorage.getItem('medica:flashcards')).not.toBeNull()
+    expect(localStorage.getItem('medica_session_history:user:user-a')).toBeNull()
+  })
 })
 
 describe('question report analytics', () => {

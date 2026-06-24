@@ -1,9 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { normalizeBackendSession, useSessionHistory } from './useSessionHistory.js'
 
+const authMocks = vi.hoisted(() => {
+  const isAuthenticated = vi.fn()
+  const listeners = new Set()
+  return {
+    isAuthenticated,
+    getAuthStateSnapshot: vi.fn(() => isAuthenticated() ? 'authenticated:test-user' : 'anonymous:'),
+    subscribeAuthState: vi.fn(listener => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }),
+    notify: () => listeners.forEach(listener => listener()),
+  }
+})
+
 vi.mock('../lib/apiClient.js', () => ({
-  isAuthenticated: vi.fn(),
+  ...authMocks,
   exams: { list: vi.fn() },
 }))
 
@@ -268,5 +282,43 @@ describe('useSessionHistory', () => {
       expect(result.current.sessions).toHaveLength(1)
       expect(result.current.sessions[0].id).toBe('new-1')
     })
+  })
+
+  it('switches from anonymous local data to backend data after authentication changes', async () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'true')
+    isAuthenticated.mockReturnValue(false)
+    getSessionHistory.mockReturnValue([{ id: 'anonymous-session' }])
+    exams.list.mockResolvedValue({
+      data: [makeBackendSession({ id: 'account-session' })],
+      totalPages: 1,
+    })
+
+    const { result } = renderHook(() => useSessionHistory())
+    expect(result.current.sessions).toEqual([{ id: 'anonymous-session' }])
+
+    isAuthenticated.mockReturnValue(true)
+    act(() => authMocks.notify())
+
+    await waitFor(() => expect(result.current.source).toBe('backend'))
+    expect(result.current.sessions[0].id).toBe('account-session')
+  })
+
+  it('clears backend data and returns to anonymous scope after logout', async () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'true')
+    isAuthenticated.mockReturnValue(true)
+    exams.list.mockResolvedValue({
+      data: [makeBackendSession({ id: 'account-session' })],
+      totalPages: 1,
+    })
+    getSessionHistory.mockReturnValue([{ id: 'anonymous-session' }])
+
+    const { result } = renderHook(() => useSessionHistory())
+    await waitFor(() => expect(result.current.source).toBe('backend'))
+
+    isAuthenticated.mockReturnValue(false)
+    act(() => authMocks.notify())
+
+    await waitFor(() => expect(result.current.source).toBe('localStorage'))
+    expect(result.current.sessions).toEqual([{ id: 'anonymous-session' }])
   })
 })

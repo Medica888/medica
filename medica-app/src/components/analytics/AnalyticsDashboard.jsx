@@ -177,6 +177,9 @@ export default function AnalyticsDashboard({ onNavigate }) {
               </div>
               {trends.length >= 2 ? (
                 <div className="an-traj-chart-wrap">
+                  <p className="sr-only">
+                    Score trajectory across {trends.length} sessions, from {trends[0].medicaScore} to {trends[trends.length - 1].medicaScore}. Latest accuracy {trends[trends.length - 1].accuracy}%.
+                  </p>
                   <ResponsiveContainer width="100%" height={200}>
                     <AreaChart data={trends} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                       <defs>

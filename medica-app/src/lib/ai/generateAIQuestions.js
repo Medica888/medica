@@ -1,5 +1,5 @@
 import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } from '../questionDedup.js'
-import { generate } from '../apiClient.js'
+import { generate, isAuthenticated } from '../apiClient.js'
 import { getQuestionCorrectLetter } from '../answerNormalize.js'
 import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
 import { normalizeQuizConfigForGeneration } from '../quizTypes.js'
@@ -56,6 +56,17 @@ export async function generateAIQuestions(config, seenState = null) {
       return questions
     }
 
+    if (!isAuthenticated()) {
+      throw Object.assign(
+        new Error('Sign in to generate questions beyond the validated local bank.'),
+        {
+          code: 'AUTH_REQUIRED_FOR_LIVE_AI',
+          available: bankCandidates.length,
+          requested: normalizedConfig.questionCount,
+        },
+      )
+    }
+
     // ── Step 2: AI fill for remaining count ──────────────────────────────────
     const remainingCount  = Math.max(1, normalizedConfig.questionCount - bankCandidates.length)
     const remainingConfig = { ...normalizedConfig, questionCount: remainingCount }
@@ -107,6 +118,7 @@ export async function generateAIQuestions(config, seenState = null) {
         { code: 'GENERATION_TIMEOUT' },
       )
     }
+    if (err?.code === 'AUTH_REQUIRED_FOR_LIVE_AI') throw err
     // AI failed but bank has partial coverage: use what we have for non-40Q configs
     const is40QBlock = normalizedConfig.questionCount === 40 && normalizedConfig.mode === 'exam'
     if (bankCandidates.length > 0 && !is40QBlock) {
@@ -149,6 +161,12 @@ export function getGenerationTimeoutMessage(config) {
 }
 
 export function formatGenerationErrorMessage(err, config) {
+  if (err?.code === 'AUTH_REQUIRED_FOR_LIVE_AI' || err?.status === 401) {
+    return 'Sign in from Settings to generate new questions. You can continue using matching questions from the validated local bank without an account.'
+  }
+  if (err?.code === 'RATE_LIMITED' || err?.status === 429) {
+    return 'Live question generation is temporarily at capacity. Wait a few minutes or continue with the validated local bank.'
+  }
   if (err?.code === 'INSUFFICIENT_QUESTIONS') {
     return 'Not enough validated questions available for this filter. Broaden your filters or reduce the question count.'
   }

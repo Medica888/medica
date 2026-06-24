@@ -2,8 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import ProgressTrendPanel from './ProgressTrendPanel'
 
+const authMocks = vi.hoisted(() => {
+  const isAuthenticated = vi.fn()
+  return {
+    isAuthenticated,
+    getAuthStateSnapshot: vi.fn(() => isAuthenticated() ? 'authenticated:test-user' : 'anonymous:'),
+    subscribeAuthState: vi.fn(() => () => {}),
+  }
+})
+
 vi.mock('../../lib/apiClient', () => ({
-  isAuthenticated: vi.fn(),
+  ...authMocks,
 }))
 
 import { isAuthenticated } from '../../lib/apiClient'
@@ -98,7 +107,7 @@ describe('ProgressTrendPanel', () => {
   it('shows session count in subtitle', () => {
     isAuthenticated.mockReturnValue(true)
     render(<ProgressTrendPanel {...makeHooks(PROGRESS_2_SESSIONS, TIMELINE_2)} />)
-    expect(screen.getByText(/2 sessions/i)).toBeTruthy()
+    expect(screen.getByText(/2 sessions · mastery snapshots/i)).toBeTruthy()
   })
 
   it('shows hint when only one session exists', () => {

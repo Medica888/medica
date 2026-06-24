@@ -1,25 +1,30 @@
 import { useState, useEffect } from 'react'
-import { mastery as masteryApi, isAuthenticated } from '../lib/apiClient'
+import { mastery as masteryApi } from '../lib/apiClient'
+import { useAuthState } from './useAuthState.js'
 
 function useApiCall(fetcher, deps = []) {
-  const [data,    setData]    = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
+  const [result, setResult] = useState({ requestKey: '', data: null, error: null })
+  const authState = useAuthState()
+  const requestKey = [authState.scopeKey, ...deps].map(value => String(value ?? '')).join('|')
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!isAuthenticated()) { setLoading(false); return }
+    if (!authState.isAuthenticated) return
     let cancelled = false
-    setLoading(true); setError(null)
     fetcher()
-      .then(d  => { if (!cancelled) setData(d) })
-      .catch(e => { if (!cancelled) setError(e) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .then(data => {
+        if (!cancelled) setResult({ requestKey, data, error: null })
+      })
+      .catch(error => {
+        if (!cancelled) setResult({ requestKey, data: null, error })
+      })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, [authState.isAuthenticated, requestKey])
 
-  return { data, loading, error }
+  if (authState.isRestoring) return { data: null, loading: true, error: null }
+  if (!authState.isAuthenticated) return { data: null, loading: false, error: null }
+  if (result.requestKey !== requestKey) return { data: null, loading: true, error: null }
+  return { data: result.data, loading: false, error: result.error }
 }
 
 export function useMasteryOverview() {

@@ -36,10 +36,16 @@ export default function MasteryTimelineChart({
   // Add 10% padding above and below, min domain 0
   const domainMin = Math.max(0, Math.floor(dataMin * 0.9))
   const domainMax = Math.ceil(dataMax * 1.1) || 10
+  const firstValue = data[0].value
+  const latestValue = data[data.length - 1].value
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+    <div style={{ width: '100%', height, position: 'relative' }}>
+      <p className="sr-only">
+        Trend across {data.length} sessions, from {firstValue}{unit} to {latestValue}{unit}.
+      </p>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%"  stopColor={color} stopOpacity={0.22} />
@@ -79,7 +85,8 @@ export default function MasteryTimelineChart({
           dot={{ r: 3, fill: color, strokeWidth: 0 }}
           activeDot={{ r: 5, fill: color, strokeWidth: 0 }}
         />
-      </AreaChart>
-    </ResponsiveContainer>
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   )
 }

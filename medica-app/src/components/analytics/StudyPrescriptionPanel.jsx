@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { isAuthenticated, mastery as masteryApi } from '../../lib/apiClient'
+import { mastery as masteryApi } from '../../lib/apiClient'
 import { useDailyStudyPlan, useDueReviews, useReviewStats, useStudyPrescription } from '../../hooks/useMastery'
+import { useAuthState } from '../../hooks/useAuthState'
 
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
@@ -359,12 +360,13 @@ function ReviewStatsRow({ stats }) {
 }
 
 export default function StudyPrescriptionPanel() {
+  const authState = useAuthState()
   const { data: rx,          loading,       error      } = useStudyPrescription()
   const { data: dailyPlan,   loading: planLoading,  error: planError  } = useDailyStudyPlan()
   const { data: dueData,     loading: dueLoading                       } = useDueReviews()
   const { data: reviewStats, loading: statsLoading                     } = useReviewStats()
 
-  if (!isAuthenticated()) return null
+  if (!authState.isAuthenticated) return null
   if (loading || planLoading || dueLoading || statsLoading) return (
     <div className="an-intel-card spp-panel">
       <div className="an-intel-card-title">Study Prescription</div>

@@ -1,4 +1,4 @@
-import { isAuthenticated } from '../../lib/apiClient'
+import { useAuthState } from '../../hooks/useAuthState'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 
 function Delta({ value, label, invert = false }) {
@@ -40,10 +40,11 @@ function StatCard({ label, current, previous, unit = '', invert = false }) {
 }
 
 export default function ProgressPanel({ progressHook, timelineHook }) {
+  const authState = useAuthState()
   const { data: progress, loading: pLoading, error: pErr } = progressHook
   const { data: timeline, loading: tLoading }              = timelineHook
 
-  if (!isAuthenticated()) return null
+  if (!authState.isAuthenticated) return null
   if (pLoading && tLoading) return (
     <div className="an-intel-card pp-panel">
       <div className="an-intel-card-title">Learning Progress</div>
@@ -130,6 +131,9 @@ export default function ProgressPanel({ progressHook, timelineHook }) {
       {chartData.length >= 2 && (
         <div className="pp-chart-wrap">
           <div className="pp-chart-label">Mastery Trajectory</div>
+          <p className="sr-only">
+            Mastery across {chartData.length} sessions, from {chartData[0].mastery}% to {chartData[chartData.length - 1].mastery}%.
+          </p>
           <ResponsiveContainer width="100%" height={150}>
             <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
               <defs>

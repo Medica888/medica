@@ -148,7 +148,7 @@ export class AuthService {
 
   private signToken(userId: string): string {
     return jwt.sign({ sub: userId }, config.jwtSecret, {
-      expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'],
+      expiresIn: config.sessionMaxAgeSeconds,
     });
   }
 }

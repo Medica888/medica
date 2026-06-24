@@ -8,6 +8,7 @@ import { validateClinicalCard } from './flashcardValidator.js'
 import { getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { questionReports } from './apiClient.js'
+import { getAnonymousStorageKey, getScopedStorageKey } from './storageScope.js'
 import { computeSRS } from './srsScheduler.js'
 
 const KEY = 'medica_last_quiz_config'
@@ -17,11 +18,15 @@ const TRUSTED_QUESTIONS_KEY = 'medica_trusted_generated_questions'
 const TRUSTED_QUESTIONS_MAX = 500
 const QUESTION_REPORTS_UPDATED_EVENT = 'medica:question-reports-updated'
 
+function scopedKey(baseKey) {
+  return getScopedStorageKey(baseKey)
+}
+
 /** @param {import('./quizTypes').QuizConfig} config */
 export function saveLastQuizConfig(config) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(KEY, JSON.stringify(config))
+    localStorage.setItem(scopedKey(KEY), JSON.stringify(config))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -29,7 +34,7 @@ export function saveLastQuizConfig(config) {
 export function getLastQuizConfig() {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(scopedKey(KEY))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -39,7 +44,7 @@ export function getLastQuizConfig() {
 export function clearLastQuizConfig() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(KEY)
+    localStorage.removeItem(scopedKey(KEY))
   } catch { /* ignore */ }
 }
 
@@ -47,7 +52,7 @@ export function clearLastQuizConfig() {
 export function saveQuizSession(session) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    localStorage.setItem(scopedKey(SESSION_KEY), JSON.stringify(session))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -55,7 +60,7 @@ export function saveQuizSession(session) {
 export function getLastQuizSession() {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(SESSION_KEY)
+    const raw = localStorage.getItem(scopedKey(SESSION_KEY))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -65,7 +70,7 @@ export function getLastQuizSession() {
 export function clearLastQuizSession() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(SESSION_KEY)
+    localStorage.removeItem(scopedKey(SESSION_KEY))
   } catch { /* ignore */ }
 }
 
@@ -73,7 +78,7 @@ export function clearLastQuizSession() {
 export function getQuestionReports() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(QUESTION_REPORTS_KEY)
+    const raw = localStorage.getItem(scopedKey(QUESTION_REPORTS_KEY))
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -103,7 +108,7 @@ export function saveQuestionReport(question, reason, context = {}) {
       reportedAt: now,
     }
     const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
-    localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(updated))
+    localStorage.setItem(scopedKey(QUESTION_REPORTS_KEY), JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
     // Best-effort backend sync - fire-and-forget, never blocks the UI.
     _postReportToBackend(report, question, context)
@@ -151,7 +156,7 @@ function _postReportToBackend(report, question, context) {
 export function subscribeQuestionReports(listener) {
   if (typeof window === 'undefined') return () => {}
   const onStorage = (event) => {
-    if (event.key === QUESTION_REPORTS_KEY) listener()
+    if (event.key === scopedKey(QUESTION_REPORTS_KEY)) listener()
   }
   window.addEventListener(QUESTION_REPORTS_UPDATED_EVENT, listener)
   window.addEventListener('storage', onStorage)
@@ -248,7 +253,7 @@ export function unreportQuestion(questionId, reason = null) {
       : reports.filter(r => String(r.questionId || '') !== qId)
     const removed = reports.length - filtered.length
     if (removed > 0) {
-      localStorage.setItem(QUESTION_REPORTS_KEY, JSON.stringify(filtered))
+      localStorage.setItem(scopedKey(QUESTION_REPORTS_KEY), JSON.stringify(filtered))
       window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
     }
     return removed
@@ -260,7 +265,7 @@ export function unreportQuestion(questionId, reason = null) {
 export function getTrustedGeneratedQuestions() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(TRUSTED_QUESTIONS_KEY)
+    const raw = localStorage.getItem(scopedKey(TRUSTED_QUESTIONS_KEY))
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -324,7 +329,7 @@ export function purgeStaleQuestionsFromTrusted(staleIds) {
     })
     const removed = all.length - filtered.length
     if (removed > 0) {
-      localStorage.setItem(TRUSTED_QUESTIONS_KEY, JSON.stringify(filtered))
+      localStorage.setItem(scopedKey(TRUSTED_QUESTIONS_KEY), JSON.stringify(filtered))
     }
     return removed
   } catch {
@@ -368,7 +373,7 @@ export function appendTrustedGeneratedQuestions(questions, config = {}) {
     }
 
     if (additions.length > 0) {
-      localStorage.setItem(TRUSTED_QUESTIONS_KEY, JSON.stringify([...additions, ...existing].slice(0, TRUSTED_QUESTIONS_MAX)))
+      localStorage.setItem(scopedKey(TRUSTED_QUESTIONS_KEY), JSON.stringify([...additions, ...existing].slice(0, TRUSTED_QUESTIONS_MAX)))
     }
     return additions.length
   } catch {
@@ -382,7 +387,7 @@ const PRACTICE_RESULTS_KEY = 'medica_last_practice_results'
 export function savePracticeResults(results) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(PRACTICE_RESULTS_KEY, JSON.stringify(results))
+    localStorage.setItem(scopedKey(PRACTICE_RESULTS_KEY), JSON.stringify(results))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -390,7 +395,7 @@ export function savePracticeResults(results) {
 export function getLastPracticeResults() {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(PRACTICE_RESULTS_KEY)
+    const raw = localStorage.getItem(scopedKey(PRACTICE_RESULTS_KEY))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -400,7 +405,7 @@ export function getLastPracticeResults() {
 export function clearPracticeResults() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(PRACTICE_RESULTS_KEY)
+    localStorage.removeItem(scopedKey(PRACTICE_RESULTS_KEY))
   } catch { /* ignore */ }
 }
 
@@ -410,7 +415,7 @@ const COACH_RESULTS_KEY = 'medica_last_coach_results'
 export function saveCoachResults(results) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(COACH_RESULTS_KEY, JSON.stringify(results))
+    localStorage.setItem(scopedKey(COACH_RESULTS_KEY), JSON.stringify(results))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -418,7 +423,7 @@ export function saveCoachResults(results) {
 export function getLastCoachResults() {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(COACH_RESULTS_KEY)
+    const raw = localStorage.getItem(scopedKey(COACH_RESULTS_KEY))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -428,7 +433,7 @@ export function getLastCoachResults() {
 export function clearCoachResults() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(COACH_RESULTS_KEY)
+    localStorage.removeItem(scopedKey(COACH_RESULTS_KEY))
   } catch { /* ignore */ }
 }
 
@@ -441,9 +446,9 @@ const FLASHCARD_REVIEW_EVENTS_MAX = 500
 export function saveFlashcards(cards) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(FLASHCARDS_KEY, JSON.stringify(cards))
+    localStorage.setItem(scopedKey(FLASHCARDS_KEY), JSON.stringify(cards))
     // Remove legacy key once we've written to the new one
-    localStorage.removeItem(FLASHCARDS_KEY_OLD)
+    localStorage.removeItem(scopedKey(FLASHCARDS_KEY_OLD))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -451,10 +456,10 @@ export function saveFlashcards(cards) {
 export function getFlashcards() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(FLASHCARDS_KEY)
+    const raw = localStorage.getItem(scopedKey(FLASHCARDS_KEY))
     if (raw) return JSON.parse(raw)
     // One-time migration from legacy key
-    const legacy = localStorage.getItem(FLASHCARDS_KEY_OLD)
+    const legacy = localStorage.getItem(scopedKey(FLASHCARDS_KEY_OLD))
     return legacy ? JSON.parse(legacy) : []
   } catch {
     return []
@@ -464,8 +469,8 @@ export function getFlashcards() {
 export function clearFlashcards() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(FLASHCARDS_KEY)
-    localStorage.removeItem(FLASHCARDS_KEY_OLD)
+    localStorage.removeItem(scopedKey(FLASHCARDS_KEY))
+    localStorage.removeItem(scopedKey(FLASHCARDS_KEY_OLD))
   } catch { /* ignore */ }
 }
 
@@ -547,7 +552,7 @@ export function markFlashcardReviewed(id, ease) {
 export function getFlashcardReviewEvents() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(FLASHCARD_REVIEW_EVENTS_KEY)
+    const raw = localStorage.getItem(scopedKey(FLASHCARD_REVIEW_EVENTS_KEY))
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -557,7 +562,7 @@ export function getFlashcardReviewEvents() {
 export function clearFlashcardReviewEvents() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(FLASHCARD_REVIEW_EVENTS_KEY)
+    localStorage.removeItem(scopedKey(FLASHCARD_REVIEW_EVENTS_KEY))
   } catch { /* ignore */ }
 }
 
@@ -578,7 +583,7 @@ function recordFlashcardReviewEvent(card, ease, status) {
     sourceMode: card.sourceMode ?? null,
   }
   const events = getFlashcardReviewEvents()
-  localStorage.setItem(FLASHCARD_REVIEW_EVENTS_KEY, JSON.stringify([event, ...events].slice(0, FLASHCARD_REVIEW_EVENTS_MAX)))
+  localStorage.setItem(scopedKey(FLASHCARD_REVIEW_EVENTS_KEY), JSON.stringify([event, ...events].slice(0, FLASHCARD_REVIEW_EVENTS_MAX)))
 }
 
 /** Reads a card's clinical recall prompt, falling back to `front` for old cards. */
@@ -597,7 +602,7 @@ const WEAK_SPOT_REPAIR_KEY = 'medica_weak_spot_repair'
 export function saveWeakSpotRepair(repairState) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(WEAK_SPOT_REPAIR_KEY, JSON.stringify(repairState))
+    localStorage.setItem(scopedKey(WEAK_SPOT_REPAIR_KEY), JSON.stringify(repairState))
   } catch { /* quota or privacy mode */ }
 }
 
@@ -605,7 +610,7 @@ export function saveWeakSpotRepair(repairState) {
 export function getWeakSpotRepair() {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(WEAK_SPOT_REPAIR_KEY)
+    const raw = localStorage.getItem(scopedKey(WEAK_SPOT_REPAIR_KEY))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -615,7 +620,7 @@ export function getWeakSpotRepair() {
 export function clearWeakSpotRepair() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(WEAK_SPOT_REPAIR_KEY)
+    localStorage.removeItem(scopedKey(WEAK_SPOT_REPAIR_KEY))
   } catch { /* ignore */ }
 }
 
@@ -628,14 +633,14 @@ export function saveCompletedSession(record) {
     const history = getSessionHistory()
     const deduped = history.filter(s => s.completedAt !== record.completedAt)
     const updated = [record, ...deduped].slice(0, SESSION_HISTORY_MAX)
-    localStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(updated))
+    localStorage.setItem(scopedKey(SESSION_HISTORY_KEY), JSON.stringify(updated))
   } catch { /* quota or privacy mode */ }
 }
 
 export function getSessionHistory() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(SESSION_HISTORY_KEY)
+    const raw = localStorage.getItem(scopedKey(SESSION_HISTORY_KEY))
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -645,6 +650,144 @@ export function getSessionHistory() {
 export function clearSessionHistory() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(SESSION_HISTORY_KEY)
+    localStorage.removeItem(scopedKey(SESSION_HISTORY_KEY))
   } catch { /* ignore */ }
+}
+
+const FLASHCARD_GROUPS_KEY = 'medica:flashcardGroups'
+const ANONYMOUS_IMPORT_DECISION_PREFIX = 'medica:anonymous-data-decision:'
+
+const ARRAY_MIGRATION_ENTRIES = [
+  { source: QUESTION_REPORTS_KEY, target: QUESTION_REPORTS_KEY },
+  { source: TRUSTED_QUESTIONS_KEY, target: TRUSTED_QUESTIONS_KEY },
+  { source: FLASHCARDS_KEY, target: FLASHCARDS_KEY },
+  { source: FLASHCARDS_KEY_OLD, target: FLASHCARDS_KEY },
+  { source: FLASHCARD_REVIEW_EVENTS_KEY, target: FLASHCARD_REVIEW_EVENTS_KEY },
+  { source: SESSION_HISTORY_KEY, target: SESSION_HISTORY_KEY },
+  { source: FLASHCARD_GROUPS_KEY, target: FLASHCARD_GROUPS_KEY },
+]
+
+const OBJECT_MIGRATION_ENTRIES = [
+  { source: KEY, target: KEY },
+  { source: SESSION_KEY, target: SESSION_KEY },
+  { source: PRACTICE_RESULTS_KEY, target: PRACTICE_RESULTS_KEY },
+  { source: COACH_RESULTS_KEY, target: COACH_RESULTS_KEY },
+  { source: WEAK_SPOT_REPAIR_KEY, target: WEAK_SPOT_REPAIR_KEY },
+]
+
+function readStorageValue(key) {
+  const raw = localStorage.getItem(key)
+  if (raw == null) return null
+  try { return JSON.parse(raw) } catch { return null }
+}
+
+function migrationIdentity(item) {
+  if (!item || typeof item !== 'object') return JSON.stringify(item)
+  return String(
+    item.id
+    || item.fingerprint
+    || item.completedAt
+    || `${item.sourceQuestionId || ''}:${item.tag || ''}:${item.front || ''}`,
+  )
+}
+
+function mergeMigrationArrays(existing, incoming) {
+  const merged = []
+  const seen = new Set()
+  for (const item of [...existing, ...incoming]) {
+    const identity = migrationIdentity(item)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    merged.push(item)
+  }
+  return merged
+}
+
+function migrationDecisionKey(userId) {
+  return `${ANONYMOUS_IMPORT_DECISION_PREFIX}${encodeURIComponent(String(userId || ''))}`
+}
+
+export function hasAnonymousStudyData() {
+  if (typeof window === 'undefined') return false
+  try {
+    return [...ARRAY_MIGRATION_ENTRIES, ...OBJECT_MIGRATION_ENTRIES]
+      .some(({ source }) => localStorage.getItem(getAnonymousStorageKey(source)) != null)
+  } catch {
+    return false
+  }
+}
+
+export function hasPendingAnonymousDataMigration(userId) {
+  if (!userId || !hasAnonymousStudyData()) return false
+  try { return localStorage.getItem(migrationDecisionKey(userId)) == null } catch { return false }
+}
+
+export function keepAnonymousStudyDataSeparate(userId) {
+  if (!userId || typeof window === 'undefined') return false
+  try {
+    localStorage.setItem(migrationDecisionKey(userId), 'separate')
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function importAnonymousStudyData(userId) {
+  if (!userId || typeof window === 'undefined') return { importedKeys: 0, importedItems: 0 }
+  const plannedTargets = new Map()
+  const sourceKeys = new Set()
+  let importedItems = 0
+
+  try {
+    for (const { source, target } of ARRAY_MIGRATION_ENTRIES) {
+      const sourceKey = getAnonymousStorageKey(source)
+      const incoming = readStorageValue(sourceKey)
+      if (!Array.isArray(incoming) || incoming.length === 0) continue
+
+      const targetKey = getScopedStorageKey(target, userId)
+      const plannedCurrent = plannedTargets.get(targetKey)
+      const current = plannedCurrent == null ? readStorageValue(targetKey) : JSON.parse(plannedCurrent)
+      const merged = mergeMigrationArrays(Array.isArray(current) ? current : [], incoming)
+      plannedTargets.set(targetKey, JSON.stringify(merged))
+      sourceKeys.add(sourceKey)
+      importedItems += Math.max(merged.length - (Array.isArray(current) ? current.length : 0), 0)
+    }
+
+    for (const { source, target } of OBJECT_MIGRATION_ENTRIES) {
+      const sourceKey = getAnonymousStorageKey(source)
+      const incoming = localStorage.getItem(sourceKey)
+      if (incoming == null) continue
+
+      const targetKey = getScopedStorageKey(target, userId)
+      if (!plannedTargets.has(targetKey) && localStorage.getItem(targetKey) == null) {
+        plannedTargets.set(targetKey, incoming)
+        importedItems += 1
+      }
+      sourceKeys.add(sourceKey)
+    }
+
+    const originals = new Map(
+      [...plannedTargets.keys()].map(key => [key, localStorage.getItem(key)]),
+    )
+    const writtenTargets = []
+    try {
+      for (const [targetKey, value] of plannedTargets) {
+        localStorage.setItem(targetKey, value)
+        writtenTargets.push(targetKey)
+      }
+      localStorage.setItem(migrationDecisionKey(userId), 'imported')
+    } catch (error) {
+      for (const targetKey of writtenTargets) {
+        const original = originals.get(targetKey)
+        if (original == null) localStorage.removeItem(targetKey)
+        else localStorage.setItem(targetKey, original)
+      }
+      throw error
+    }
+
+    for (const sourceKey of sourceKeys) localStorage.removeItem(sourceKey)
+    return { importedKeys: sourceKeys.size, importedItems }
+  } catch {
+    return { importedKeys: 0, importedItems: 0, error: 'Import could not be completed' }
+  }
 }

@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { auth } from '../../lib/apiClient'
+import {
+  hasPendingAnonymousDataMigration,
+  importAnonymousStudyData,
+  keepAnonymousStudyDataSeparate,
+} from '../../lib/storage'
 
-export default function SettingsPage({ authUser, onLogin, onLogout }) {
+export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigration }) {
   const [tab,      setTab]      = useState('login')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -9,8 +14,13 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
   const [success,  setSuccess]  = useState(null)
+  const [migrationRevision, setMigrationRevision] = useState(0)
+  const [migrationMessage, setMigrationMessage] = useState(null)
 
   const isConnected = !!authUser
+  const migrationNeeded = migrationRevision >= 0
+    && !!authUser?.id
+    && hasPendingAnonymousDataMigration(authUser.id)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -22,7 +32,7 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
       } else {
         result = await auth.register(email.trim(), name.trim(), password)
       }
-      if (result?.token) {
+      if (result?.user) {
         onLogin(result.token, result.user)
         setSuccess(`Connected as ${result.user?.email || email}`)
         setEmail(''); setPassword(''); setName('')
@@ -32,6 +42,23 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleImportAnonymousData = () => {
+    const result = importAnonymousStudyData(authUser?.id)
+    if (result.error) {
+      setMigrationMessage(result.error)
+      return
+    }
+    setMigrationRevision(value => value + 1)
+    setMigrationMessage(`Imported ${result.importedItems} local study item${result.importedItems === 1 ? '' : 's'} into this account.`)
+    onDataMigration?.()
+  }
+
+  const handleKeepAnonymousDataSeparate = () => {
+    keepAnonymousStudyDataSeparate(authUser?.id)
+    setMigrationRevision(value => value + 1)
+    setMigrationMessage('Local study data will remain separate and available when signed out.')
   }
 
   return (
@@ -58,6 +85,23 @@ export default function SettingsPage({ authUser, onLogin, onLogout }) {
               <p className="stg-connected-info">
                 Adaptive learning and mastery tracking are active.
               </p>
+              {migrationNeeded && (
+                <div className="stg-migration" role="status">
+                  <div className="stg-migration-title">Local study data found</div>
+                  <p className="stg-connected-info">
+                    Choose whether to import the anonymous sessions and flashcards stored in this browser. Nothing is merged automatically.
+                  </p>
+                  <div className="stg-migration-actions">
+                    <button type="button" className="stg-submit-btn" onClick={handleImportAnonymousData}>
+                      Import to this account
+                    </button>
+                    <button type="button" className="stg-secondary-btn" onClick={handleKeepAnonymousDataSeparate}>
+                      Keep separate
+                    </button>
+                  </div>
+                </div>
+              )}
+              {migrationMessage && <p className="stg-success" role="status">{migrationMessage}</p>}
               <button
                 type="button"
                 className="stg-logout-btn"

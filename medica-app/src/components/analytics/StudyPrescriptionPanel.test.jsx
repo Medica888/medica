@@ -2,10 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import StudyPrescriptionPanel from './StudyPrescriptionPanel'
 
+const authMocks = vi.hoisted(() => {
+  const isAuthenticated = vi.fn(() => true)
+  return {
+    isAuthenticated,
+    getAuthStateSnapshot: vi.fn(() => isAuthenticated() ? 'authenticated:test-user' : 'anonymous:'),
+    subscribeAuthState: vi.fn(() => () => {}),
+  }
+})
+
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 vi.mock('../../lib/apiClient', () => ({
-  isAuthenticated: vi.fn(() => true),
+  ...authMocks,
   mastery: {
     reviewConcept: vi.fn(),
   },

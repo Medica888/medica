@@ -1,16 +1,22 @@
+import { getScopedStorageKey } from './storageScope.js'
+
 const GROUPS_KEY = 'medica:flashcardGroups'
+
+function groupsKey() {
+  return getScopedStorageKey(GROUPS_KEY)
+}
 
 export function getFlashcardGroups() {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(GROUPS_KEY)
+    const raw = localStorage.getItem(groupsKey())
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 export function saveFlashcardGroups(groups) {
   if (typeof window === 'undefined') return
-  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(groups)) } catch { /* quota */ }
+  try { localStorage.setItem(groupsKey(), JSON.stringify(groups)) } catch { /* quota */ }
 }
 
 export function createFlashcardGroup(name, description = '') {
@@ -71,5 +77,5 @@ export function getGroupsForCard(cardId) {
 
 export function clearAllFlashcardGroups() {
   if (typeof window === 'undefined') return
-  try { localStorage.removeItem(GROUPS_KEY) } catch { /* ignore */ }
+  try { localStorage.removeItem(groupsKey()) } catch { /* ignore */ }
 }

@@ -1,12 +1,50 @@
 const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:4000';
 
-let _isAuthenticated = false;
+let _authStatus = 'restoring';
 let _currentUserId = '';
+let _authSnapshot = 'restoring:';
+const _authListeners = new Set();
 
-export function setAuthenticated(val) { _isAuthenticated = !!val; }
-export function isAuthenticated() { return _isAuthenticated; }
-export function setCurrentUserId(id) { _currentUserId = id ?? ''; }
+function emitAuthState() {
+  const nextSnapshot = `${_authStatus}:${_currentUserId}`;
+  if (nextSnapshot === _authSnapshot) return;
+  _authSnapshot = nextSnapshot;
+  for (const listener of _authListeners) listener();
+}
+
+export function setAuthSession(status, userId = '') {
+  _authStatus = ['restoring', 'authenticated', 'anonymous'].includes(status)
+    ? status
+    : 'anonymous';
+  _currentUserId = _authStatus === 'authenticated' ? String(userId || '') : '';
+  emitAuthState();
+}
+
+export function setAuthRestoring() { setAuthSession('restoring'); }
+export function setAuthenticated(val) {
+  setAuthSession(val ? 'authenticated' : 'anonymous', val ? _currentUserId : '');
+}
+export function isAuthenticated() { return _authStatus === 'authenticated'; }
+export function getAuthStatus() { return _authStatus; }
+export function setCurrentUserId(id) {
+  _currentUserId = id == null ? '' : String(id);
+  emitAuthState();
+}
 export function getCurrentUserId() { return _currentUserId; }
+export function getAuthStateSnapshot() { return _authSnapshot; }
+export function subscribeAuthState(listener) {
+  _authListeners.add(listener);
+  return () => _authListeners.delete(listener);
+}
+
+const AUTH_FAILURE_EXEMPT_PATHS = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/verify-email',
+  '/api/auth/account',  // wrong-password 401 during account deletion ≠ session expiry
+]);
 
 async function request(method, path, body, options = {}) {
   const headers = { 'Content-Type': 'application/json' };
@@ -22,8 +60,44 @@ async function request(method, path, body, options = {}) {
   if (res.status === 204) return null;
 
   const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.error ?? 'Request failed'), { status: res.status, data });
+  if (!res.ok) {
+    if (res.status === 401 && !AUTH_FAILURE_EXEMPT_PATHS.has(path)) {
+      setAuthSession('anonymous');
+    }
+    throw Object.assign(new Error(data.error ?? 'Request failed'), {
+      status: res.status,
+      code: data.code,
+      data,
+    });
+  }
   return data;
+}
+
+async function streamRequest(path, body, options = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+    signal: options.signal,
+  });
+
+  if (!res.ok) {
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON upstream failure */ }
+    if (res.status === 401 && !AUTH_FAILURE_EXEMPT_PATHS.has(path)) {
+      setAuthSession('anonymous');
+    }
+    throw Object.assign(new Error(data.error ?? 'Request failed'), {
+      status: res.status,
+      code: data.code,
+      data,
+    });
+  }
+  if (!res.body) {
+    throw Object.assign(new Error('Streaming response was empty'), { code: 'EMPTY_STREAM' });
+  }
+  return res;
 }
 
 // Auth
@@ -137,6 +211,8 @@ export const mastery = {
 
 // Generate
 export const generate = {
+  skillStream: (payload, options = {}) =>
+    streamRequest('/api/generate', payload, options),
   flashcards: (count = 10, config = {}) =>
     request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
   questions: ({ config, exclude } = {}, options = {}) =>

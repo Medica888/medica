@@ -25,7 +25,7 @@ const cookieOptions = {
   secure: config.cookieSecure,
   sameSite: 'lax' as const,
   path: '/',
-  maxAge: 604800 * 1000, // 7 days in ms
+  maxAge: config.sessionMaxAgeSeconds * 1000,
 };
 
 function getService(): AuthService {

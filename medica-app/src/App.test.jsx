@@ -154,6 +154,10 @@ vi.mock('./lib/apiClient', () => ({
   isAuthenticated: vi.fn(() => false),
   setAuthenticated: vi.fn(),
   setCurrentUserId: vi.fn(),
+  setAuthRestoring: vi.fn(),
+  setAuthSession: vi.fn(),
+  getAuthStateSnapshot: vi.fn(() => 'anonymous:'),
+  subscribeAuthState: vi.fn(() => () => {}),
   auth: {
     me: vi.fn(() => Promise.reject(new Error('no session'))),
     logout: vi.fn(() => Promise.resolve(null)),
@@ -209,6 +213,14 @@ beforeEach(() => {
 })
 
 describe('App quiz phase routing', () => {
+  it('provides a keyboard skip link to the focusable main content landmark', () => {
+    render(<App />)
+
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
+  })
+
   it('passes exam flow through builder, loading, session, results, review, and back', async () => {
     render(<App />)
 

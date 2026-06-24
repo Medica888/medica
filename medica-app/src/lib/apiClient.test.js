@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setAuthenticated, isAuthenticated, setCurrentUserId, getCurrentUserId, auth, exams, flashcards, health } from './apiClient.js';
+import {
+  setAuthenticated,
+  isAuthenticated,
+  setCurrentUserId,
+  getCurrentUserId,
+  setAuthRestoring,
+  setAuthSession,
+  getAuthStateSnapshot,
+  subscribeAuthState,
+  auth,
+  exams,
+  flashcards,
+  generate,
+  health,
+} from './apiClient.js';
 
 const mockFetch = vi.fn();
 
@@ -32,6 +46,23 @@ describe('setAuthenticated / isAuthenticated', () => {
     setAuthenticated(true);
     setAuthenticated(false);
     expect(isAuthenticated()).toBe(false);
+  });
+
+  it('publishes atomic restore, account, and logout snapshots', () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeAuthState(listener);
+
+    setAuthRestoring();
+    expect(getAuthStateSnapshot()).toBe('restoring:');
+
+    setAuthSession('authenticated', 'user-1');
+    expect(getAuthStateSnapshot()).toBe('authenticated:user-1');
+
+    setAuthSession('anonymous');
+    expect(getAuthStateSnapshot()).toBe('anonymous:');
+    expect(listener).toHaveBeenCalledTimes(3);
+
+    unsubscribe();
   });
 });
 
@@ -71,12 +102,56 @@ describe('auth.login', () => {
   });
 
   it('throws on 401', async () => {
+    setAuthSession('authenticated', 'existing-user');
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
       json: async () => ({ error: 'Invalid credentials' }),
     });
     await expect(auth.login('a@b.com', 'wrong')).rejects.toThrow('Invalid credentials');
+    expect(getAuthStateSnapshot()).toBe('authenticated:existing-user');
+  });
+});
+
+describe('protected request session expiry', () => {
+  it('clears authenticated state when a protected endpoint returns 401', async () => {
+    setAuthSession('authenticated', 'user-1');
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Session expired' }),
+    });
+
+    await expect(exams.list()).rejects.toMatchObject({ status: 401 });
+    expect(getAuthStateSnapshot()).toBe('anonymous:');
+  });
+
+  it('preserves stable backend error codes for user-facing handling', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: 'Too many requests', code: 'RATE_LIMITED' }),
+    });
+
+    await expect(exams.list()).rejects.toMatchObject({
+      status: 429,
+      code: 'RATE_LIMITED',
+    });
+  });
+});
+
+describe('auth.deleteAccount — account 401 is not session expiry', () => {
+  it('does not clear session when /api/auth/account returns 401 (wrong password)', async () => {
+    setAuthSession('authenticated', 'user-1');
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Invalid password' }),
+    });
+
+    await expect(auth.deleteAccount('wrong-password')).rejects.toThrow('Invalid password');
+    // Session must remain — wrong deletion password ≠ session expiry
+    expect(getAuthStateSnapshot()).toBe('authenticated:user-1');
   });
 });
 
@@ -123,6 +198,25 @@ describe('flashcards.createMany', () => {
     const [, opts] = lastCall;
     const body = JSON.parse(opts.body);
     expect(body).toHaveProperty('flashcards');
+  });
+});
+
+describe('generate.skillStream', () => {
+  it('uses the central backend URL, credentials, and abort signal', async () => {
+    const signal = new AbortController().signal;
+    const body = { getReader: vi.fn() };
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, body });
+
+    const response = await generate.skillStream(
+      { skillId: 'medical-writer', guide: 'Explain preload' },
+      { signal },
+    );
+
+    expect(response.body).toBe(body);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/generate'),
+      expect.objectContaining({ credentials: 'include', signal }),
+    );
   });
 });
 

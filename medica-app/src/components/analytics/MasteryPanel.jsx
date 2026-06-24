@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { isAuthenticated } from '../../lib/apiClient'
 import { useMasteryOverview, useMasteryWeakest, useMasteryStrongest, useMasterySubjects, useMasterySubjectConcepts } from '../../hooks/useMastery'
+import { useAuthState } from '../../hooks/useAuthState'
 import ConceptDetailModal from './ConceptDetailModal'
 
 const TIER_META = {
@@ -159,6 +159,7 @@ function SubjectList({ items, emptyMsg, onSelect }) {
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
 export default function MasteryPanel() {
+  const authState = useAuthState()
   const [selectedConcept, setSelectedConcept] = useState(null)  // {concept, mastery, tier}
   const [selectedSubject, setSelectedSubject] = useState(null)  // SubjectRollup
 
@@ -168,7 +169,7 @@ export default function MasteryPanel() {
   const subjects  = useMasterySubjects()
 
   // Only render when authenticated
-  if (!isAuthenticated()) return null
+  if (!authState.isAuthenticated) return null
 
   // Hide entire panel while all three are still loading first time
   if (overview.loading && weakest.loading && strongest.loading) {

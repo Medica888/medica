@@ -26,10 +26,18 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function ProgressTrends({ trends }) {
+  const first = trends?.[0]
+  const latest = trends?.[trends.length - 1]
+
   return (
     <div className="an-card an-trends-card">
       <div className="an-card-title">Score History</div>
       <div className="an-trends-chart-wrap">
+        {first && latest && (
+          <p className="sr-only">
+            Score history across {trends.length} sessions. Medica Score changed from {first.medicaScore} to {latest.medicaScore}; accuracy changed from {first.accuracy}% to {latest.accuracy}%.
+          </p>
+        )}
         <ResponsiveContainer width="100%" height={200}>
           <LineChart
             data={trends}

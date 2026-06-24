@@ -4,11 +4,29 @@ dotenv.config();
 
 const DEV_JWT_SECRET = 'dev-secret-change-in-production';
 
+// Parse a duration string like '7d', '24h', '3600s' into seconds.
+// Only d/h/m/s units are supported. Throws on unrecognised format.
+function parseDuration(expr: string): number {
+  const match = /^(\d+)([smhd])$/.exec(expr);
+  if (!match) {
+    throw new Error(
+      `[config] Invalid JWT_EXPIRES_IN format: "${expr}". Use a number followed by s/m/h/d (e.g. 7d).`,
+    );
+  }
+  const n = parseInt(match[1], 10);
+  const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+  return n * multipliers[match[2]];
+}
+
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '7d';
+
 export const config = {
   port: parseInt(process.env.PORT ?? '4000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET,
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
+  jwtExpiresIn: JWT_EXPIRES_IN,
+  // Single source of truth: both cookie maxAge and JWT expiresIn derive from this.
+  sessionMaxAgeSeconds: parseDuration(JWT_EXPIRES_IN),
   databaseUrl: process.env.DATABASE_URL,
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5174')
     .split(',')
@@ -57,5 +75,32 @@ if (config.nodeEnv === 'production') {
     throw new Error(
       '[config] APP_BASE_URL must be set to a non-localhost production URL — refusing to start.',
     );
+  }
+
+  // SameSite=Lax cookies require frontend and backend to share the same eTLD+1 domain.
+  // Guard: all ALLOWED_ORIGINS must share the same base domain as APP_BASE_URL.
+  function getBaseDomain(hostname: string): string {
+    const parts = hostname.split('.');
+    return parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+  }
+  try {
+    const appBaseDomain = getBaseDomain(new URL(config.appBaseUrl).hostname);
+    const allSameSite = config.allowedOrigins.every((origin) => {
+      try {
+        return getBaseDomain(new URL(origin).hostname) === appBaseDomain;
+      } catch {
+        return false;
+      }
+    });
+    if (!allSameSite) {
+      throw new Error(
+        '[config] All ALLOWED_ORIGINS must share the same eTLD+1 domain as APP_BASE_URL for ' +
+          'SameSite=Lax cookies to work. Ensure frontend and API are deployed on the same base domain ' +
+          '(e.g. app.medica.com and api.medica.com both under medica.com).',
+      );
+    }
+  } catch (err) {
+    if ((err as Error).message.startsWith('[config]')) throw err;
+    // URL parse failure — APP_BASE_URL already failed the localhost guard above; ignore here.
   }
 }

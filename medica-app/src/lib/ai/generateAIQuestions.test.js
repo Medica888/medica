@@ -28,6 +28,7 @@ import {
   saveQuestionReport,
 } from '../storage.js'
 import { STANDARDIZED_40Q_BLOCK } from '../quizTypes.js'
+import { setAuthSession } from '../apiClient.js'
 
 const makeQuestion = (i, overrides = {}) => ({
   id:            `uuid-${i}`,            // server-assigned UUID format
@@ -62,10 +63,16 @@ const baseConfig = { questionCount: 5, mode: 'practice' }
 
 beforeEach(() => {
   vi.stubEnv('VITE_USE_BACKEND_API', 'true')
+  setAuthSession('authenticated', 'test-user')
   // Reset bank mock to empty so existing tests exercise the full AI path by default.
   getBankQuestionsForConfig.mockReturnValue([])
 })
-afterEach(() => { localStorage.clear(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
+afterEach(() => {
+  setAuthSession('anonymous')
+  localStorage.clear()
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
+})
 
 describe('generateAIQuestions - timeout policy', () => {
   it('uses the normal timeout for Balanced generation', () => {
@@ -95,6 +102,13 @@ describe('generateAIQuestions - timeout policy', () => {
     expect(msg).toContain('24')
     expect(msg).toContain('40')
     expect(msg).toContain('medically approved')
+  })
+
+  it('formats authentication and capacity failures as actionable messages', () => {
+    expect(formatGenerationErrorMessage({ code: 'AUTH_REQUIRED_FOR_LIVE_AI' }, baseConfig))
+      .toContain('Sign in from Settings')
+    expect(formatGenerationErrorMessage({ code: 'RATE_LIMITED', status: 429 }, baseConfig))
+      .toContain('temporarily at capacity')
   })
 
   it('turns fetch aborts into a friendly timeout error', async () => {
@@ -666,9 +680,36 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     expect(result.generationTelemetry?.aiUsed).toBe(0)
     expect(result.generationTelemetry?.aiRequested).toBe(0)
   })
+
+  it('allows anonymous users to use a fully covered validated local bank', async () => {
+    setAuthSession('anonymous')
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(5))
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(5)
+    expect(result.generationTelemetry?.source).toBe('validated-local-bank')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('generateAIQuestions — bank-first: partial bank + AI fill', () => {
+  it('does not start paid live generation for an anonymous user', async () => {
+    setAuthSession('anonymous')
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(2))
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(generateAIQuestions(baseConfig)).rejects.toMatchObject({
+      code: 'AUTH_REQUIRED_FOR_LIVE_AI',
+      available: 2,
+      requested: 5,
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('calls AI only for the missing count when bank has partial coverage', async () => {
     getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(2))
     const bodies = []

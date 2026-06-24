@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './App.css'
 import './quiz-v2.css'
 import App from './App.jsx'
+import { AuthProvider } from './context/AuthContext.jsx'
 import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx'
 import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx'
 import VerifyEmailPage from './components/auth/VerifyEmailPage.jsx'
@@ -18,7 +19,7 @@ if (urlPath === '/forgot-password') {
 } else if (urlPath === '/verify-email') {
   root = <VerifyEmailPage token={urlToken} />;
 } else {
-  root = <App />;
+  root = <AuthProvider><App /></AuthProvider>;
 }
 
 createRoot(document.getElementById('root')).render(
