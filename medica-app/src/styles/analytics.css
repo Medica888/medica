@@ -38,7 +38,25 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; text-align: center; padding: 60px 32px;
 }
-.an-empty-icon { font-size: 48px; opacity: .35; }
+.an-empty-icon {
+  position: relative;
+  width: 42px;
+  height: 34px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  color: var(--t3);
+  font-size: 0;
+  opacity: .5;
+}
+.an-empty-icon::before {
+  content: '';
+  position: absolute;
+  inset: 8px 7px 7px;
+  background:
+    linear-gradient(to top, currentColor 0 100%) left bottom / 5px 45% no-repeat,
+    linear-gradient(to top, currentColor 0 100%) center bottom / 5px 75% no-repeat,
+    linear-gradient(to top, currentColor 0 100%) right bottom / 5px 100% no-repeat;
+}
 .an-empty-title { font-size: 18px; font-weight: 700; color: var(--t1); }
 .an-empty-body { font-size: 13px; color: var(--t3); max-width: 320px; line-height: 1.65; margin: 0; }
 

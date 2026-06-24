@@ -62,7 +62,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
           <div className="an-intel-hdr">
             <div>
               <h1 className="an-intel-title">Analytics</h1>
-              <p className="an-intel-sub">Performance Intelligence · Step 1</p>
+              <p className="an-intel-sub">Performance Intelligence | Step 1</p>
             </div>
             <div className="an-time-filter" role="group" aria-label="Time filter">
               {TIME_FILTERS.map(t => (
@@ -78,7 +78,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
             </div>
           </div>
           <div className="an-empty">
-            <div className="an-empty-icon" aria-hidden="true">📅</div>
+            <div className="an-empty-icon" aria-hidden="true" />
             <div className="an-empty-title">No sessions in this range</div>
             <p className="an-empty-body">
               No sessions completed in the selected {timeFilter.toLowerCase()} window.
@@ -96,7 +96,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
       <div className="an-page">
         <div className="an-scroll">
           <div className="an-empty">
-            <div className="an-empty-icon">📊</div>
+            <div className="an-empty-icon" aria-hidden="true" />
             <div className="an-empty-title">No Session Data Yet</div>
             <p className="an-empty-body">
               Complete a Practice, Coach, or Exam session to unlock your Analytics dashboard.
@@ -132,7 +132,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
         <div className="an-intel-hdr">
           <div>
             <h1 className="an-intel-title">Analytics</h1>
-            <p className="an-intel-sub">Performance Intelligence · Step 1</p>
+            <p className="an-intel-sub">Performance Intelligence | Step 1</p>
           </div>
           <div className="an-time-filter" role="group" aria-label="Time filter">
             {TIME_FILTERS.map(t => (

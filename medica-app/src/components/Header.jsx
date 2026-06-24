@@ -61,7 +61,6 @@ export default function Header({ onHome, pageTitle, readinessStatus }) {
               <path d="M21 15.2A9 9 0 1 1 8.8 3a7 7 0 0 0 12.2 12.2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
-          {dark ? '☀' : '🌙'}
         </button>
       </div>
     </header>
