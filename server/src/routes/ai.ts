@@ -7,7 +7,7 @@ import { optionalAuth } from '../middleware/optionalAuth.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { validate } from '../middleware/validate.js';
-import { aiLimiter } from '../middleware/rateLimiter.js';
+import { aiIpLimiter, aiUserLimiter } from '../middleware/rateLimiter.js';
 import { getRepositories } from '../repositories/index.js';
 import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
 import {
@@ -399,7 +399,7 @@ router.patch(
   },
 );
 
-router.post('/generate', requireAuth, aiLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
+router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSchema), async (req: Request, res: Response) => {
   const { skillId, guide, customSkill } = req.body ?? {};
 
   if (!guide?.trim()) {
@@ -491,7 +491,7 @@ Schema:
   "integration": "One sentence linking to real clinical practice, surgery, or imaging"
 }`;
 
-router.post('/explain', requireAuth, aiLimiter, validate(explainSchema), async (req: Request, res: Response) => {
+router.post('/explain', requireAuth, aiUserLimiter, validate(explainSchema), async (req: Request, res: Response) => {
   const { stem, options, correct, field, pearl } = req.body ?? {};
 
   if (!stem || !Array.isArray(options) || typeof correct !== 'number') {
@@ -1865,7 +1865,7 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
   }
 }
 
-router.post('/generate-questions', optionalAuth, aiLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
+router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
 
   if (!rawConfig?.mode || !rawConfig?.questionCount) {
@@ -2384,7 +2384,7 @@ function normalizeFlashcard(raw: Record<string, any>, now: string): Record<strin
   };
 }
 
-router.post('/generate-flashcards', optionalAuth, aiLimiter, validate(generateFlashcardsSchema), async (req: AuthRequest, res: Response) => {
+router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(generateFlashcardsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
   const count = Math.min(Math.max(Number(rawConfig?.count ?? 10), 1), 30);
 

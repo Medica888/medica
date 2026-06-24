@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { validateSchema } from './db/validateSchema.js';
 import { getRepositories } from './repositories/index.js';
 import { taxonomyResolutionService } from './services/TaxonomyResolutionService.js';
+import { initRedisStore } from './middleware/rateLimiter.js';
 
 async function bootstrap(): Promise<void> {
   // Fail fast: verify all required migrations are applied before accepting traffic.
@@ -17,6 +18,9 @@ async function bootstrap(): Promise<void> {
   await taxonomyResolutionService.loadApprovedAliases(getRepositories().taxonomyCandidates).catch(err => {
     console.warn('  Taxonomy alias cache — load failed (aliases will be unavailable until next refresh):', (err as Error).message);
   });
+
+  // Connect Redis rate-limit store (no-op when REDIS_URL is unset).
+  await initRedisStore();
 
   const app = createApp();
 

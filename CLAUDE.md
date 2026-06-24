@@ -39,9 +39,18 @@ VITE_USE_BACKEND=true
 
 ### Database
 ```bash
-docker compose up -d        # starts PostgreSQL on :5432, pgAdmin on :5050
+docker compose up -d        # starts PostgreSQL on :5432, pgAdmin on :5050, Redis on :6379
 cd server && npm run db:init # create schema (first time only)
 npm run migrate              # apply pending migrations
+```
+
+### Redis (optional)
+Redis backs the AI generation rate limiters for multi-instance deployments.
+Omit `REDIS_URL` to use in-memory rate-limit store (fine for dev/single-instance).
+```bash
+docker compose up -d redis  # start Redis on :6379
+# Add to server/.env:
+# REDIS_URL=redis://localhost:6379
 ```
 
 ---

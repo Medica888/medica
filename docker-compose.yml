@@ -36,6 +36,20 @@ services:
       postgres:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    container_name: medica-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - medica-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
   pgadmin_data:
