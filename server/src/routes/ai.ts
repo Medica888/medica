@@ -8,6 +8,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { validate } from '../middleware/validate.js';
 import { aiIpLimiter, aiUserLimiter } from '../middleware/rateLimiter.js';
+import { tryAcquireSlot, releaseSlot } from '../middleware/aiConcurrency.js';
 import { getRepositories } from '../repositories/index.js';
 import type { AdaptiveBlueprint, AdaptiveFlashcardPlan } from '../types/index.js';
 import {
@@ -413,6 +414,12 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
     return;
   }
 
+  const userId = (req as AuthRequest).userId!;
+  if (!tryAcquireSlot(userId)) {
+    res.status(429).json({ error: 'Too many concurrent generation requests. Please wait.', code: 'GENERATION_BUSY' });
+    return;
+  }
+
   const systemPrompt: string = customSkill?.systemPrompt ?? skill!.systemPrompt;
   const skillName: string = customSkill?.name ?? skill!.name;
   const isMCQ = skill?.mode === 'mcq' || skill?.mode === 'adaptive';
@@ -428,6 +435,10 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
     },
   ];
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
+  req.on('close', () => controller.abort());
+
   try {
     while (true) {
       let roundText = '';
@@ -438,7 +449,7 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
         max_tokens: isMCQ ? 4096 : 8192,
         system: systemPrompt,
         messages,
-      });
+      }, { signal: controller.signal } as any);
 
       await new Promise<void>((resolve, reject) => {
         stream.on('text', (text: string) => {
@@ -460,9 +471,17 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
-    console.error('[generate]', err instanceof Error ? err.message : String(err));
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
+    const isAbort = (err as any)?.name === 'AbortError' || controller.signal.aborted;
+    if (isAbort) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
+    } else {
+      console.error('[generate]', err instanceof Error ? err.message : String(err));
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
+    }
     res.end();
+  } finally {
+    clearTimeout(timeoutId);
+    releaseSlot(userId);
   }
 });
 
@@ -511,13 +530,17 @@ Write concise UWorld-style explanations for each option and a one-sentence clini
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+  req.on('close', () => controller.abort());
+
   try {
     const stream = client.messages.stream({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       system: EXPLAIN_SYSTEM,
       messages: [{ role: 'user', content: userContent }],
-    });
+    }, { signal: controller.signal } as any);
 
     await new Promise<void>((resolve, reject) => {
       stream.on('text', (text: string) => {
@@ -530,9 +553,16 @@ Write concise UWorld-style explanations for each option and a one-sentence clini
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
-    console.error('[explain]', err instanceof Error ? err.message : String(err));
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Explanation generation failed' })}\n\n`);
+    const isAbort = (err as any)?.name === 'AbortError' || controller.signal.aborted;
+    if (isAbort) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
+    } else {
+      console.error('[explain]', err instanceof Error ? err.message : String(err));
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Explanation generation failed' })}\n\n`);
+    }
     res.end();
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 
@@ -546,18 +576,30 @@ function getMaxTokens(mode: string, count: number) {
   return Math.min(Math.ceil(count * perQ * 1.25), 8192);
 }
 
+// Waits ms, but resolves early if the signal fires.
+function sleepInterruptible(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason ?? new Error('Aborted')); return; }
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(id); reject(signal.reason ?? new Error('Aborted')); }, { once: true });
+  });
+}
+
 // Retry on: 429 (rate limit, up to 3 attempts with 8s wait) and connection-level errors
 // (no HTTP status — ECONNRESET, DNS failure, SSL failure) with exponential backoff.
 // Auth, model-not-found, and other HTTP errors are thrown immediately (no retry).
-async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming) {
+// AbortError is never retried — it propagates immediately.
+async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming, signal?: AbortSignal) {
   for (let attempt = 1; attempt <= 3; attempt++) {
+    if (signal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
     try {
-      return await client.messages.create(params);
+      return await client.messages.create(params, { signal } as Parameters<typeof client.messages.create>[1]);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) throw err;
       const isLast = attempt === 3;
       if (err?.status === 429) {
         if (isLast) throw err;
-        await new Promise(r => setTimeout(r, 8000));
+        await sleepInterruptible(8000, signal);
       } else if (err?.status == null) {
         // Connection-level error: no HTTP response received (ECONNRESET, AbortError, etc.)
         if (isLast) {
@@ -566,7 +608,7 @@ async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming) 
         }
         const delay = 1500 * attempt; // 1.5s, then 3s
         console.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${delay}ms`);
-        await new Promise(r => setTimeout(r, delay));
+        await sleepInterruptible(delay, signal);
       } else {
         // HTTP error with status (401 auth, 404 model, 400 bad request, etc.) — never retry
         throw err;
@@ -1240,7 +1282,7 @@ export interface BatchResult {
   telemetry: BatchTelemetry;
 }
 
-async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>): Promise<BatchResult> {
+async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>, signal?: AbortSignal): Promise<BatchResult> {
   const prompt = buildPrompt(config, count, offset, scope);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }];
   let fullText = '';
@@ -1251,7 +1293,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       max_tokens: getMaxTokens(config.mode, count),
       system: QUIZ_GEN_SYSTEM,
       messages,
-    } as Anthropic.MessageCreateParamsNonStreaming);
+    } as Anthropic.MessageCreateParamsNonStreaming, signal);
 
     const chunk = response.content
       .filter(b => b.type === 'text')
@@ -1875,6 +1917,11 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
 
   const STANDARDIZED_BLOCK = 'standardized-40-question-block';
 
+  // Concurrency and timeout state — set after auth check inside the try block.
+  let slotAcquired = false;
+  let controller: AbortController | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
   try {
     let config = rawConfig;
     if (config.blockType === STANDARDIZED_BLOCK) {
@@ -1918,6 +1965,15 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       res.status(401).json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' });
       return;
     }
+
+    if (!tryAcquireSlot(req.userId)) {
+      res.status(429).json({ error: 'Too many concurrent generation requests. Please wait.', code: 'GENERATION_BUSY' });
+      return;
+    }
+    slotAcquired = true;
+    controller = new AbortController();
+    timeoutId = setTimeout(() => controller!.abort(), 180_000);
+    req.on('close', () => controller?.abort());
 
     // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
     // Requires an authenticated user (optionalAuth sets req.userId when token is present).
@@ -2074,7 +2130,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       const loopResult = await runAdaptiveRefill(
         shortfall,
         hardModeCaps,
-        (count, offset) => generateBatch(config, count, offset, scope),
+        (count, offset) => generateBatch(config, count, offset, scope, controller?.signal),
         (qs, existingConcepts) =>
           dedup(qs).filter(q =>
             (!specific || inScope(q, scope)) &&
@@ -2110,7 +2166,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       let offset = 0;
       while (offset < bufferedCount) {
         const batchSize   = Math.min(GENERATE_BATCH_SIZE, bufferedCount - offset);
-        const batchResult = await generateBatch(config, batchSize, offset, scope);
+        const batchResult = await generateBatch(config, batchSize, offset, scope, controller?.signal);
         totalGenerated    += batchSize;
         allQuestions.push(...batchResult.questions);
         totalMrRequested    += batchResult.telemetry.medicalReviewRequested;
@@ -2143,7 +2199,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         const fillGap          = shortfall - allQuestions.length;
         const existingConcepts = new Set(allQuestions.map(q => norm(q.testedConcept)));
         try {
-          const retryResult   = await generateBatch(config, fillGap + 3, allQuestions.length, scope);
+          const retryResult   = await generateBatch(config, fillGap + 3, allQuestions.length, scope, controller?.signal);
           totalGenerated      += fillGap + 3;
           totalMrRequested    += retryResult.telemetry.medicalReviewRequested;
           totalMrPassed       += retryResult.telemetry.medicalReviewPassed;
@@ -2305,12 +2361,22 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       });
       return;
     }
+    const isAbort = (err as any)?.name === 'AbortError' || controller?.signal.aborted;
+    if (isAbort) {
+      if (!res.headersSent) {
+        res.status(408).json({ error: 'Question generation timed out or was cancelled.', code: 'GENERATION_TIMEOUT' });
+      }
+      return;
+    }
     const msg      = err instanceof Error ? err.message : String(err);
     const errName  = err instanceof Error ? err.constructor.name : typeof err;
     const errStatus = (err as any)?.status;
     // Safe: logs error class + HTTP status, never the API key or full payload.
     console.error('[generate-questions] error', errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
     res.status(500).json({ error: 'Question generation failed', code: 'GENERATION_FAILED' });
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (slotAcquired && req.userId) releaseSlot(req.userId);
   }
 });
 
