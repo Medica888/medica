@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { _resetSlots, tryAcquireSlot } from '../middleware/aiConcurrency.js';
 
 const mockMessagesCreate = vi.hoisted(() => vi.fn());
 vi.mock('@anthropic-ai/sdk', () => ({
@@ -3134,4 +3135,21 @@ describe('AI endpoint auth enforcement', () => {
 
     expect(res.body.code).toBe('INVALID_TOPIC');
   });
+
+  it('POST /api/generate-questions returns 429 GENERATION_BUSY when all concurrency slots are full', async () => {
+    // Fill all 3 slots for this user
+    tryAcquireSlot('user-1');
+    tryAcquireSlot('user-1');
+    tryAcquireSlot('user-1');
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader('user-1'))
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
+      .expect(429);
+
+    expect(res.body.code).toBe('GENERATION_BUSY');
+  });
 });
+
+afterEach(() => _resetSlots());

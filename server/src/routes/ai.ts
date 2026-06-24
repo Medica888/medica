@@ -587,10 +587,10 @@ function sleepInterruptible(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-// Retry on: 429 (rate limit, up to 3 attempts with 8s wait) and connection-level errors
-// (no HTTP status — ECONNRESET, DNS failure, SSL failure) with exponential backoff.
-// Auth, model-not-found, and other HTTP errors are thrown immediately (no retry).
-// AbortError is never retried — it propagates immediately.
+// Retry on: 429 (rate limit) and connection-level errors (no HTTP status).
+// Auth, model, and other HTTP errors are thrown immediately (no retry).
+// AbortError is never retried — propagates immediately.
+// On exhausted retries, throws with code: 'PROVIDER_UNAVAILABLE'.
 async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming, signal?: AbortSignal) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     if (signal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
@@ -600,16 +600,24 @@ async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming, 
       if (err?.name === 'AbortError' || signal?.aborted) throw err;
       const isLast = attempt === 3;
       if (err?.status === 429) {
-        if (isLast) throw err;
-        await sleepInterruptible(8000, signal);
+        if (isLast) {
+          const out = new Error('AI provider rate limit exhausted after retries');
+          (out as any).code = 'PROVIDER_UNAVAILABLE';
+          throw out;
+        }
+        // 8s base + up to 2s jitter
+        await sleepInterruptible(8000 + Math.random() * 2000, signal);
       } else if (err?.status == null) {
-        // Connection-level error: no HTTP response received (ECONNRESET, AbortError, etc.)
+        // Connection-level error: ECONNRESET, DNS failure, SSL failure, etc.
         if (isLast) {
           console.warn('[anthropic] connection error persisted after retries:', String(err?.message ?? err).slice(0, 80));
-          throw err;
+          const out = new Error('AI provider connection failed after retries');
+          (out as any).code = 'PROVIDER_UNAVAILABLE';
+          throw out;
         }
-        const delay = 1500 * attempt; // 1.5s, then 3s
-        console.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${delay}ms`);
+        // Exponential backoff: 1.5s, 3s + up to 1s jitter each
+        const delay = 1500 * attempt + Math.random() * 1000;
+        console.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${Math.round(delay)}ms`);
         await sleepInterruptible(delay, signal);
       } else {
         // HTTP error with status (401 auth, 404 model, 400 bad request, etc.) — never retry
@@ -2368,6 +2376,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       if (!res.headersSent) {
         res.status(408).json({ error: 'Question generation timed out or was cancelled.', code: 'GENERATION_TIMEOUT' });
       }
+      return;
+    }
+    if ((err as any)?.code === 'PROVIDER_UNAVAILABLE') {
+      res.status(503).json({ error: 'AI provider is temporarily unavailable. Please try again shortly.', code: 'PROVIDER_UNAVAILABLE' });
       return;
     }
     const msg      = err instanceof Error ? err.message : String(err);
