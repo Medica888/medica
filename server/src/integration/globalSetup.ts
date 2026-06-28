@@ -29,7 +29,7 @@ export async function setup(): Promise<void> {
     await schemaPool.end();
   }
 
-  // Apply all 22 node-pg-migrate migrations on top of the baseline schema.
+  // Apply all pending node-pg-migrate migrations on top of the baseline schema.
   await (runner as Function)({
     databaseUrl: url,
     dir: path.resolve(process.cwd(), 'migrations'),

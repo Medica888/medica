@@ -54,7 +54,7 @@ describe('db:bootstrap — integration', () => {
 
       // All migrations must be recorded
       const migResult = await pool.query<{ count: string }>('SELECT COUNT(*) FROM pgmigrations');
-      expect(Number(migResult.rows[0].count)).toBe(22);
+      expect(Number(migResult.rows[0].count)).toBe(24);
 
       // A migration-added table (not in schema.sql) proves migrations ran, not just schema.sql
       const questionsResult = await pool.query(`
@@ -74,7 +74,7 @@ describe('db:bootstrap — integration', () => {
     const pool = new Pool({ connectionString: bootstrapUrl });
     try {
       const result = await pool.query<{ count: string }>('SELECT COUNT(*) FROM pgmigrations');
-      expect(Number(result.rows[0].count)).toBe(22);
+      expect(Number(result.rows[0].count)).toBe(24);
     } finally {
       await pool.end();
     }

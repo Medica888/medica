@@ -15,7 +15,8 @@ export async function truncateAll(pool: Pool): Promise<void> {
       questions,
       concepts,
       generated_bank_audit_log,
-      taxonomy_candidates
+      taxonomy_candidates,
+      clinician_reviews
     RESTART IDENTITY CASCADE
   `);
 }
