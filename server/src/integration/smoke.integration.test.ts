@@ -54,17 +54,19 @@ describe('integration spine smoke test', () => {
     expect(res.rows).toHaveLength(1);
   });
 
-  it('migrations were applied: LOWER(email) unique index exists', async () => {
-    const res = await pool.query<{ indexname: string }>(`
-      SELECT indexname FROM pg_indexes
+  it('migrations were applied: LOWER(email) unique index is a functional index on lower(email)', async () => {
+    const res = await pool.query<{ indexdef: string }>(`
+      SELECT indexdef FROM pg_indexes
       WHERE tablename = 'users' AND indexname = 'users_email_lower_unique'
     `);
     expect(res.rows).toHaveLength(1);
+    // Must be a functional index, not a plain btree(email)
+    expect(res.rows[0].indexdef.toLowerCase()).toContain('lower(email)');
   });
 
-  it('all 24 migration rows recorded in pgmigrations', async () => {
+  it('all 25 migration rows recorded in pgmigrations', async () => {
     const res = await pool.query<{ count: string }>('SELECT COUNT(*) AS count FROM pgmigrations');
-    expect(parseInt(res.rows[0].count, 10)).toBe(24);
+    expect(parseInt(res.rows[0].count, 10)).toBe(25);
   });
 
   it('migrations were applied: clinician_reviews table exists', async () => {
