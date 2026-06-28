@@ -20,7 +20,14 @@ import {
   generatedQuestionBankStatusUpdateSchema,
   taxonomyCandidateReviewQuerySchema,
   taxonomyCandidateStatusUpdateSchema,
+  clinicianReviewQueueQuerySchema,
+  clinicianReviewUpdateSchema,
+  clinicianReviewManualTriggerSchema,
 } from '../schemas/ai.js';
+import {
+  ClinicianReviewService,
+  computeSamplingDecision,
+} from '../services/ClinicianReviewService.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -319,6 +326,93 @@ router.get('/generated-question-bank/concept-summary', requireAuth, requireAdmin
   }
 });
 
+// ─── Clinician review queue ────────────────────────────────────────────────────
+
+router.get('/generated-question-bank/clinician-review/metrics', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const metrics = await new ClinicianReviewService(getRepositories().clinicianReviews).getMetrics();
+    res.json({ metrics });
+  } catch (err) {
+    console.error('[clinician-review/metrics]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Clinician review metrics failed', code: 'CLINICIAN_REVIEW_METRICS_FAILED' });
+  }
+});
+
+router.get('/generated-question-bank/clinician-review', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const parsed = clinicianReviewQueueQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid clinician review query', code: 'INVALID_QUERY' });
+    return;
+  }
+  const { status, priority, overdue, limit: rawLimit, offset: rawOffset } = parsed.data;
+  const limit  = rawLimit  ?? 50;
+  const offset = rawOffset ?? 0;
+  try {
+    const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+    const { reviews, total } = await svc.getQueue({ status, priority, overdue, limit, offset });
+    res.json({ reviews, total, count: reviews.length, limit, offset });
+  } catch (err) {
+    console.error('[clinician-review/queue]', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Clinician review queue failed', code: 'CLINICIAN_REVIEW_QUEUE_FAILED' });
+  }
+});
+
+router.patch(
+  '/generated-question-bank/:externalId/clinician-review',
+  requireAuth,
+  requireAdmin,
+  validate(clinicianReviewUpdateSchema),
+  async (req: AuthRequest, res: Response) => {
+    const externalId = String(req.params.externalId || '').trim();
+    if (!externalId || externalId.length > 300) {
+      res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+      return;
+    }
+    try {
+      const existing = await getRepositories().clinicianReviews.findLatestActiveByQuestionId(externalId);
+      if (!existing) {
+        res.status(404).json({ error: 'No active clinician review for this question', code: 'CLINICIAN_REVIEW_NOT_FOUND' });
+        return;
+      }
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      const review = await svc.updateReview(existing.id, {
+        review_status:        req.body.review_status,
+        assigned_reviewer_id: req.body.assigned_reviewer_id,
+        reviewer_notes:       req.body.reviewer_notes,
+      });
+      res.json({ review });
+    } catch (err) {
+      console.error('[clinician-review/update]', err instanceof Error ? err.message : String(err));
+      res.status(500).json({ error: 'Clinician review update failed', code: 'CLINICIAN_REVIEW_UPDATE_FAILED' });
+    }
+  },
+);
+
+router.post(
+  '/generated-question-bank/:externalId/clinician-review',
+  requireAuth,
+  requireAdmin,
+  validate(clinicianReviewManualTriggerSchema),
+  async (req: AuthRequest, res: Response) => {
+    const externalId = String(req.params.externalId || '').trim();
+    if (!externalId || externalId.length > 300) {
+      res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+      return;
+    }
+    try {
+      const priority = req.body.priority ?? 'medium';
+      const reason   = String(req.body.reason || 'Manually triggered by admin');
+      await new ClinicianReviewService(getRepositories().clinicianReviews)
+        .createOrEscalate(externalId, priority, reason);
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId(externalId);
+      res.status(201).json({ review });
+    } catch (err) {
+      console.error('[clinician-review/trigger]', err instanceof Error ? err.message : String(err));
+      res.status(500).json({ error: 'Clinician review trigger failed', code: 'CLINICIAN_REVIEW_TRIGGER_FAILED' });
+    }
+  },
+);
+
 router.patch(
   '/generated-question-bank/:externalId/status',
   requireAuth,
@@ -394,6 +488,22 @@ router.patch(
         previousStatus: previousStatus || null,
         newStatus: req.body.status,
       });
+
+      // Clinician review sampling — fire-and-forget (does not block the response)
+      if (req.body.status === 'approved' || req.body.status === 'restored') {
+        const rv = reviewRow as Record<string, any>;
+        const decision = computeSamplingDecision(
+          externalId,
+          String(rv.difficulty || ''),
+          Number(rv.reportCount || 0),
+          req.body.status,
+        );
+        if (decision) {
+          new ClinicianReviewService(repos.clinicianReviews)
+            .createOrEscalate(externalId, decision.priority, decision.reason)
+            .catch(err => console.warn('[clinician-review] sampling trigger failed:', (err as Error).message));
+        }
+      }
 
       res.json({ question });
     } catch (err) {

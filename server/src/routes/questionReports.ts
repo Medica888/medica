@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { createQuestionReportSchema, type CreateQuestionReportInput } from '../schemas/questionReport.js';
 import { getRepositories } from '../repositories/index.js';
 import { QuestionReportService } from '../services/QuestionReportService.js';
+import { ClinicianReviewService } from '../services/ClinicianReviewService.js';
 import { normalizeDifficulty, normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
 
 const router = Router();
@@ -58,6 +59,17 @@ router.post('/', optionalAuth, validate(createQuestionReportSchema), async (req:
     });
 
     res.status(201).json({ id: report.id });
+
+    // Clinician review trigger for high-severity report reasons — fire-and-forget
+    if (body.reason === 'wrong_answer' || body.reason === 'duplicate') {
+      const priority = body.reason === 'wrong_answer' ? 'critical' : 'high';
+      const reason   = body.reason === 'wrong_answer'
+        ? 'wrong_answer report — medical accuracy signal (critical review required)'
+        : 'duplicate report — content adjudication required';
+      new ClinicianReviewService(getRepositories().clinicianReviews)
+        .createOrEscalate(body.fingerprint, priority, reason)
+        .catch(err => console.warn('[clinician-review] report trigger failed:', (err as Error).message));
+    }
   } catch {
     res.status(500).json({ error: 'Failed to save report' });
   }

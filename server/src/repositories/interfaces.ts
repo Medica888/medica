@@ -17,6 +17,10 @@ import type {
   FingerprintCountRow,
   PaginationParams,
   PaginatedResult,
+  ClinicianReview,
+  ClinicianReviewMetrics,
+  ClinicianReviewPriority,
+  ClinicianReviewStatus,
 } from '../types/index.js';
 
 export interface IAuthTokensRepository {
@@ -383,6 +387,47 @@ export interface IConceptReviewLogRepository {
     conceptId: string,
     limit?:    number,
   ): Promise<ConceptReviewEntry[]>;
+}
+
+export interface IClinicianReviewsRepository {
+  create(data: {
+    question_id:          string;
+    review_priority:      ClinicianReviewPriority;
+    review_reason:        string;
+    review_due_at:        Date;
+    review_status?:       ClinicianReviewStatus;
+    assigned_reviewer_id?: string | null;
+  }): Promise<ClinicianReview>;
+
+  /** Returns the most recent pending/in_review record for a question, or null. */
+  findLatestActiveByQuestionId(questionId: string): Promise<ClinicianReview | null>;
+
+  findQueue(params: {
+    status?:   ClinicianReviewStatus;
+    priority?: ClinicianReviewPriority;
+    overdue?:  boolean;
+    limit?:    number;
+    offset?:   number;
+  }): Promise<ClinicianReview[]>;
+
+  countQueue(params: {
+    status?:   ClinicianReviewStatus;
+    priority?: ClinicianReviewPriority;
+    overdue?:  boolean;
+  }): Promise<number>;
+
+  update(id: string, data: {
+    review_status?:       ClinicianReviewStatus;
+    review_priority?:     ClinicianReviewPriority;
+    review_reason?:       string;
+    review_due_at?:       Date;
+    assigned_reviewer_id?: string | null;
+    reviewed_at?:         Date | null;
+    assigned_at?:         Date | null;
+    reviewer_notes?:      string | null;
+  }): Promise<ClinicianReview | null>;
+
+  getMetrics(): Promise<ClinicianReviewMetrics>;
 }
 
 export interface AuditLogEntry {

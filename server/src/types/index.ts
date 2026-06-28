@@ -528,3 +528,34 @@ export interface QuestionReport {
   stem_preview:       string | null;
   created_at:         Date;
 }
+
+// ── Clinician review ──────────────────────────────────────────────────────────
+
+export type ClinicianReviewPriority = 'critical' | 'high' | 'medium' | 'low';
+export type ClinicianReviewStatus   = 'pending' | 'in_review' | 'approved' | 'changes_requested' | 'rejected';
+
+export interface ClinicianReview {
+  id:                   string;
+  question_id:          string;
+  review_priority:      ClinicianReviewPriority;
+  review_reason:        string;
+  review_due_at:        Date;
+  review_status:        ClinicianReviewStatus;
+  assigned_reviewer_id: string | null;
+  assigned_at:          Date | null;
+  reviewed_at:          Date | null;
+  reviewer_notes:       string | null;
+  created_at:           Date;
+  updated_at:           Date;
+}
+
+export interface ClinicianReviewMetrics {
+  pending:           number;
+  in_review:         number;
+  overdue:           number;
+  due_in_24h:        number;
+  average_age_days:  number | null;
+  critical_overdue:  number;
+  high_overdue:      number;
+  completion_rate:   number | null;
+}

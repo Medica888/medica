@@ -31,6 +31,12 @@ import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.
 import { setRepositories, createInMemoryRepositories, getRepositories } from '../repositories/index.js';
 import { config } from '../config.js';
 import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
+import {
+  ClinicianReviewService,
+  computeSamplingDecision,
+  computeDueAt,
+  isDeterministicSample,
+} from '../services/ClinicianReviewService.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -3170,6 +3176,359 @@ describe('AI endpoint auth enforcement', () => {
       .expect(429);
 
     expect(res.body.code).toBe('GENERATION_BUSY');
+  });
+});
+
+// ── Clinician review sampling and SLA ─────────────────────────────────────────
+// Pure-function unit tests (no DB, no HTTP) + integration tests with own setup.
+
+describe('computeDueAt SLA values', () => {
+    it('computes SLA deadlines by priority from a fixed reference date', () => {
+      const ref = new Date('2026-01-01T00:00:00.000Z');
+      expect(computeDueAt('critical', ref)).toEqual(new Date('2026-01-02T00:00:00.000Z')); // +24 h
+      expect(computeDueAt('high',     ref)).toEqual(new Date('2026-01-04T00:00:00.000Z')); // +72 h
+      expect(computeDueAt('medium',   ref)).toEqual(new Date('2026-01-08T00:00:00.000Z')); // +7 d
+      expect(computeDueAt('low',      ref)).toEqual(new Date('2026-01-15T00:00:00.000Z')); // +14 d
+    });
+  });
+
+  describe('isDeterministicSample', () => {
+    it('is stable across repeated calls for the same id', () => {
+      const id = 'stability-check-id';
+      const first = isDeterministicSample(id);
+      expect(isDeterministicSample(id)).toBe(first);
+      expect(isDeterministicSample(id)).toBe(first);
+    });
+
+    it('samples roughly 10% of IDs from a set of 100', () => {
+      const ids = Array.from({ length: 100 }, (_, i) => `q-test-${i}`);
+      const sampled = ids.filter(id => isDeterministicSample(id));
+      expect(sampled.length).toBeGreaterThan(2);
+      expect(sampled.length).toBeLessThan(30);
+    });
+  });
+
+  describe('computeSamplingDecision', () => {
+    it('UWorld Challenge difficulty requires high-priority review', () => {
+      const d = computeSamplingDecision('any-id', 'UWorld Challenge', 0, 'approved');
+      expect(d).not.toBeNull();
+      expect(d!.priority).toBe('high');
+      expect(d!.required).toBe(true);
+    });
+
+    it('NBME Difficult difficulty requires high-priority review', () => {
+      const d = computeSamplingDecision('any-id', 'NBME Difficult', 0, 'approved');
+      expect(d).not.toBeNull();
+      expect(d!.priority).toBe('high');
+    });
+
+    it('restored bank_status requires high-priority review regardless of difficulty', () => {
+      const d = computeSamplingDecision('any-id', 'Balanced', 0, 'restored');
+      expect(d).not.toBeNull();
+      expect(d!.priority).toBe('high');
+      expect(d!.reason).toMatch(/quarantine/i);
+    });
+
+    it('prior reports require medium-priority review', () => {
+      const d = computeSamplingDecision('any-id', 'Balanced', 3, 'approved');
+      expect(d).not.toBeNull();
+      expect(d!.priority).toBe('medium');
+      expect(d!.reason).toMatch(/3 prior report/);
+    });
+
+    it('low-risk question in 10% sample gets low-priority review', () => {
+      let sampledId = '';
+      for (let i = 0; i < 500; i++) {
+        if (isDeterministicSample(`fp-sample-${i}`)) { sampledId = `fp-sample-${i}`; break; }
+      }
+      expect(sampledId).toBeTruthy();
+      const d = computeSamplingDecision(sampledId, 'Balanced', 0, 'approved');
+      expect(d).not.toBeNull();
+      expect(d!.priority).toBe('low');
+    });
+
+    it('clean question outside the sample returns null', () => {
+      // Find an ID NOT in the sample
+      let unsampledId = '';
+      for (let i = 0; i < 500; i++) {
+        if (!isDeterministicSample(`fp-no-${i}`)) { unsampledId = `fp-no-${i}`; break; }
+      }
+      expect(unsampledId).toBeTruthy();
+      const d = computeSamplingDecision(unsampledId, 'Balanced', 0, 'approved');
+      expect(d).toBeNull();
+    });
+  });
+
+describe('ClinicianReviewService — service integration', () => {
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+  });
+
+  describe('createOrEscalate', () => {
+    it('creates a new review when none exists', async () => {
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      await svc.createOrEscalate('q-new', 'medium', 'test reason');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-new');
+      expect(review).not.toBeNull();
+      expect(review!.review_priority).toBe('medium');
+      expect(review!.review_status).toBe('pending');
+    });
+
+    it('escalates an existing lower-priority review to higher priority', async () => {
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      await svc.createOrEscalate('q-escalate', 'low', 'initial low');
+      await svc.createOrEscalate('q-escalate', 'critical', 'critical signal');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-escalate');
+      expect(review!.review_priority).toBe('critical');
+      expect(review!.review_reason).toBe('critical signal');
+    });
+
+    it('does not downgrade an existing higher-priority review', async () => {
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      await svc.createOrEscalate('q-no-downgrade', 'critical', 'critical first');
+      await svc.createOrEscalate('q-no-downgrade', 'low', 'attempted downgrade');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-no-downgrade');
+      expect(review!.review_priority).toBe('critical');
+      expect(review!.review_reason).toBe('critical first');
+    });
+  });
+
+  describe('metrics SLA', () => {
+    it('getMetrics reports overdue correctly using backdated review_due_at', async () => {
+      const pastDue = new Date(Date.now() - 25 * 3600 * 1000);
+      await getRepositories().clinicianReviews.create({ question_id: 'overdue-critical', review_priority: 'critical', review_reason: 'overdue', review_due_at: pastDue });
+      await getRepositories().clinicianReviews.create({ question_id: 'overdue-high',     review_priority: 'high',     review_reason: 'overdue', review_due_at: pastDue });
+      const m = await new ClinicianReviewService(getRepositories().clinicianReviews).getMetrics();
+      expect(m.overdue).toBe(2);
+      expect(m.critical_overdue).toBe(1);
+      expect(m.high_overdue).toBe(1);
+      expect(m.pending).toBe(2);
+    });
+
+    it('completion_rate reflects proportion of completed reviews', async () => {
+      const ref = computeDueAt('low');
+      await getRepositories().clinicianReviews.create({ question_id: 'cr-1', review_priority: 'low', review_reason: 'r', review_due_at: ref, review_status: 'approved' });
+      await getRepositories().clinicianReviews.create({ question_id: 'cr-2', review_priority: 'low', review_reason: 'r', review_due_at: ref, review_status: 'pending' });
+      const m = await new ClinicianReviewService(getRepositories().clinicianReviews).getMetrics();
+      expect(m.completion_rate).toBe(50);
+    });
+  });
+});
+
+// ── Clinician review — HTTP admin endpoints ───────────────────────────────────
+
+describe('clinician review — HTTP admin endpoints', () => {
+  let app: ReturnType<typeof createApp>;
+
+  function fingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
+
+  async function seedBankQuestion(overrides: Record<string, any> = {}) {
+    const q = makePromotableQuestion(overrides);
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''), system: String(q.system || ''),
+      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'validated_generated' },
+      source: 'ai', bankStatus: 'validated_generated',
+    });
+    return { question: q, fingerprint };
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.ADMIN_USER_IDS = 'user-1';
+    app = createApp();
+  });
+
+  afterEach(() => { delete process.env.ADMIN_USER_IDS; });
+
+  describe('GET /api/generated-question-bank/clinician-review', () => {
+    it('returns empty queue when no reviews exist', async () => {
+      const res = await request(app)
+        .get('/api/generated-question-bank/clinician-review')
+        .set('Authorization', authHeader())
+        .expect(200);
+      expect(res.body.reviews).toEqual([]);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('returns queued reviews with priority ordering', async () => {
+      const ref = computeDueAt('medium');
+      await getRepositories().clinicianReviews.create({ question_id: 'q-low',  review_priority: 'low',    review_reason: 'r', review_due_at: ref });
+      await getRepositories().clinicianReviews.create({ question_id: 'q-crit', review_priority: 'critical', review_reason: 'r', review_due_at: ref });
+      const res = await request(app)
+        .get('/api/generated-question-bank/clinician-review')
+        .set('Authorization', authHeader())
+        .expect(200);
+      expect(res.body.total).toBe(2);
+      expect(res.body.reviews[0].review_priority).toBe('critical');
+      expect(res.body.reviews[1].review_priority).toBe('low');
+    });
+
+    it('filters by overdue=true', async () => {
+      const past = new Date(Date.now() - 48 * 3600 * 1000);
+      const future = computeDueAt('low');
+      await getRepositories().clinicianReviews.create({ question_id: 'q-past',   review_priority: 'high', review_reason: 'r', review_due_at: past });
+      await getRepositories().clinicianReviews.create({ question_id: 'q-future', review_priority: 'low',  review_reason: 'r', review_due_at: future });
+      const res = await request(app)
+        .get('/api/generated-question-bank/clinician-review?overdue=true')
+        .set('Authorization', authHeader())
+        .expect(200);
+      expect(res.body.total).toBe(1);
+      expect(res.body.reviews[0].question_id).toBe('q-past');
+    });
+
+    it('requires admin authorization', async () => {
+      await request(app)
+        .get('/api/generated-question-bank/clinician-review')
+        .set('Authorization', authHeader('user-999'))
+        .expect(403);
+    });
+  });
+
+  describe('GET /api/generated-question-bank/clinician-review/metrics', () => {
+    it('returns SLA metrics summary', async () => {
+      const past = new Date(Date.now() - 25 * 3600 * 1000);
+      await getRepositories().clinicianReviews.create({ question_id: 'q1', review_priority: 'critical', review_reason: 'r', review_due_at: past });
+      const res = await request(app)
+        .get('/api/generated-question-bank/clinician-review/metrics')
+        .set('Authorization', authHeader())
+        .expect(200);
+      const m = res.body.metrics;
+      expect(m.pending).toBe(1);
+      expect(m.overdue).toBe(1);
+      expect(m.critical_overdue).toBe(1);
+    });
+
+    it('requires admin authorization', async () => {
+      await request(app)
+        .get('/api/generated-question-bank/clinician-review/metrics')
+        .set('Authorization', authHeader('user-999'))
+        .expect(403);
+    });
+  });
+
+  describe('POST /api/generated-question-bank/:id/clinician-review (manual trigger)', () => {
+    it('admin can manually trigger a clinician review for any question', async () => {
+      const res = await request(app)
+        .post('/api/generated-question-bank/manual-trigger-q/clinician-review')
+        .set('Authorization', authHeader())
+        .send({ priority: 'high', reason: 'Manual admin escalation' })
+        .expect(201);
+      expect(res.body.review).not.toBeNull();
+      expect(res.body.review.review_priority).toBe('high');
+      expect(res.body.review.question_id).toBe('manual-trigger-q');
+    });
+
+    it('requires admin authorization', async () => {
+      await request(app)
+        .post('/api/generated-question-bank/q-any/clinician-review')
+        .set('Authorization', authHeader('user-999'))
+        .send({ priority: 'medium' })
+        .expect(403);
+    });
+  });
+
+  describe('PATCH /api/generated-question-bank/:id/clinician-review (update review)', () => {
+    it('admin can update review status to in_review', async () => {
+      const ref = computeDueAt('medium');
+      await getRepositories().clinicianReviews.create({ question_id: 'q-update', review_priority: 'medium', review_reason: 'r', review_due_at: ref });
+      const res = await request(app)
+        .patch('/api/generated-question-bank/q-update/clinician-review')
+        .set('Authorization', authHeader())
+        .send({ review_status: 'in_review', assigned_reviewer_id: 'user-1' })
+        .expect(200);
+      expect(res.body.review.review_status).toBe('in_review');
+    });
+
+    it('sets reviewed_at when status transitions to approved', async () => {
+      const ref = computeDueAt('high');
+      await getRepositories().clinicianReviews.create({ question_id: 'q-approve', review_priority: 'high', review_reason: 'r', review_due_at: ref });
+      const res = await request(app)
+        .patch('/api/generated-question-bank/q-approve/clinician-review')
+        .set('Authorization', authHeader())
+        .send({ review_status: 'approved' })
+        .expect(200);
+      expect(res.body.review.review_status).toBe('approved');
+      expect(res.body.review.reviewed_at).not.toBeNull();
+    });
+
+    it('returns 404 when no active review exists for the question', async () => {
+      await request(app)
+        .patch('/api/generated-question-bank/no-such-q/clinician-review')
+        .set('Authorization', authHeader())
+        .send({ review_status: 'approved' })
+        .expect(404);
+    });
+
+    it('requires admin authorization', async () => {
+      await request(app)
+        .patch('/api/generated-question-bank/q-any/clinician-review')
+        .set('Authorization', authHeader('user-999'))
+        .send({ review_status: 'approved' })
+        .expect(403);
+    });
+  });
+
+  describe('Clinician review triggers via report submission', () => {
+    it('wrong_answer report (medical accuracy signal) triggers critical review', async () => {
+      await request(app)
+        .post('/api/question-reports')
+        .send({ fingerprint: 'fp-wrong-answer-trigger', reason: 'wrong_answer' })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-wrong-answer-trigger');
+      expect(review).not.toBeNull();
+      expect(review!.review_priority).toBe('critical');
+      expect(review!.review_reason).toMatch(/wrong_answer/);
+    });
+
+    it('duplicate report triggers high priority review', async () => {
+      await request(app)
+        .post('/api/question-reports')
+        .send({ fingerprint: 'fp-duplicate-trigger', reason: 'duplicate' })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-duplicate-trigger');
+      expect(review).not.toBeNull();
+      expect(review!.review_priority).toBe('high');
+    });
+
+    it('second wrong_answer report escalates existing high review to critical', async () => {
+      // First: duplicate → high
+      await request(app)
+        .post('/api/question-reports')
+        .send({ fingerprint: 'fp-escalate-trigger', reason: 'duplicate' })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      // Then: wrong_answer → should escalate to critical
+      await request(app)
+        .post('/api/question-reports')
+        .send({ fingerprint: 'fp-escalate-trigger', reason: 'wrong_answer' })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-escalate-trigger');
+      expect(review!.review_priority).toBe('critical');
+    });
+
+    it('restored question PATCH triggers high-priority review', async () => {
+      const { fingerprint } = await seedBankQuestion();
+      await getRepositories().questions.updateGeneratedBankStatus(fingerprint, 'quarantined');
+      await request(app)
+        .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+        .set('Authorization', authHeader())
+        .send({ status: 'restored' })
+        .expect(200);
+      await new Promise(r => setImmediate(r));
+      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId(fingerprint);
+      expect(review).not.toBeNull();
+      expect(review!.review_priority).toBe('high');
+    });
   });
 });
 

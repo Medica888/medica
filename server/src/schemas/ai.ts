@@ -69,3 +69,25 @@ export const taxonomyCandidateStatusUpdateSchema = z.object({
   mappedTo: z.string().max(200).optional(),
   note: z.string().max(1000).optional(),
 });
+
+const clinicianReviewStatusSchema = z.enum(['pending', 'in_review', 'approved', 'changes_requested', 'rejected']);
+const clinicianReviewPrioritySchema = z.enum(['critical', 'high', 'medium', 'low']);
+
+export const clinicianReviewQueueQuerySchema = z.object({
+  status:   clinicianReviewStatusSchema.optional(),
+  priority: clinicianReviewPrioritySchema.optional(),
+  overdue:  z.coerce.boolean().optional(),
+  limit:    z.coerce.number().int().min(1).max(200).optional(),
+  offset:   z.coerce.number().int().min(0).max(10000).optional(),
+});
+
+export const clinicianReviewUpdateSchema = z.object({
+  review_status:        clinicianReviewStatusSchema,
+  assigned_reviewer_id: z.string().max(100).nullable().optional(),
+  reviewer_notes:       z.string().max(2000).nullable().optional(),
+});
+
+export const clinicianReviewManualTriggerSchema = z.object({
+  priority: clinicianReviewPrioritySchema.optional().default('medium'),
+  reason:   z.string().max(500).optional(),
+});
