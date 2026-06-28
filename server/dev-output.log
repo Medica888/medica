@@ -1,0 +1,16 @@
+
+> server@1.0.0 dev
+> tsx watch src/index.ts
+
+◇ injected env (7) from .env // tip: ⌘ override existing { override: true }
+
+[startup] FATAL — 
+9:54:18 PM [tsx] change in ./src\lib\questionValidator.ts Rerunning...
+c◇ injected env (7) from .env // tip: ⌘ enable debugging { debug: true }
+
+[startup] FATAL — 
+9:56:25 PM [tsx] change in ./src\lib\questionValidator.ts Rerunning...
+c◇ injected env (7) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+
+[startup] FATAL — 
+^C
