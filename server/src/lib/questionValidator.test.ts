@@ -2940,3 +2940,91 @@ describe('non_concise_nbme_options — scoreQuestion integration', () => {
     expect(result.rejectionReasons).not.toContain('non_concise_nbme_options');
   });
 });
+
+describe('domain-aware nonclinical scenario validation', () => {
+  const studyStem = 'A randomized trial enrolls 10,000 participants and compares a statin with placebo. Myocardial infarction occurs in 4% of the treatment group and 8% of the placebo group after 5 years. Which measure best describes the treatment effect?';
+  const studyOptions = makeOptions([
+    'Relative risk of 0.50',
+    'Odds ratio of 2.00',
+    'Absolute risk increase of 4%',
+    'Number needed to harm of 25',
+  ]);
+
+  it('accepts an applied biostatistics study scenario without a patient vignette', () => {
+    const result = scoreQuestion({
+      stem: studyStem,
+      options: studyOptions,
+      correct: 'A',
+      explanation: 'The risk is 4% in the treatment group and 8% in the placebo group, so relative risk is 0.04 divided by 0.08, which equals 0.50. This applied trial scenario contains the information needed to calculate the effect without using an individual patient vignette.',
+      subject: 'Biostatistics',
+      topic: 'Measures of Association',
+      testedConcept: 'Relative risk in a randomized trial',
+      physicianTask: 'Practice-Based Learning and Improvement',
+    }, 'practice', 'Balanced');
+
+    expect(result.rejectionReasons).not.toContain('no_clinical_vignette');
+    expect(result.validationStatus).toBe('pass');
+  });
+
+  it('does not let an unrelated bare knowledge question bypass the vignette gate', () => {
+    const result = scoreQuestion({
+      stem: 'Which receptor is blocked by propranolol to reduce heart rate and myocardial contractility in patients with cardiovascular disease?',
+      options: makeOptions(['Beta adrenergic receptor', 'Muscarinic acetylcholine receptor', 'Nicotinic acetylcholine receptor', 'Angiotensin receptor']),
+      correct: 'A',
+      explanation: 'Propranolol blocks beta adrenergic receptors, reducing sympathetic stimulation of the heart. The other receptors are not the principal pharmacologic target responsible for its cardiac effects.',
+      subject: 'Pharmacology',
+      topic: 'Beta Blockers',
+    }, 'practice', 'Balanced');
+
+    expect(result.rejectionReasons).toContain('no_clinical_vignette');
+  });
+
+  it('accepts quantitative screening outcomes as objective UWorld data for biostatistics', () => {
+    const reasons = checkUworldSpecific({
+      stem: 'A screening study enrolls 18,000 patients and detects pancreatic cancer earlier. Five-year survival after diagnosis increases from 8% to 24%, but disease-specific mortality per 100,000 people is unchanged after 8 years. Median age at death and treatment protocols are unchanged. Which bias explains the apparent survival benefit?',
+      options: makeOptions(['Lead-time bias after earlier diagnosis', 'Length-time bias from indolent disease', 'Recall bias from exposure memory', 'Observer bias during outcome measurement']),
+      correct: 'A',
+      explanation: UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+      subject: 'Biostatistics',
+      topic: 'Screening Bias',
+      testedConcept: 'Lead-time bias in a screening study',
+    }, 'practice');
+
+    expect(reasons).not.toContain('missing_objective_data');
+  });
+
+  it('still requires clinical objective data for an ordinary UWorld clinical question', () => {
+    const reasons = checkUworldSpecific({
+      stem: 'A 45-year-old patient reports progressive fatigue for several months and is evaluated in clinic. The history is otherwise nonspecific, and the examination description does not provide measurements or diagnostic findings. Which mechanism most likely explains the presentation?',
+      options: makeOptions(['Autoimmune tissue injury causing disease', 'Congenital enzyme deficiency causing symptoms', 'Medication toxicity causing organ dysfunction', 'Mechanical obstruction causing pressure injury']),
+      correct: 'A',
+      explanation: UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST,
+      subject: 'Pathology',
+      topic: 'Clinical Mechanisms',
+    }, 'practice');
+
+    expect(reasons).toContain('missing_objective_data');
+  });
+
+  it('does not treat labels shared by every option as answer leakage', () => {
+    const result = scoreQuestion({
+      stem: 'A diagnostic test is evaluated in 1,000 participants. It is positive in 90 of 100 participants with disease and negative in 810 of 900 participants without disease. What are the sensitivity and specificity?',
+      options: makeOptions([
+        'Sensitivity 90% and specificity 90%',
+        'Sensitivity 90% and specificity 10%',
+        'Sensitivity 47% and specificity 90%',
+        'Sensitivity 90% and specificity 47%',
+      ]),
+      correct: 'A',
+      explanation: 'Sensitivity is 90 divided by 100, or 90%. Specificity is 810 divided by 900, also 90%. The repeated words sensitivity and specificity define the answer format in every option and do not reveal which numeric combination is correct.',
+      subject: 'Biostatistics',
+      topic: 'Diagnostic Test Characteristics',
+      testedConcept: 'Sensitivity and specificity calculation',
+    }, 'practice', 'Balanced');
+
+    expect(result.rejectionReasons).not.toContain('severe_clue_leakage');
+    expect(result.validationStatus).toBe('pass');
+  });
+});

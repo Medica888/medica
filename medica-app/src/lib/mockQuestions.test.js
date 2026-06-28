@@ -20,13 +20,23 @@ import {
   getAvailableQuestionCountForConfig,
   getBankQuestionsForConfig,
   QUESTION_BANK,
+  ACTIVE_QUESTION_BANK,
   ENRICHED_IDS,
   getDifficultyAvailability,
   getQuestionBankDifficultyStats,
   validateHardDifficultyQuestion,
 } from './mockQuestions.js'
+import {
+  QUARANTINED_IDS,
+  isQuarantined,
+  detectTemplateClonesInBank,
+} from './questionQualityRegistry.js'
 import { validateBankQuestion } from './ai/generateAIQuestions.js'
-import { buildQuestionBankCoverageReport, formatCoverageRows } from './questionBankCoverage.js'
+import {
+  buildCommercialQuestionBankReadiness,
+  buildQuestionBankCoverageReport,
+  formatCoverageRows,
+} from './questionBankCoverage.js'
 
 const baseConfig = {
   mode:          'practice',
@@ -98,7 +108,7 @@ describe('createQuizSession — 40Q block behavior', () => {
   })
 
   it('does not filter standardized 40Q by fake standardized difficulty', () => {
-    expect(getAvailableQuestionCountForConfig(standardized40Config)).toBe(QUESTION_BANK.length)
+    expect(getAvailableQuestionCountForConfig(standardized40Config)).toBe(ACTIVE_QUESTION_BANK.length)
 
     const pool = getBankQuestionsForConfig(standardized40Config)
 
@@ -109,7 +119,7 @@ describe('createQuizSession — 40Q block behavior', () => {
   it('still starts when old seen history leaves fewer than 40 unseen questions', () => {
     // Mark enough questions as seen so <40 remain unseen; standardized blocks
     // may reuse old-session questions while preserving in-block uniqueness.
-    const allIds = QUESTION_BANK.slice(0, QUESTION_BANK.length - 39).map(q => q.id)
+    const allIds = ACTIVE_QUESTION_BANK.slice(0, ACTIVE_QUESTION_BANK.length - 39).map(q => q.id)
     vi.mocked(getSessionHistory).mockReturnValueOnce([{ questionIds: allIds, missedQuestions: [] }])
     const session = createQuizSession(standardized40Config)
 
@@ -382,7 +392,7 @@ describe('QUESTION_BANK — structural and semantic validation', () => {
 
     expect(stats['NBME Difficult']).toBeGreaterThan(0)
     expect(stats['UWorld Challenge']).toBeGreaterThan(0)
-    expect(stats['NBME Difficult']).toBeGreaterThanOrEqual(80)
+    expect(stats['NBME Difficult']).toBeGreaterThanOrEqual(40)
     expect(stats['UWorld Challenge']).toBeGreaterThanOrEqual(40)
 
     const nbme = getDifficultyAvailability({ difficulty: 'NBME Difficult', questionCount: 40 })
@@ -703,7 +713,7 @@ function _coverageReport() {
 }
 
 function _coachQuestions() {
-  return QUESTION_BANK.filter(q => ENRICHED_IDS.has(q.id))
+  return ACTIVE_QUESTION_BANK.filter(q => ENRICHED_IDS.has(q.id))
 }
 
 describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
@@ -711,16 +721,16 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     expect(QUESTION_BANK.length).toBeGreaterThanOrEqual(100)
   })
 
-  it('ENRICHED_IDS includes the full local bank for Coach-ready reuse', () => {
-    expect(ENRICHED_IDS.size).toBe(QUESTION_BANK.length)
+  it('ENRICHED_IDS includes the full active bank for Coach-ready reuse', () => {
+    expect(ENRICHED_IDS.size).toBe(ACTIVE_QUESTION_BANK.length)
   })
 
   it('every local-bank question has A-D optionExplanations for Coach teaching', () => {
-    const coachReady = QUESTION_BANK.filter(q =>
+    const coachReady = ACTIVE_QUESTION_BANK.filter(q =>
       ['A', 'B', 'C', 'D'].every(letter => String(q.optionExplanations?.[letter] ?? '').trim()),
     )
 
-    expect(coachReady.length).toBe(QUESTION_BANK.length)
+    expect(coachReady.length).toBe(ACTIVE_QUESTION_BANK.length)
   })
 
   it('wrong-answer explanations include contrastive teaching language', () => {
@@ -862,6 +872,24 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
       expect(String(q.usmleContentArea ?? '').trim(), `${q.id} missing usmleContentArea`).not.toBe('')
       expect(String(q.physicianTask ?? '').trim(), `${q.id} missing physicianTask`).not.toBe('')
     }
+  })
+
+  it('contains no placeholder question-angle metadata after normalization', () => {
+    const placeholders = QUESTION_BANK.filter(question =>
+      /^(coverage-qb|nbme-text-only-qnb)\d+$/i.test(String(question.questionAngle || '')),
+    )
+
+    expect(placeholders.map(question => question.id)).toHaveLength(0)
+  })
+
+  it('reports commercial depth against explicit 1,500-question targets', () => {
+    const readiness = buildCommercialQuestionBankReadiness(ACTIVE_QUESTION_BANK)
+
+    expect(readiness.current).toBe(ACTIVE_QUESTION_BANK.length)
+    expect(readiness.target.totalQuestions).toBe(1500)
+    expect(readiness.totalDeficit).toBe(1500 - ACTIVE_QUESTION_BANK.length)
+    expect(readiness.difficulty.find(row => row.name === 'UWorld Challenge')?.target).toBe(400)
+    expect(readiness.met).toBe(false)
   })
 })
 
@@ -1018,6 +1046,220 @@ describe('QUESTION_BANK — coverage analytics (advisory report)', () => {
         console.log(`  ${ids.length}x | ${topic} | ${angle} → [${ids.join(', ')}]`)
       }
     }
+    expect(true).toBe(true)
+  })
+})
+
+// ─── Quality Governance Sprint tests ─────────────────────────────────────────
+
+describe('ACTIVE_QUESTION_BANK — quarantine exclusion', () => {
+  it('active bank is smaller than QUESTION_BANK by exactly the quarantine count', () => {
+    expect(ACTIVE_QUESTION_BANK.length).toBe(QUESTION_BANK.length - QUARANTINED_IDS.size)
+  })
+
+  it('no quarantined ID appears in ACTIVE_QUESTION_BANK', () => {
+    const leaked = ACTIVE_QUESTION_BANK.filter(q => isQuarantined(q.id))
+    expect(leaked.map(q => q.id)).toHaveLength(0)
+  })
+
+  it('quarantined questions never appear in generated sessions', () => {
+    const modes = ['practice', 'coach', 'exam']
+    for (const mode of modes) {
+      const session = createQuizSession({ ...baseConfig, mode, questionCount: 5 })
+      const leaked = session.questions.filter(q => isQuarantined(q.id))
+      expect(leaked.map(q => q.id), `mode=${mode} leaked quarantined IDs`).toHaveLength(0)
+    }
+  })
+
+  it('40Q exam never contains quarantined questions', () => {
+    const session = createQuizSession(standardized40Config)
+    const leaked = session.questions.filter(q => isQuarantined(q.id))
+    expect(leaked.map(q => q.id)).toHaveLength(0)
+  })
+
+  it('active bank still serves ≥40 questions for each NBME and UWorld difficulty', () => {
+    const nbmeActive = ACTIVE_QUESTION_BANK.filter(q => q.difficulty === 'NBME Difficult')
+    const uwActive = ACTIVE_QUESTION_BANK.filter(q => q.difficulty === 'UWorld Challenge')
+    expect(nbmeActive.length).toBeGreaterThanOrEqual(40)
+    expect(uwActive.length).toBeGreaterThanOrEqual(40)
+  })
+})
+
+describe('QUESTION_BANK — q012 regression (Millard-Gubler)', () => {
+  it('q012 stem describes left facial droop consistent with left pontine lesion', () => {
+    const q012 = QUESTION_BANK.find(q => q.id === 'q012')
+    expect(q012, 'q012 must exist in QUESTION_BANK').toBeTruthy()
+    expect(q012.stem).toMatch(/left facial (droop|weakness)/i)
+    expect(q012.stem).not.toMatch(/right facial droop/i)
+  })
+
+  it('q012 option A explanation attributes left facial droop to ipsilateral CN VII (not corticobulbar)', () => {
+    const q012 = QUESTION_BANK.find(q => q.id === 'q012')
+    const explA = q012?.optionExplanations?.A || ''
+    // Left pons → left CN VII → left (ipsilateral) facial droop
+    expect(explA).toMatch(/left.*facial droop|ipsilateral.*facial|CN VII.*ipsilateral/i)
+    // Must not incorrectly say right facial droop comes from the corticobulbar tract
+    expect(explA).not.toMatch(/right facial droop result from corticospinal and corticobulbar/i)
+  })
+
+  it('localizes isolated abduction weakness to the abducens fascicle, not the nucleus', () => {
+    const q012 = QUESTION_BANK.find(q => q.id === 'q012')
+    const correctOption = q012?.options?.find(option => option.letter === q012.correct)
+    expect(correctOption?.text).toMatch(/abducens.*fascicle/i)
+    expect(correctOption?.text).not.toMatch(/nucleus/i)
+    expect(q012?.explanation).toMatch(/conjugate gaze/i)
+  })
+})
+
+describe('QUESTION_BANK — medical accuracy regressions', () => {
+  function question(id) {
+    const found = QUESTION_BANK.find(item => item.id === id)
+    expect(found, `${id} must exist in QUESTION_BANK`).toBeTruthy()
+    return found
+  }
+
+  it('q023 describes a motor-only posterior interosseous neuropathy', () => {
+    const q = question('q023')
+    const correctOption = q.options.find(option => option.letter === q.correct)
+    expect(correctOption?.text).toMatch(/posterior interosseous/i)
+    expect(q.stem).toMatch(/wrist extension is preserved but deviates radially/i)
+    expect(q.stem).toMatch(/sensation.*normal/i)
+    expect(q.explanation).not.toMatch(/superficial radial nerve.*branches proximal to the radial groove/i)
+  })
+
+  it('q021 uses creatinine clearance without falsely contraindicating dabigatran at 32 mL/min', () => {
+    const q = question('q021')
+    expect(q.stem).toMatch(/creatinine clearance of 32 mL\/min/i)
+    expect(q.stem).not.toMatch(/eGFR/i)
+    expect(q.explanation).toMatch(/not itself a contraindication/i)
+    expect(q.explanation).toMatch(/75 mg twice daily when CrCl is 15–30/i)
+  })
+
+  it('q086 identifies exogenous Cushing syndrome without an inappropriate dexamethasone test', () => {
+    const q = question('q086')
+    expect(q.stem).not.toMatch(/dexamethasone suppression/i)
+    expect(q.stem).toMatch(/cortisol and ACTH are both low/i)
+    expect(q.explanation).toMatch(/before biochemical testing for endogenous Cushing syndrome/i)
+  })
+
+  it('q090 uses current susceptibility-aware H. pylori teaching', () => {
+    const q = question('q090')
+    expect(q.stem).toMatch(/bismuth quadruple therapy/i)
+    expect(q.stem).not.toMatch(/standard triple therapy/i)
+    expect(q.explanation).toMatch(/clarithromycin-containing therapy should be avoided unless susceptibility is documented/i)
+  })
+
+  it('q001 explicitly demonstrates left subclavian branch-vessel involvement', () => {
+    const q = question('q001')
+    expect(q.stem).toMatch(/narrowing the origin of the left subclavian artery/i)
+    expect(q.stem).not.toMatch(/starting just distal to the left subclavian artery/i)
+  })
+
+  it('q080 distinguishes childhood cancer incidence from mortality', () => {
+    const q = question('q080')
+    expect(q.explanation).toMatch(/most common cancer diagnosed in children/i)
+    expect(q.explanation).not.toMatch(/most common cause of cancer death in children/i)
+  })
+
+  it('q027 metadata no longer collides with the PKU question during deduplication', () => {
+    const q = question('q027')
+    expect(q.topic).toBe('Pericardial Disease')
+    const nbmePool = getBankQuestionsForConfig({
+      ...baseConfig,
+      mode: 'exam',
+      questionCount: 40,
+      difficulty: 'NBME Difficult',
+    })
+    expect(nbmePool).toHaveLength(40)
+    expect(nbmePool.some(item => item.id === 'q046')).toBe(true)
+  })
+
+  it('q014 asks specifically about bloodstream immune evasion rather than two bacterial virulence factors', () => {
+    const q = question('q014')
+    expect(q.stem).toMatch(/resisting opsonization and phagocytic clearance/i)
+    expect(q.stem).toMatch(/survival in the bloodstream/i)
+  })
+
+  it('q032 uses current low-dose ICS-formoterol maintenance-and-reliever therapy', () => {
+    const q = question('q032')
+    const correctOption = q.options.find(option => option.letter === q.correct)
+    expect(correctOption?.text).toMatch(/ICS-formoterol.*maintenance and reliever/i)
+    expect(q.explanation).toMatch(/preferred Step 3/i)
+  })
+
+  it('q073 tests appreciation and reasoning as elements of decision-making capacity', () => {
+    const q = question('q073')
+    expect(q.stem).toMatch(/appreciate the consequences and reason about the decision/i)
+    expect(q.explanation).toMatch(/appreciation or reasoning/i)
+    expect(q.explanation).toMatch(/demonstrates both/i)
+  })
+
+  it('q075 does not teach LH-to-FSH ratio as a PCOS diagnostic requirement', () => {
+    const q = question('q075')
+    expect(q.stem).not.toMatch(/LH.*FSH ratio/i)
+    expect(q.explanation).toMatch(/LH-to-FSH ratio is not required/i)
+    expect(q.pearl).toMatch(/letrozole/i)
+  })
+
+  it('q096 distinguishes chronic beta-blocker continuation from initiation during decompensation', () => {
+    const q = question('q096')
+    expect(q.explanation).toMatch(/should not be newly initiated or up-titrated/i)
+    expect(q.explanation).toMatch(/chronic beta-blocker.*continued/i)
+  })
+
+  it.each([
+    ['q043', /spiral arteries/i],
+    ['qUW001', /Creatinine is 4\.2 mg\/dL/i],
+    ['qUW028', /arterial inflow but no venous flow/i],
+    ['qUW032', /absolute neutrophil count is 420\/uL/i],
+  ])('%s retains its UWorld reasoning discriminator', (id, discriminator) => {
+    expect(question(id).stem).toMatch(discriminator)
+  })
+})
+
+describe('Clone detection — template family guard', () => {
+  it('active bank has fewer than 10% template clones (hard gate)', () => {
+    const { totalClones } = detectTemplateClonesInBank(ACTIVE_QUESTION_BANK)
+    const cloneShare = totalClones / ACTIVE_QUESTION_BANK.length
+    expect(cloneShare, `Active bank clone share ${(cloneShare * 100).toFixed(1)}% exceeds 10% gate`).toBeLessThan(0.10)
+  })
+
+  it('QUESTION_BANK contains exactly 107 template clones (regression guard)', () => {
+    const { totalClones } = detectTemplateClonesInBank(QUESTION_BANK)
+    expect(totalClones).toBe(107)
+  })
+
+  it('no generic distractor family appears in more than 5 active questions', () => {
+    const GENERIC_SIGNALS = [
+      'nonspecific stress response',
+      'USMLE-style teaching session',
+    ]
+    for (const signal of GENERIC_SIGNALS) {
+      const matches = ACTIVE_QUESTION_BANK.filter(q => {
+        const optTexts = (q.options || []).map(o => o.text || '').join(' ')
+        return optTexts.includes(signal) || (q.stem || '').includes(signal)
+      })
+      expect(
+        matches.map(q => q.id),
+        `Generic signal "${signal}" found in ${matches.length} active questions (max 5)`,
+      ).toHaveLength(0)
+    }
+  })
+})
+
+describe('Active pool — answer distribution (advisory)', () => {
+  it('raw correct-answer distribution in active bank is not dominated by a single letter (advisory)', () => {
+    const counts = { A: 0, B: 0, C: 0, D: 0 }
+    for (const q of ACTIVE_QUESTION_BANK) {
+      const letter = q.correct
+      if (letter in counts) counts[letter]++
+    }
+    const total = ACTIVE_QUESTION_BANK.length
+    const pct = Object.fromEntries(Object.entries(counts).map(([l, c]) => [l, (c / total * 100).toFixed(1)]))
+    console.log('\n=== Active Bank Raw Answer Distribution ===')
+    console.log(`A: ${counts.A} (${pct.A}%)  B: ${counts.B} (${pct.B}%)  C: ${counts.C} (${pct.C}%)  D: ${counts.D} (${pct.D}%)`)
+    console.log('Note: raw distribution is pre-shuffle; shuffleQuestionOptions randomizes at session time.')
+    // Advisory only — raw-A authoring convention is known; this test does not hard-fail.
     expect(true).toBe(true)
   })
 })

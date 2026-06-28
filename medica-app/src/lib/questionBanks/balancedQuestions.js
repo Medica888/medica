@@ -263,7 +263,7 @@ export const BALANCED_QUESTIONS = [
     "subject": "Neurology",
     "system": "Neurology",
     "difficulty": "Balanced",
-    "testedConcept": "Pontine stroke localization — Millard-Gubler syndrome (CN VI + VII ipsilateral, contralateral hemiplegia)",
+    "testedConcept": "Pontine stroke localization — ipsilateral CN VI and VII fascicles with contralateral hemiplegia",
     "weakSpotCategory": "CNS Localization",
     "usmleContentArea": "Nervous System & Special Senses",
     "usmleSubdomain": "Brainstem Localization",
@@ -272,11 +272,11 @@ export const BALANCED_QUESTIONS = [
     "questionAngle": "diagnosis",
     "memoryAnchor": "Pons: CN VI + CN VII ipsilateral + contralateral limb weakness = Millard-Gubler. Corticospinal crosses in medulla, NOT pons.",
     "commonTrap": "Students pick CN III (midbrain) because they associate eye movement problems with CN III — but CN III is in the midbrain, and a pontine lesion cannot damage it. Also, CN III palsy causes ipsilateral eye deviation, not abduction failure.",
-    "stem": "A 72-year-old man has sudden right-sided weakness, right facial droop, slurred speech, and inability to abduct his left eye. MRI shows a lesion in the left pons. Which cranial nerve nucleus is most likely damaged to explain the eye finding?",
+    "stem": "A 72-year-old man has sudden right-sided weakness, complete left facial weakness, slurred speech, and inability to abduct his left eye. MRI shows an infarct in the left ventral caudal pons. Which neural structure is most likely damaged to explain the eye finding?",
     "options": [
       {
         "letter": "A",
-        "text": "CN VI (abducens) nucleus in the left pons"
+        "text": "Left abducens nerve fascicle within the pons"
       },
       {
         "letter": "B",
@@ -288,17 +288,17 @@ export const BALANCED_QUESTIONS = [
       },
       {
         "letter": "D",
-        "text": "Medial longitudinal fasciculus in the right pons"
+        "text": "Medial longitudinal fasciculus in the left pons"
       }
     ],
     "correct": "A",
-    "explanation": "This is Millard-Gubler syndrome (ventral pontine): left CN VI nucleus damage causes ipsilateral lateral rectus palsy (cannot abduct left eye), plus left CN VII damage causes left facial droop. The corticospinal tract is already crossed by the time it reaches the pons, so a left pontine lesion causes contralateral (right) hemiplegia.",
+    "explanation": "A ventral caudal pontine infarct can damage the left abducens fascicle after its fibers leave the abducens nucleus, producing ipsilateral lateral rectus weakness and failure of left-eye abduction. Nearby facial nerve fascicles cause complete ipsilateral facial weakness, while corticospinal tract injury causes contralateral limb weakness. An abducens nucleus lesion would instead impair conjugate gaze toward the side of the lesion, not merely abduction of one eye.",
     "pearl": "Pontine stroke: ipsilateral CN VI + CN VII palsy + CONTRALATERAL hemiplegia = Millard-Gubler. Corticospinal tract crosses in the medulla — pontine lesions cause contralateral limb weakness, ipsilateral CN findings.",
     "optionExplanations": {
-      "A": "The CN VI (abducens) nucleus is located in the dorsal pons. A left pontine lesion damages the left CN VI nucleus, preventing left lateral rectus contraction and abduction of the left eye — the ipsilateral CN finding. The right arm weakness and right facial droop result from corticospinal and corticobulbar tract damage; these tracts have already crossed below the pons, making pontine lesions produce contralateral limb weakness with ipsilateral cranial nerve signs.",
+      "A": "The left abducens fascicle travels ventrally through the caudal pons after leaving the abducens nucleus. Fascicular injury produces an ipsilateral CN VI palsy with impaired left-eye abduction. Nearby facial nerve fascicles explain complete ipsilateral facial weakness, and corticospinal tract injury explains contralateral limb weakness.",
       "B": "CN III (oculomotor) nucleus resides in the midbrain tegmentum — anatomically distant from the pons. A pontine lesion cannot damage CN III. CN III palsy causes ipsilateral ptosis, a down-and-out eye (SR, MR, IR, IO weakness), and a fixed dilated pupil — not failure to abduct. This tests knowledge of brainstem level anatomy.",
       "C": "CN IV (trochlear) nucleus is also in the midbrain, not the pons. CN IV palsy causes vertical diplopia — specifically trouble looking down and in (superior oblique weakness) — not horizontal abduction failure. A left pontine lesion would not affect CN IV, and the symptom pattern described does not fit trochlear palsy.",
-      "D": "Internuclear ophthalmoplegia (INO) results from MLF damage, which prevents the adducting eye from crossing midline during contralateral lateral gaze. A left MLF lesion would cause right INO (failure of right adduction on leftward gaze). Critically, INO affects ADDUCTION (medial rectus), not ABDUCTION — the question describes inability to ABDUCT the left eye, which localizes to CN VI, not the MLF."
+      "D": "A left medial longitudinal fasciculus lesion causes internuclear ophthalmoplegia with impaired adduction of the left eye during rightward gaze. It does not cause isolated failure of left-eye abduction, so it does not explain this examination."
     }
   },
   {
@@ -358,7 +358,7 @@ export const BALANCED_QUESTIONS = [
     "questionAngle": "mechanism",
     "memoryAnchor": "N. meningitidis: CAPSULE = primary virulence (antiphagocytic, vaccine target). Gram-neg diplococci. Purpuric rash = DIC from endotoxin (downstream).",
     "commonTrap": "Students pick lipid A endotoxin because the purpuric DIC rash is so visually striking, but the question asks about primary pathogenicity — the capsule enables survival and dissemination; endotoxin mediates the rash but is downstream.",
-    "stem": "A 3-year-old boy has high fever, stiff neck, photophobia, and a rapidly progressive petechial-purpuric rash. LP: WBC 2400 (90% PMNs), glucose 20 mg/dL, protein 180 mg/dL. Gram stain shows gram-negative diplococci. Which virulence mechanism is primarily responsible for this organism's pathogenicity?",
+    "stem": "A 3-year-old boy has high fever, stiff neck, photophobia, and a rapidly progressive petechial-purpuric rash. LP shows neutrophilic pleocytosis, low glucose, and elevated protein; Gram stain shows gram-negative diplococci. Which bacterial factor most directly permits survival in the bloodstream by resisting opsonization and phagocytic clearance?",
     "options": [
       {
         "letter": "A",
@@ -607,16 +607,16 @@ export const BALANCED_QUESTIONS = [
     "subject": "Pharmacology",
     "system": "Cardiovascular",
     "difficulty": "Balanced",
-    "testedConcept": "DOAC renal dosing — dabigatran most renally dependent, contraindicated in severe CKD",
+    "testedConcept": "DOAC renal elimination — dabigatran exposure is most sensitive to declining creatinine clearance",
     "weakSpotCategory": "Anticoagulation Pharmacology",
     "usmleContentArea": "Cardiovascular System",
     "usmleSubdomain": "Anticoagulation Pharmacology",
     "physicianTask": "Patient Care: Pharmacotherapy",
     "topic": "Anticoagulation Pharmacology",
     "questionAngle": "pharmacology",
-    "memoryAnchor": "DOACs in CKD: Dabigatran = most renal (80%), avoid eGFR<30. Apixaban = safest CKD option. 'A for Apixaban = Acceptable in Any kidney.'",
+    "memoryAnchor": "Dabigatran is approximately 80% renally eliminated, the highest renal dependence among commonly used DOACs. Dose decisions use creatinine clearance, not eGFR alone.",
     "commonTrap": "Students pick rivaroxaban because it is also renally cleared and commonly discussed with CKD adjustments — but dabigatran's ~80% renal elimination is far higher than rivaroxaban's ~35%, making dabigatran the most significantly restricted.",
-    "stem": "A 67-year-old man with CKD stage 3b (eGFR 32) and T2DM develops atrial fibrillation and needs anticoagulation for stroke prevention. Which DOAC requires the most significant dose adjustment or is contraindicated at this level of renal function?",
+    "stem": "A 67-year-old man with nonvalvular atrial fibrillation has a creatinine clearance of 32 mL/min. His clinician plans to monitor renal function closely because a further decline could substantially increase exposure to one anticoagulant. Which direct oral anticoagulant has the greatest dependence on renal elimination?",
     "options": [
       {
         "letter": "A",
@@ -632,17 +632,17 @@ export const BALANCED_QUESTIONS = [
       },
       {
         "letter": "D",
-        "text": "Warfarin (vitamin K antagonist)"
+        "text": "Edoxaban (factor Xa inhibitor)"
       }
     ],
     "correct": "A",
-    "explanation": "Dabigatran is a direct thrombin inhibitor with 80% renal elimination, contraindicated at eGFR <30 in the US (dose reduction required at eGFR 30–50). Apixaban is preferred in CKD due to predominantly hepatic metabolism (~27% renal); dose reduction needed only at eGFR <25. Rivaroxaban has ~35% renal elimination, needs adjustment at eGFR <50. Warfarin is hepatically metabolized — no renal dose adjustment needed.",
-    "pearl": "DOACs in CKD: Dabigatran = most renally dependent (avoid at eGFR <30). Apixaban = safest in CKD. Remember: the 'a' in apixAban = safest renal profile. Warfarin = hepatic, no CKD renal adjustment.",
+    "explanation": "Dabigatran is approximately 80% renally eliminated, making its exposure more sensitive to declining renal function than factor Xa inhibitors. In US labeling for nonvalvular atrial fibrillation, dosing is based on Cockcroft-Gault creatinine clearance: 150 mg twice daily when CrCl is greater than 30 mL/min and 75 mg twice daily when CrCl is 15–30 mL/min. A CrCl of 32 mL/min is not itself a contraindication, but it is close to a dosing threshold and requires monitoring.",
+    "pearl": "Use Cockcroft-Gault creatinine clearance for DOAC dosing decisions. Dabigatran has the greatest renal elimination; apixaban has substantially less.",
     "optionExplanations": {
-      "A": "Dabigatran is the DOAC most significantly affected by renal impairment. Approximately 80% of dabigatran is eliminated unchanged by the kidneys — the highest renal dependence of any DOAC. At eGFR 30–50 mL/min, the dose must be reduced (110 mg BID instead of 150 mg BID). At eGFR <30 mL/min, dabigatran is contraindicated in the US (FDA-approved labeling) because drug accumulation leads to toxic plasma concentrations with dramatically increased bleeding risk. This patient has eGFR 32, placing him in the dose-adjustment zone — essentially at the threshold of contraindication. Dabigatran's renal dependence is also why it is dialyzable (unique among DOACs) — an advantage in severe overdose but an indication of how renally vulnerable the drug is.",
-      "B": "Apixaban is the preferred DOAC in patients with CKD and is the LEAST renally dependent among the DOACs. Only approximately 27% of apixaban is eliminated renally; the majority undergoes hepatic metabolism (CYP3A4) and fecal elimination. Apixaban dose adjustment for renal impairment requires meeting 2 of 3 criteria: age ≥80 years, weight ≤60 kg, or serum creatinine ≥1.5 mg/dL (Cockroft-Gault-based two-variable criteria). At eGFR 32, this patient would likely qualify for standard dosing of apixaban (5 mg BID) unless two of the three criteria above are met. Apixaban is used in patients with eGFR down to 25 mL/min and has been studied in ESRD/dialysis patients in observational studies.",
-      "C": "Rivaroxaban has approximately 33–35% renal elimination (the remainder via CYP3A4 hepatic metabolism and biliary excretion). While this is substantially lower than dabigatran's 80%, rivaroxaban still requires dose adjustment in renal impairment. For AF stroke prophylaxis, rivaroxaban 20 mg daily (standard) is reduced to 15 mg daily when CrCl is 15–50 mL/min. It is contraindicated at CrCl <15 mL/min. However, the degree of renal restriction for rivaroxaban (avoid at CrCl <15) is less severe than for dabigatran (avoid at eGFR <30). The question asks which DOAC requires the MOST significant restriction — dabigatran with 80% renal elimination clearly exceeds rivaroxaban's 35% renal burden.",
-      "D": "Warfarin is metabolized entirely in the liver by CYP2C9 (primarily) and CYP3A4, producing inactive hydroxylated metabolites that are renally eliminated. The parent drug (warfarin itself) undergoes no significant renal elimination — therefore warfarin dosing does NOT need adjustment for renal impairment alone. However, CKD can increase bleeding risk through uremic platelet dysfunction, and CKD patients may have altered vitamin K absorption or protein binding. Additionally, uremia can affect INR interpretation. While warfarin remains safe from a pharmacokinetic standpoint in CKD, it is actually less preferred in CKD patients today because the DOACs (especially apixaban) have shown superior efficacy and safety in CKD subgroup analyses."
+      "A": "Dabigatran is approximately 80% renally eliminated, the greatest renal dependence among these agents. Its atrial-fibrillation dose is determined using creatinine clearance, and accumulation becomes increasingly important as CrCl declines.",
+      "B": "Apixaban has substantially less renal elimination than dabigatran. Its atrial-fibrillation dose reduction is based on age, body weight, and serum creatinine criteria rather than renal elimination alone.",
+      "C": "Rivaroxaban has clinically important renal clearance and uses creatinine-clearance-based dosing, but its renal dependence is lower than dabigatran's.",
+      "D": "Edoxaban also requires renal-function assessment, including avoidance at very high CrCl for atrial fibrillation because of reduced efficacy, but it is less renally eliminated than dabigatran."
     }
   },
   {
@@ -650,42 +650,42 @@ export const BALANCED_QUESTIONS = [
     "subject": "Anatomy",
     "system": "Musculoskeletal",
     "difficulty": "Balanced",
-    "testedConcept": "Radial nerve injury at radial groove — wrist drop with preserved dorsal hand sensation",
+    "testedConcept": "Posterior interosseous neuropathy — finger extension weakness with preserved sensation",
     "weakSpotCategory": "Peripheral Nerve Lesions",
     "usmleContentArea": "Musculoskeletal System",
     "usmleSubdomain": "Peripheral Nerve Lesions",
     "physicianTask": "Patient Care: Diagnosis",
     "topic": "Peripheral Nerve Lesions",
     "questionAngle": "diagnosis",
-    "memoryAnchor": "Radial groove injury: WRIST DROP + preserved dorsal hand sensation (superficial branch already given off). Posterior interosseous nerve (forearm): finger drop only, no sensory loss.",
-    "commonTrap": "Students forget that the superficial radial nerve (sensory) branches off PROXIMAL to the radial groove injury site, so dorsal hand sensation is preserved — wrist drop with intact sensation is the hallmark of radial groove lesion.",
-    "stem": "A 45-year-old construction worker presents with inability to extend the wrist and fingers after falling on his outstretched hand. Sensation is intact over the dorsum of the hand and fingers. Which nerve and site of injury best explains these findings?",
+    "memoryAnchor": "Posterior interosseous nerve is motor only: finger and thumb extension are weak, sensation is preserved, and wrist extension may persist with radial deviation.",
+    "commonTrap": "A radial-groove lesion causes broader radial motor weakness and usually sensory loss over the dorsal first web space. A posterior interosseous lesion is distal to the superficial sensory branch and is therefore motor only.",
+    "stem": "A 45-year-old construction worker develops weakness after a proximal radius injury. He cannot extend the fingers or thumb at the metacarpophalangeal joints. Wrist extension is preserved but deviates radially, and sensation over the dorsal first web space is normal. Which lesion best explains these findings?",
     "options": [
       {
         "letter": "A",
-        "text": "Radial nerve in the radial groove of the humerus (Saturday night palsy)"
+        "text": "Posterior interosseous nerve at the supinator"
       },
       {
         "letter": "B",
-        "text": "Anterior interosseous nerve in the proximal forearm"
+        "text": "Radial nerve in the radial groove of the humerus"
       },
       {
         "letter": "C",
-        "text": "Ulnar nerve at the medial epicondyle"
+        "text": "Anterior interosseous nerve in the proximal forearm"
       },
       {
         "letter": "D",
-        "text": "Median nerve at the carpal tunnel"
+        "text": "Ulnar nerve at the medial epicondyle"
       }
     ],
     "correct": "A",
-    "explanation": "Radial nerve injury at the radial groove (mid-humerus) causes wrist drop (inability to extend the wrist and MCP joints) and finger drop. Sensation over the dorsum of the hand is supplied by the superficial radial nerve, which branches proximal to the radial groove, so sensation is preserved when the injury is at this level. Anterior interosseous nerve injury causes weakness of FPL and FDP to the index finger with no sensory loss. Ulnar and median nerve injuries cause different patterns.",
-    "pearl": "Radial groove injury: wrist drop + finger drop + preserved hand dorsum sensation (superficial branch spared). Posterior interosseous nerve injury (in forearm): finger drop only, wrist extension partially preserved, no sensory loss.",
+    "explanation": "The posterior interosseous nerve is the motor continuation of the deep radial nerve after it passes through the supinator. Injury causes finger and thumb extension weakness without cutaneous sensory loss because the superficial radial sensory branch is spared. Wrist extension can persist through extensor carpi radialis longus and may deviate radially because extensor carpi ulnaris is weak.",
+    "pearl": "Posterior interosseous neuropathy causes finger drop with preserved sensation and partial wrist extension. Radial-groove injury causes a broader wrist-drop syndrome and can impair dorsal hand sensation.",
     "optionExplanations": {
-      "A": "The radial nerve winds around the posterior humerus in the spiral (radial) groove at the mid-humeral level. The superficial radial nerve (purely sensory to the dorsal hand) branches off the radial nerve PROXIMAL to the radial groove, above the point of injury. Therefore, an injury at the radial groove level spares the superficial branch — explaining why dorsal hand sensation is intact despite complete wrist and finger extensor paralysis. The deep branch (posterior interosseous nerve) continues distally but is also damaged at the radial groove. The result is wrist drop (brachioradialis, ECRL, ECRB paralyzed) plus finger drop (extensor digitorum, extensor digiti minimi, extensor indicis paralyzed). The brachioradialis reflex is lost. Classic causes: mid-humeral fracture and \"Saturday night palsy\" (prolonged compression of the radial groove while unconscious or immobile).",
-      "B": "The anterior interosseous nerve (AIN) is a pure motor branch of the median nerve that arises in the proximal forearm and innervates the flexor pollicis longus (FPL), the lateral two heads of the flexor digitorum profundus (FDP to index and middle fingers), and the pronator quadratus. AIN injury (by compression from forearm fractures, fibrous bands, or pronator teres hypertrophy) causes inability to flex the thumb IP joint (FPL weakness) and inability to flex the index finger DIP joint (FDP to index weakness), creating the \"pinch sign\" — inability to make a pinch without interphalangeal joint extension. Critically, AIN injury produces NO sensory loss (pure motor nerve). The clinical picture in this question — wrist drop and finger EXTENSION failure — is consistent with RADIAL nerve injury, not AIN injury (which causes flexion weakness).",
-      "C": "The ulnar nerve passes posterior to the medial epicondyle in the cubital tunnel, where it is vulnerable to compression in \"cubital tunnel syndrome\" or direct trauma to the \"funny bone.\" Ulnar nerve injury causes sensory loss in the medial palm, ring, and little fingers (ulnar 1.5 fingers); weakness of intrinsic hand muscles (interossei, hypothenar muscles, medial two lumbricals), causing \"claw hand\" (ring and little finger clawing from loss of lumbrical extension at PIP joints with intact FDP flexion); and weakness of FDP to ring and little fingers. There is NO wrist drop or dorsal hand sensory loss from ulnar injury — the radial nerve controls wrist extension and the superficial radial nerve controls dorsal hand sensation.",
-      "D": "The median nerve passes through the carpal tunnel at the wrist. Median nerve compression here (carpal tunnel syndrome) causes sensory changes in the lateral 3.5 fingers (thumb, index, middle, radial half of ring), thenar atrophy (abductor pollicis brevis, opponens pollicis weakness), and difficulty with opposition and precision grip. Wrist extension (supplied by radial nerve — extensor carpi radialis longus/brevis) is entirely unaffected by median nerve injury. Dorsal hand sensation is also unaffected (supplied by the superficial radial nerve). CTS presents with nocturnal paresthesias, positive Tinel and Phalen signs at the wrist — a pattern completely different from the radial groove injury described."
+      "A": "The posterior interosseous nerve is a motor branch of the radial nerve that enters the supinator. Injury weakens finger and thumb extension while sparing cutaneous sensation. Extensor carpi radialis longus remains functional, so wrist extension may be preserved with radial deviation.",
+      "B": "A radial-groove lesion occurs before the radial nerve divides into superficial sensory and deep motor branches. It causes broader wrist and finger extensor weakness and can reduce sensation over the dorsolateral hand, which does not match this motor-only pattern.",
+      "C": "The anterior interosseous nerve is a motor branch of the median nerve. Injury weakens flexion of the thumb interphalangeal joint and index distal interphalangeal joint, producing an abnormal pinch sign rather than finger-extension weakness.",
+      "D": "An ulnar neuropathy at the medial epicondyle weakens interossei and ulnar-innervated finger flexors and causes sensory loss in the medial hand. It does not produce this radial motor pattern."
     }
   },
   {
@@ -994,20 +994,20 @@ export const BALANCED_QUESTIONS = [
     "subject": "Pharmacology",
     "system": "Respiratory",
     "difficulty": "Balanced",
-    "testedConcept": "Asthma step-up therapy — adding LABA to ICS for uncontrolled moderate persistent asthma",
+    "testedConcept": "Asthma step-up therapy — low-dose ICS-formoterol maintenance-and-reliever therapy",
     "weakSpotCategory": "Asthma Management",
     "usmleContentArea": "Respiratory System",
     "usmleSubdomain": "Obstructive Airway Disease",
     "physicianTask": "Patient Care: Pharmacotherapy",
     "topic": "Asthma Management",
     "questionAngle": "treatment",
-    "memoryAnchor": "Asthma step therapy: Step 2 = low-dose ICS. Step 3 = medium ICS OR low ICS + LABA. Step 4 = medium ICS + LABA. NEVER LABA without ICS (FDA black box). ICS = anti-inflammatory cornerstone.",
+    "memoryAnchor": "Preferred adult Step 3 therapy is low-dose ICS-formoterol used for both maintenance and symptom relief. Never use LABA monotherapy in asthma.",
     "commonTrap": "Students switch to LABA monotherapy thinking it is more powerful — LABA monotherapy for asthma carries an FDA black box warning for increased asthma-related mortality. LABA must always be combined with ICS in asthma treatment.",
-    "stem": "A 35-year-old woman with asthma has symptoms >2 days/week, nighttime awakenings twice weekly, and uses her SABA daily despite taking low-dose inhaled corticosteroids (ICS) twice daily for 3 months. FEV1 is 70% predicted. Which management change is most appropriate?",
+    "stem": "A 35-year-old woman with asthma has daytime symptoms most days, nighttime awakenings twice weekly, and daily rescue-inhaler use despite adherence to low-dose inhaled corticosteroid therapy. Inhaler technique and modifiable triggers have been reviewed. FEV1 is 70% predicted. Which preferred Step 3 regimen should replace her current controller and reliever plan?",
     "options": [
       {
         "letter": "A",
-        "text": "Add a long-acting beta agonist (LABA) to her existing ICS regimen"
+        "text": "Use low-dose ICS-formoterol as both maintenance and reliever therapy"
       },
       {
         "letter": "B",
@@ -1023,10 +1023,10 @@ export const BALANCED_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "This patient has moderate persistent asthma (symptoms >2 days/week, nighttime symptoms >1/week, FEV1 60–80%) uncontrolled on Step 2 low-dose ICS. Step 3 escalation adds a long-acting beta agonist (LABA) to the existing ICS — combination ICS+LABA is more effective than doubling the ICS dose and reduces exacerbations. The FDA black box warning prohibits LABA monotherapy for asthma due to increased asthma-related mortality. Theophylline has significant toxicity (narrow therapeutic window) and is a last-resort adjunct. Systemic steroids are for acute exacerbations.",
-    "pearl": "Moderate persistent asthma on low-dose ICS: add LABA (ICS+LABA combination). NEVER prescribe LABA without ICS in asthma — FDA black box warning. ICS = cornerstone anti-inflammatory. Step up before adding systemic steroids.",
+    "explanation": "After confirming adherence, inhaler technique, and modifiable triggers, the preferred Step 3 strategy for adults is low-dose ICS-formoterol maintenance-and-reliever therapy. Formoterol has sufficiently rapid onset for symptom relief, while every reliever dose also delivers anti-inflammatory corticosteroid. This approach reduces severe exacerbations compared with a maintenance ICS-LABA plus SABA strategy. LABA monotherapy is unsafe in asthma, theophylline is not a preferred step-up agent, and systemic steroids are reserved for exacerbations rather than chronic controller escalation.",
+    "pearl": "Preferred adult Step 3: low-dose ICS-formoterol MART. A maintenance ICS-LABA plus an appropriate reliever is an alternative when MART is unavailable.",
     "optionExplanations": {
-      "A": "Adding a long-acting beta agonist (LABA) such as formoterol or salmeterol to the existing low-dose ICS (fluticasone or budesonide) is the Step 3 escalation for moderate persistent asthma uncontrolled on ICS alone. ICS+LABA combination therapy addresses both the inflammatory (ICS component) and the bronchoconstriction (LABA component) simultaneously. Multiple large trials demonstrate that ICS+LABA reduces exacerbations more effectively than doubling the ICS dose alone. LABAs must always be prescribed as a fixed-dose combination with ICS in asthma — never as LABA monotherapy. Available combinations include fluticasone/salmeterol (Advair), budesonide/formoterol (Symbicort), and others. LABAs have bronchodilator duration of ≥12 hours, suitable for twice-daily dosing.",
+      "A": "Low-dose ICS-formoterol maintenance-and-reliever therapy is the preferred Step 3 regimen for adults and adolescents. Formoterol provides rapid bronchodilation, and the paired inhaled corticosteroid treats airway inflammation with every maintenance and rescue dose, reducing severe exacerbations.",
       "B": "LABA monotherapy for asthma is prohibited by an FDA black box warning. The SMART trial (2006) demonstrated a statistically significant increase in asthma-related deaths in patients receiving salmeterol without concomitant ICS — particularly in African-American patients. The mechanism: LABAs reduce acute bronchospasm symptoms and may mask progressive worsening airway inflammation, leading patients to delay seeking care or increasing rescue inhaler use without addressing the underlying inflammation. This delayed recognition of serious exacerbation — without the anti-inflammatory protection of ICS — increases mortality risk. The safety concern is specific to asthma (LABAs are safe as monotherapy in COPD, where the mechanism differs).",
       "C": "Theophylline is a methylxanthine bronchodilator with a very narrow therapeutic index (therapeutic range: 5–15 µg/mL; toxicity at >20 µg/mL including nausea, vomiting, seizures, and arrhythmias). Numerous drug interactions affect theophylline levels (ciprofloxacin, erythromycin, cimetidine raise levels; rifampin lowers levels). It requires frequent serum level monitoring. While theophylline has mild anti-inflammatory and bronchodilatory properties, it is substantially inferior to ICS+LABA as a step-up therapy and is considered a last-resort adjunct after multiple preferred agents have been tried. The risk-benefit profile makes theophylline inappropriate as the first step-up choice when safe and effective alternatives (LABA) are available.",
       "D": "Systemic corticosteroids (oral prednisone) are indicated for acute asthma exacerbations to rapidly reduce airway inflammation during a crisis. They are not appropriate for long-term step-up therapy in moderate persistent asthma because of their well-characterized adverse effects: adrenal suppression, Cushingoid features, osteoporosis, hyperglycemia, immunosuppression, cataracts, and growth retardation in children. Inhaled corticosteroids have excellent topical anti-inflammatory effects with minimal systemic bioavailability (first-pass hepatic metabolism) — they are preferred for long-term control precisely to avoid systemic steroid toxicity. Using oral prednisone daily for ongoing asthma control, rather than stepping up inhaled therapy first, exposes the patient to serious chronic toxicity unnecessarily."
@@ -1776,7 +1776,7 @@ export const BALANCED_QUESTIONS = [
     "subject": "Ethics",
     "system": "Multisystem",
     "difficulty": "Balanced",
-    "testedConcept": "Informed consent — four elements: information, understanding, voluntariness, capacity",
+    "testedConcept": "Decision-making capacity — appreciation and reasoning beyond simple factual repetition",
     "weakSpotCategory": "Medical Ethics Principles",
     "usmleContentArea": "Social Sciences",
     "usmleSubdomain": "Informed Consent",
@@ -1785,28 +1785,28 @@ export const BALANCED_QUESTIONS = [
     "questionAngle": "diagnosis",
     "memoryAnchor": "Informed consent: (1) Disclosure (diagnosis, treatment, risks, alternatives, prognosis), (2) Understanding (patient comprehends), (3) Voluntariness (no coercion), (4) Decision-making capacity (not competence — judge decides competence). Exceptions: emergencies, therapeutic privilege, waiver.",
     "commonTrap": "Students say a patient who refuses a clearly beneficial treatment lacks capacity — refusal alone does NOT indicate incapacity. Patients have the right to refuse any treatment if they have capacity, even if the refusal may lead to serious harm or death. Capacity assessment is task-specific, not global.",
-    "stem": "A 58-year-old man with newly diagnosed colon cancer is told by his surgeon that he needs a right hemicolectomy. The surgeon explains the procedure, risks (bleeding, infection, anastomotic leak), alternatives (no surgery = likely metastatic progression), and expected prognosis. The patient asks several questions showing he understands and states he has no pressure from family. He then decides to proceed. Which element of informed consent has NOT yet been assessed in this scenario?",
+    "stem": "A 58-year-old man with newly diagnosed colon cancer is considering right hemicolectomy. The surgeon explains the procedure, risks, alternatives, and expected prognosis. The patient accurately repeats these facts. Which additional statement would best demonstrate that he can appreciate the consequences and reason about the decision?",
     "options": [
       {
         "letter": "A",
-        "text": "Decision-making capacity — the surgeon has not explicitly assessed whether the patient can appreciate consequences"
+        "text": "Without surgery the cancer may spread; I accept the operative risks because cure is my main goal"
       },
       {
         "letter": "B",
-        "text": "Disclosure — the surgeon did not explain the surgical technique in sufficient detail"
+        "text": "I can repeat the names of the operation and its complications"
       },
       {
         "letter": "C",
-        "text": "Voluntariness — the patient mentioned family was not pressuring him, so this is not an issue"
+        "text": "My daughter wants surgery, so I will let her decide for me"
       },
       {
         "letter": "D",
-        "text": "Understanding — the patient asked questions, confirming comprehension already"
+        "text": "Signing the consent form proves that I have capacity"
       }
     ],
     "correct": "A",
-    "explanation": "The four elements of informed consent are: (1) Disclosure of relevant information, (2) Understanding by the patient, (3) Voluntariness (free of coercion), and (4) Decision-making capacity. In this scenario, disclosure (risks, alternatives, prognosis), understanding (patient asked appropriate questions), and voluntariness (no family pressure) are addressed. Decision-making capacity — the patient's ability to understand information, appreciate its consequences for his specific situation, reason about options, and communicate a consistent choice — has not been formally assessed. Capacity is task-specific and time-sensitive; it requires explicit clinical assessment, not merely the absence of psychiatric illness.",
-    "pearl": "Informed consent elements: Disclosure + Understanding + Voluntariness + Capacity. Capacity ≠ competence (competence is a legal determination by a judge). Assess capacity: Can the patient understand? Appreciate consequences? Reason? Communicate a choice? Exceptions: emergency, therapeutic privilege, patient waiver. Minors: parental consent usually required (exceptions: emancipated minor, emergency, specific situations)."
+    "explanation": "Decision-making capacity requires the ability to communicate a choice, understand relevant information, appreciate how the information applies personally, and reason about options. Repeating facts demonstrates understanding but not necessarily appreciation or reasoning. Relating the risk of progression and operative harms to a personal goal demonstrates both. A signature alone does not establish capacity, and deferring automatically to a relative does not demonstrate independent reasoning.",
+    "pearl": "Capacity is decision-specific and clinical: choice, understanding, appreciation, and reasoning. Competence is a legal determination."
   },
   {
     "id": "q074",
@@ -2078,20 +2078,20 @@ export const BALANCED_QUESTIONS = [
     "subject": "Pharmacology",
     "system": "Endocrine",
     "difficulty": "Balanced",
-    "testedConcept": "Cushing syndrome — exogenous corticosteroid suppression vs endogenous and dexamethasone suppression test",
+    "testedConcept": "Exogenous Cushing syndrome — chronic glucocorticoid suppression of CRH and ACTH",
     "weakSpotCategory": "Adrenal Hypercortisolism",
     "usmleContentArea": "Endocrine System",
     "usmleSubdomain": "Cushing Syndrome",
     "physicianTask": "Patient Care: Diagnosis",
     "topic": "Adrenal Hypercortisolism",
     "questionAngle": "diagnosis",
-    "memoryAnchor": "Cushing syndrome (hypercortisolism): central obesity, moon face, buffalo hump, purple striae, proximal muscle weakness, hyperglycemia, HTN, osteoporosis, immunosuppression. Screening: 24h urinary cortisol, late-night salivary cortisol, or 1 mg overnight DST. Low-dose DST: normal suppresses. ACTH: ↓=adrenal adenoma, ↑=ACTH-dependent (pituitary>ectopic).",
+    "memoryAnchor": "Exogenous glucocorticoids are the most common cause of Cushing syndrome. Chronic exposure suppresses CRH and ACTH and can cause adrenal cortical atrophy.",
     "commonTrap": "Students don't distinguish Cushing disease from Cushing syndrome — Cushing syndrome = any cause of hypercortisolism (exogenous, adrenal, pituitary, ectopic). Cushing DISEASE = specifically pituitary ACTH-secreting adenoma (Cushing syndrome caused by pituitary). Exogenous steroids = most common cause of Cushing syndrome overall.",
-    "stem": "A 38-year-old woman with rheumatoid arthritis on prednisone 20 mg daily for 6 months has gained 18 lbs with central obesity, moon face, buffalo hump, and purple abdominal striae. Glucose is 148 mg/dL. A low-dose dexamethasone suppression test shows cortisol suppressed to <1.8 µg/dL. ACTH is undetectable. What is the diagnosis and mechanism?",
+    "stem": "A 38-year-old woman with rheumatoid arthritis has taken prednisone 20 mg daily for 6 months. She develops central weight gain, facial rounding, proximal muscle weakness, purple abdominal striae, and hyperglycemia. Morning endogenous cortisol and ACTH are both low. Which diagnosis and mechanism best explain these findings?",
     "options": [
       {
         "letter": "A",
-        "text": "Exogenous Cushing syndrome — exogenous prednisone suppresses ACTH; dexamethasone suppresses because synthetic glucocorticoids have HPA axis activity"
+        "text": "Exogenous Cushing syndrome — prednisone suppresses hypothalamic CRH and pituitary ACTH"
       },
       {
         "letter": "B",
@@ -2099,7 +2099,7 @@ export const BALANCED_QUESTIONS = [
       },
       {
         "letter": "C",
-        "text": "Adrenal adenoma — unilateral cortisol secretion suppresses ACTH and suppresses with dexamethasone"
+        "text": "Adrenal adenoma — autonomous cortisol secretion suppresses ACTH while endogenous cortisol remains elevated"
       },
       {
         "letter": "D",
@@ -2107,8 +2107,8 @@ export const BALANCED_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "This patient has exogenous Cushing syndrome from chronic supraphysiologic prednisone. Exogenous glucocorticoids (including prednisone and dexamethasone) suppress the HPA axis by binding glucocorticoid receptors in the hypothalamus and pituitary, inhibiting CRH and ACTH release. The undetectable ACTH and suppression on the low-dose DST confirm exogenous suppression — the synthetic glucocorticoids (dexamethasone in the test, prednisone chronically) directly suppress the axis. Endogenous Cushing from pituitary or adrenal sources would have non-suppressed ACTH or inappropriately elevated ACTH. The clinical features are from the pharmacologic glucocorticoid effects of exogenous prednisone. Treatment: taper prednisone as slowly as the underlying disease allows.",
-    "pearl": "Exogenous Cushing: most common cause of Cushing syndrome. ACTH undetectable (HPA suppression). Dexamethasone suppresses (exogenous GC has HPA feedback activity). Endogenous Cushing: screen with 24h urinary cortisol or overnight 1mg DST. ACTH distinguishes: ↓ACTH=adrenal (adenoma/carcinoma); ↑ACTH=ACTH-dependent (pituitary=Cushing disease; ectopic=lung SCLC/carcinoid)."
+    "explanation": "This patient has exogenous Cushing syndrome from chronic supraphysiologic prednisone. Exogenous glucocorticoids activate glucocorticoid receptors in the hypothalamus and pituitary, suppressing CRH and ACTH secretion. Reduced ACTH stimulation lowers endogenous adrenal cortisol production and can produce bilateral adrenal cortical atrophy. A medication history should identify this iatrogenic cause before biochemical testing for endogenous Cushing syndrome. Prednisone must be tapered rather than stopped abruptly because the suppressed HPA axis may not mount an adequate stress response.",
+    "pearl": "Exclude exogenous glucocorticoid exposure before testing for endogenous Cushing syndrome. Chronic therapy suppresses CRH, ACTH, and endogenous cortisol and creates adrenal-insufficiency risk during withdrawal."
   },
   {
     "id": "q087",
@@ -2152,16 +2152,16 @@ export const BALANCED_QUESTIONS = [
     "subject": "Pharmacology",
     "system": "Gastrointestinal",
     "difficulty": "Balanced",
-    "testedConcept": "H. pylori eradication — triple therapy and clarithromycin resistance testing",
+    "testedConcept": "H. pylori eradication — universal test of cure after guideline-concordant therapy",
     "weakSpotCategory": "Peptic Ulcer Pharmacology",
     "usmleContentArea": "Gastrointestinal System",
     "usmleSubdomain": "H. pylori Treatment",
     "physicianTask": "Patient Care: Pharmacotherapy",
     "topic": "Peptic Ulcer Pharmacology",
     "questionAngle": "treatment",
-    "memoryAnchor": "H. pylori eradication: PPI + clarithromycin + amoxicillin × 14 days (triple therapy). If penicillin allergic: PPI + clarithromycin + metronidazole. Bismuth quadruple: PPI + bismuth + metronidazole + tetracycline (if clarithromycin resistance >15% locally or prior macrolide exposure). Test of cure: urea breath test or stool antigen test ≥4 weeks after therapy.",
+    "memoryAnchor": "H. pylori requires a test of cure at least 4 weeks after therapy. Hold PPIs for 2 weeks and antibiotics or bismuth for 4 weeks before testing.",
     "commonTrap": "Students forget to verify eradication after treatment — H. pylori treatment failure or reinfection requires retesting. Serology (IgG antibodies) cannot confirm eradication (remains positive after cure). Only urea breath test, stool antigen test, or repeat endoscopy with biopsies confirm eradication.",
-    "stem": "A 44-year-old man with epigastric pain and a confirmed duodenal ulcer has positive H. pylori serology and positive urea breath test. He has no penicillin allergy. He has not received clarithromycin previously. He is started on a 14-day course of standard triple therapy. What should be done 4–8 weeks after completing therapy?",
+    "stem": "A 44-year-old man with an H. pylori-positive duodenal ulcer completes 14 days of optimized bismuth quadruple therapy. His symptoms resolve. What should be done at least 4 weeks after completing therapy?",
     "options": [
       {
         "letter": "A",
@@ -2181,8 +2181,8 @@ export const BALANCED_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "Confirmation of H. pylori eradication is recommended at least 4 weeks after completing antibiotic therapy and at least 2 weeks after stopping PPIs. The preferred non-invasive tests are the urea breath test (detects urease activity from active H. pylori infection) or the stool H. pylori antigen test (monoclonal antibody detecting active antigen). Both have sensitivity/specificity >90% for active infection. Serology (IgG antibodies) cannot confirm eradication — H. pylori IgG titers decline slowly over months to years after cure and cannot distinguish past from active infection. Routine endoscopy is not required after therapy unless the ulcer was complicated, was not confirmed to be benign, or symptoms persist. Treatment failure requires salvage regimens (bismuth quadruple or levofloxacin-based triple therapy).",
-    "pearl": "H. pylori test of cure: urea breath test or stool antigen ≥4 weeks post-therapy (off PPI ≥2 weeks). Serology is useless for confirming cure. Triple therapy: PPI + clarithromycin + amoxicillin × 14 days. Bismuth quadruple: for clarithromycin resistance or macrolide-experienced patients. Cure reduces ulcer recurrence from 80% to <5%."
+    "explanation": "All treated patients should undergo confirmation of H. pylori eradication at least 4 weeks after antibiotics are completed. A urea breath test or monoclonal stool antigen test detects active infection; serology cannot distinguish previous from persistent infection. To reduce false-negative results, PPIs should be held for 2 weeks and antibiotics and bismuth for 4 weeks before testing. Empiric clarithromycin-containing therapy should be avoided unless susceptibility is documented.",
+    "pearl": "Confirm H. pylori eradication with urea breath testing or stool antigen at least 4 weeks after therapy. Do not use serology for test of cure, and avoid clarithromycin regimens without demonstrated susceptibility."
   },
   {
     "id": "q091",

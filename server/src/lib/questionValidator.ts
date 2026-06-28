@@ -543,7 +543,17 @@ export function scoreNbmeQuestion(
 
 // ── Sub-scorers ───────────────────────────────────────────────────────────────
 
-function scoreClinicalVignetteStyle(stem: string): { score: number; reasons: string[] } {
+const NON_CLINICAL_DISCIPLINE_RE = /\b(biostatistics|epidemiology|study design|practice-based learning)\b/i;
+const NON_CLINICAL_SCENARIO_RE = /\b(study|trial|cohort|case-control|screening|diagnostic test|investigators?|participants?|incidence|prevalence|sensitivity|specificity|relative risk|odds ratio|confidence interval|sample size)\b/i;
+
+function isValidNonClinicalScenario(q: QuestionInput): boolean {
+  const metadata = [q.subject, q.topic, q.testedConcept, q.questionAngle, q.physicianTask]
+    .filter(Boolean)
+    .join(' ');
+  return NON_CLINICAL_DISCIPLINE_RE.test(metadata) && NON_CLINICAL_SCENARIO_RE.test(q.stem || '');
+}
+
+function scoreClinicalVignetteStyle(stem: string, allowNonClinicalScenario = false): { score: number; reasons: string[] } {
   const s = stem.toLowerCase();
   const reasons: string[] = [];
 
@@ -552,6 +562,10 @@ function scoreClinicalVignetteStyle(stem: string): { score: number; reasons: str
   const hasPresentation = /\b(presents?|complain|comes? to|brought to|admitted|develops?|reports?|evaluation)\b/i.test(s);
 
   if (!hasAge && !hasSex && !hasPresentation) {
+    if (allowNonClinicalScenario) {
+      const score = Math.min(70 + (stem.length >= 150 ? 20 : 10), 100);
+      return { score, reasons };
+    }
     reasons.push('no_clinical_vignette');
     return { score: 0, reasons };
   }
@@ -631,7 +645,13 @@ function scoreClueLeakage(
     return { score: 5, reasons };
   }
 
-  const answerWords = answerLower.split(/\s+/).filter(w => w.length >= 5);
+  const optionTexts = options.map(option => option.text.toLowerCase());
+  const answerWords = answerLower
+    .split(/\s+/)
+    .filter(w => w.length >= 5)
+    // Shared option labels such as "sensitivity" and "specificity" are part of
+    // the answer format, not clues that distinguish the keyed option.
+    .filter(w => !optionTexts.every(text => text.includes(w)));
   if (answerWords.length >= 2) {
     const leaked = answerWords.filter(w => stemLower.includes(w)).length;
     const ratio = leaked / answerWords.length;
@@ -724,6 +744,7 @@ export function checkDifficultyFit(depthScore: number, stemLength: number, diffi
  * Mirrors medica-app/src/lib/mockQuestions.js OBJECTIVE_DATA_RE.
  */
 const UWORLD_OBJECTIVE_DATA_RE = /\b(mg\/dl|mmol\/l|bpm|mmhg|creatinine|hemoglobin|hematocrit|wbc|platelet|sodium|potassium|ph|paco2|pao2|hco3|ecg|ekg|x-ray|mri|ct scan|biopsy|blood pressure|heart rate|temperature|antibody|enzyme|mutation|urinalysis|csf|serum|plasma|oxygen|spo2|troponin|lactate|glucose|calcium|albumin|bilirubin|inr|bp|hr)\b/i;
+const UWORLD_QUANTITATIVE_STUDY_DATA_RE = /\b\d[\d,]*(?:\.\d+)?\s*(?:%|patients?|participants?|people|person-years?|years?|months?|days?|per\s+\d[\d,]*)\b/i;
 
 /**
  * Contrast / why-wrong teaching language expected in UWorld wrong-option explanations.
@@ -757,7 +778,9 @@ export function checkUworldSpecific(q: QuestionInput, mode: string): string[] {
     reasons.push('uworld_stem_too_short');
   }
 
-  if (!UWORLD_OBJECTIVE_DATA_RE.test(stem)) {
+  const hasObjectiveData = UWORLD_OBJECTIVE_DATA_RE.test(stem)
+    || (isValidNonClinicalScenario(q) && UWORLD_QUANTITATIVE_STUDY_DATA_RE.test(stem));
+  if (!hasObjectiveData) {
     reasons.push('missing_objective_data');
   }
 
@@ -845,7 +868,7 @@ export function scoreQuestion(
   if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
 
   // ── Layer 2: content quality (vignette style, distractor, leakage, explanation) ──
-  const nbme        = scoreClinicalVignetteStyle(stem);
+  const nbme        = scoreClinicalVignetteStyle(stem, isValidNonClinicalScenario(q));
   const depthScore  = scoreReasoningDepth(stem);
   const distractor  = scoreDistractorQuality(q.options);
   const leakage     = scoreClueLeakage(stem, q.options, q.correct);

@@ -38,7 +38,10 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
         setEmail(''); setPassword(''); setName('')
       }
     } catch (err) {
-      setError(err.message || 'Authentication failed')
+      const isNetworkError = err instanceof TypeError
+      setError(isNetworkError
+        ? 'Cannot reach the server. Please check your connection and try again.'
+        : err.message || 'Authentication failed')
     } finally {
       setLoading(false)
     }

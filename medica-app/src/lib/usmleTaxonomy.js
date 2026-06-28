@@ -282,11 +282,90 @@ export function normalizeSystemLabel(value) {
   return SYSTEM_ALIASES.get(_norm(raw)) || raw
 }
 
+export const QUESTION_ANGLES = [
+  'diagnosis',
+  'mechanism',
+  'treatment',
+  'pharmacology',
+  'physiology',
+  'pathology',
+  'lab-interpretation',
+  'genetics',
+  'behavioral',
+  'adverse-effect',
+  'immunology',
+  'microbiology',
+  'anatomy',
+  'communication',
+  'ethics',
+  'biochemistry',
+  'complication',
+  'prevention',
+  'prognosis',
+]
+
+const QUESTION_ANGLE_ALIASES = new Map([
+  ['management', 'treatment'],
+  ['procedure anatomy', 'anatomy'],
+  ['laboratory interpretation', 'lab-interpretation'],
+  ['lab interpretation', 'lab-interpretation'],
+  ['adverse effect', 'adverse-effect'],
+])
+
+const PLACEHOLDER_QUESTION_ANGLE_RE = /^(coverage-qb|nbme-text-only-qnb)\d+$/i
+
+/**
+ * Replaces legacy authoring IDs in questionAngle with a stable learning category.
+ * Explicit semantic angles always win; inference is only used for known
+ * placeholder values. Missing metadata remains missing.
+ */
+export function normalizeQuestionAngle(value, question = {}) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return ''
+  const alias = QUESTION_ANGLE_ALIASES.get(raw)
+  if (alias) return alias
+  if (QUESTION_ANGLES.includes(raw)) return raw
+  if (!PLACEHOLDER_QUESTION_ANGLE_RE.test(raw)) return raw
+
+  const text = [
+    question.stem,
+    question.testedConcept,
+    question.topic,
+    question.explanation,
+  ].map(part => String(part || '').toLowerCase()).join(' ')
+
+  if (/\b(prevent|screen|vaccin|risk reduction|health maintenance)\b/.test(text)) return 'prevention'
+  if (/\b(prognos|outcome|survival|mortality)\b/.test(text)) return 'prognosis'
+  if (/\b(adverse effect|side effect|toxicity|toxic|complication of (?:a )?(?:drug|medication))\b/.test(text)) return 'adverse-effect'
+  if (/\b(complication|greatest risk|risk for developing|most likely consequence)\b/.test(text)) return 'complication'
+  if (/\b(next best step|most appropriate (?:management|treatment|therapy|intervention)|should be treated|management)\b/.test(text)) return 'treatment'
+  if (/\b(laboratory|lab value|serum|urine|calculation|calculate|interpret)\b/.test(text)) return 'lab-interpretation'
+  if (/\b(most likely diagnosis|which condition|diagnosis|identify the disorder|causative organism)\b/.test(text)) return 'diagnosis'
+  if (/\b(mechanism|pathogenesis|underlying process|best explains|most likely cause|defect|mutation|inheritance)\b/.test(text)) return 'mechanism'
+
+  const subject = normalizeSubjectLabel(question.subject)
+  const subjectFallbacks = {
+    Pharmacology: 'pharmacology',
+    Physiology: 'physiology',
+    Pathology: 'pathology',
+    Genetics: 'genetics',
+    Immunology: 'immunology',
+    Microbiology: 'microbiology',
+    Anatomy: 'anatomy',
+    Biochemistry: 'biochemistry',
+    Biostatistics: 'lab-interpretation',
+    Ethics: 'ethics',
+    'Behavioral Science': 'behavioral',
+  }
+  return subjectFallbacks[subject] || 'mechanism'
+}
+
 export function normalizeQuestionTaxonomyFields(question = {}) {
   return {
     ...question,
     subject: normalizeSubjectLabel(question.subject),
     system: normalizeSystemLabel(question.system),
+    questionAngle: normalizeQuestionAngle(question.questionAngle, question),
     usmleContentArea: normalizeUsmleContentArea(question.usmleContentArea) || question.usmleContentArea || '',
     physicianTask: normalizePhysicianTask(question.physicianTask) || question.physicianTask || '',
   }

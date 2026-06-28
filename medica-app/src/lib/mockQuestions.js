@@ -9,6 +9,7 @@ import {
   PHYSICIAN_TASKS,
   USMLE_CONTENT_AREAS,
 } from './usmleTaxonomy.js'
+import { isQuarantined } from './questionQualityRegistry.js'
 import {
   resolveGenerationScope,
   normalizeGenerationConfig,
@@ -135,11 +136,15 @@ export const QUESTION_BANK = [
   ...UWORLD_QUESTIONS,
 ].map(normalizeQuestion)
 
-// Coach Mode can use the full local bank because normalization guarantees A-D option explanations.
-export const ENRICHED_IDS = new Set(QUESTION_BANK.map(q => q.id))
+// Active bank: quarantined questions excluded from session generation.
+// QUESTION_BANK retains all authored questions for structural tests and coverage reports.
+export const ACTIVE_QUESTION_BANK = QUESTION_BANK.filter(q => !isQuarantined(q.id))
+
+// Coach Mode can use every active local question because normalization guarantees A-D explanations.
+export const ENRICHED_IDS = new Set(ACTIVE_QUESTION_BANK.map(q => q.id))
 
 export function getQuestionBankDifficultyStats() {
-  return QUESTION_BANK.reduce((acc, q) => {
+  return ACTIVE_QUESTION_BANK.reduce((acc, q) => {
     const key = q.difficulty || 'Balanced'
     acc[key] = (acc[key] || 0) + 1
     return acc
@@ -312,8 +317,8 @@ export function validateHardDifficultyQuestion(question) {
 export function getAvailableQuestionCountForConfig(config) {
   const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const difficulty = normalizedConfig?.difficulty || 'Balanced'
-  if (!difficulty || difficulty === 'Balanced') return QUESTION_BANK.length
-  return QUESTION_BANK.filter(q => q.difficulty === difficulty).length
+  if (!difficulty || difficulty === 'Balanced') return ACTIVE_QUESTION_BANK.length
+  return ACTIVE_QUESTION_BANK.filter(q => q.difficulty === difficulty).length
 }
 
 export function getDifficultyAvailability(config) {
@@ -393,8 +398,8 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
   const scope = resolveGenerationScope(normalizedConfig)
 
   let bank = (enrichedOnly
-    ? QUESTION_BANK.filter(q => ENRICHED_IDS.has(q.id))
-    : QUESTION_BANK
+    ? ACTIVE_QUESTION_BANK.filter(q => ENRICHED_IDS.has(q.id))
+    : ACTIVE_QUESTION_BANK
   ).map(normalizeQuestion)
 
   let pool = bank

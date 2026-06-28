@@ -5,16 +5,16 @@ export const NBME_QUESTIONS = [
     "subject": "Physiology",
     "system": "Cardiovascular",
     "difficulty": "NBME Difficult",
-    "testedConcept": "Type B aortic dissection — subclavian compression",
+    "testedConcept": "Aortic dissection — branch-vessel malperfusion from left subclavian involvement",
     "weakSpotCategory": "Cardiovascular Emergencies",
     "usmleContentArea": "Cardiovascular System",
     "usmleSubdomain": "Aortic Disease",
     "physicianTask": "Patient Care: Diagnosis",
     "topic": "Cardiovascular Emergencies",
     "questionAngle": "diagnosis",
-    "memoryAnchor": "BP gap >20 mmHg between arms = dissection flag. Type B starts DISTAL to left subclavian.",
+    "memoryAnchor": "Aortic dissection can obstruct an arch branch and cause asymmetric pulses or arm blood pressures.",
     "commonTrap": "Students choose atherosclerotic brachial occlusion because it also reduces arm flow — but atherosclerosis is chronic and cannot explain an acute BP asymmetry in a patient with known dissection on CT.",
-    "stem": "A 68-year-old man with hypertension presents with sudden tearing chest pain radiating to his back. Blood pressure is 180/110 mmHg in the right arm and 140/90 mmHg in the left arm. CT angiography shows dissection starting just distal to the left subclavian artery. Which of the following best explains the blood pressure difference between arms?",
+    "stem": "A 68-year-old man with hypertension presents with sudden tearing chest pain radiating to his back. Blood pressure is 180/110 mmHg in the right arm and 140/90 mmHg in the left arm. CT angiography shows an aortic dissection flap extending through the arch and narrowing the origin of the left subclavian artery. Which mechanism best explains the blood pressure difference between arms?",
     "options": [
       {
         "letter": "A",
@@ -34,10 +34,10 @@ export const NBME_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "Type B aortic dissection begins distal to the left subclavian artery. The dissection flap can compress the left subclavian origin, reducing left arm perfusion and causing a measurable blood pressure differential. A difference >20 mmHg between arms is a classic clinical sign of aortic dissection.",
+    "explanation": "The dissection flap compromises the left subclavian origin, reducing perfusion pressure to the left arm and producing asymmetric arm blood pressures. A dissection that begins strictly distal to the left subclavian artery would not, by itself, explain obstruction of the branch origin; the imaging must demonstrate branch-vessel involvement as it does here.",
     "pearl": "BP difference >20 mmHg between arms = red flag for aortic dissection. Always use CT angiography — not ultrasound — when dissection is suspected.",
     "optionExplanations": {
-      "A": "Type B dissection begins just distal to the left subclavian takeoff, meaning the dissection flap can partially or completely obstruct left subclavian origin flow, reducing left arm perfusion and lowering blood pressure. A >20 mmHg bilateral differential is the defining red flag sign of aortic dissection and is explained by this exact mechanical obstruction.",
+      "A": "The CT directly shows the flap narrowing the left subclavian origin. This lowers perfusion pressure distal to that branch while right-arm pressure remains higher, producing the measured inter-arm difference.",
       "B": "Atherosclerotic brachial occlusion can reduce distal arm perfusion, but this is a chronic, progressive process — not an acute finding in a patient presenting with sudden tearing pain and a dissection confirmed on CT. The temporal relationship (acute onset) and CT findings directly exclude this explanation.",
       "C": "Reflex vasodilation is a downstream response to ischemia, not a primary driver of BP asymmetry. No reflex mechanism would selectively dilate one extremity enough to create a 40 mmHg bilateral pressure difference in the acute setting described here.",
       "D": "Cardiac output distributes bilaterally via the aorta and both subclavian arteries symmetrically. There is no mechanism by which the heart selectively increases output to only the right subclavian without a structural obstruction — like the dissection flap — explaining the asymmetry."
@@ -268,7 +268,7 @@ export const NBME_QUESTIONS = [
     "usmleContentArea": "Cardiovascular System",
     "usmleSubdomain": "Pericardial Physiology",
     "physicianTask": "Medical Knowledge: Applying Foundational Science Concepts",
-    "topic": "Inborn Errors of Metabolism",
+    "topic": "Pericardial Disease",
     "questionAngle": "mechanism",
     "memoryAnchor": "Beck's triad: Hypotension + Muffled heart sounds + Elevated JVP. Pulsus paradoxus >10 mmHg. Echo: RA then RV diastolic collapse. Treat: pericardiocentesis.",
     "commonTrap": "Students pick Kussmaul sign (JVP rises on inspiration) — Kussmaul sign is constrictive pericarditis, not tamponade. In tamponade, JVP is elevated but falls (normal) with inspiration; pulsus paradoxus is the key physical finding.",
@@ -1033,20 +1033,20 @@ export const NBME_QUESTIONS = [
     "subject": "Pathology",
     "system": "Reproductive",
     "difficulty": "NBME Difficult",
-    "testedConcept": "PCOS — LH/FSH ratio, androgen excess, and insulin resistance mechanism",
+    "testedConcept": "PCOS — theca-cell androgen excess amplified by hyperinsulinemia",
     "weakSpotCategory": "Ovarian Disorders",
     "usmleContentArea": "Female and Transgender Reproductive System & Breast",
     "usmleSubdomain": "Polycystic Ovarian Syndrome",
     "physicianTask": "Medical Knowledge: Applying Foundational Science Concepts",
     "topic": "Ovarian Disorders",
     "questionAngle": "mechanism",
-    "memoryAnchor": "PCOS: ↑LH:FSH ratio (usually >2:1) → ↑androgen (testosterone, DHEAS) → hirsutism/acne/oligomenorrhea. Insulin resistance → ↑insulin → ↑LH sensitivity → ↑androgen. Treat: OCP (hirsutism/cycle regulation), metformin (insulin resistance), clomiphene (ovulation induction for fertility).",
-    "commonTrap": "Students pick FSH as the elevated hormone in PCOS — it is LH that is disproportionately elevated (LH:FSH >2:1). High LH stimulates theca cells to produce androgens. Low-normal FSH prevents full follicle maturation. Cysts are arrested antral follicles, not cysts in the traditional sense.",
-    "stem": "A 23-year-old woman has oligomenorrhea, hirsutism, acne, and difficulty conceiving for 18 months. BMI is 31 kg/m². Labs show testosterone 78 ng/dL (elevated), LH 18 mIU/mL, FSH 5 mIU/mL, fasting glucose 102 mg/dL, and fasting insulin elevated. Pelvic ultrasound shows bilateral enlarged ovaries with >12 follicles per ovary arranged peripherally. Which mechanism best explains the androgen excess?",
+    "memoryAnchor": "PCOS: ovulatory dysfunction plus hyperandrogenism, often with insulin resistance. LH and insulin stimulate ovarian theca-cell androgen production; insulin also lowers hepatic SHBG.",
+    "commonTrap": "An elevated LH-to-FSH ratio can occur but is neither required nor sufficiently reliable to diagnose PCOS. Diagnosis uses ovulatory dysfunction, hyperandrogenism, and polycystic ovarian morphology after excluding mimics.",
+    "stem": "A 23-year-old woman has oligomenorrhea, hirsutism, acne, and difficulty conceiving for 18 months. BMI is 31 kg/m². Testosterone and fasting insulin are elevated, and pelvic ultrasound shows increased ovarian volume with numerous small follicles. Thyroid function, prolactin, and 17-hydroxyprogesterone are normal. Which mechanism best explains the androgen excess?",
     "options": [
       {
         "letter": "A",
-        "text": "Elevated LH stimulates ovarian theca cells to overproduce androgens with impaired FSH-driven follicle maturation"
+        "text": "LH and hyperinsulinemia stimulate ovarian theca cells to overproduce androgens"
       },
       {
         "letter": "B",
@@ -1062,8 +1062,8 @@ export const NBME_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "In PCOS, disordered GnRH pulsatility causes preferential LH elevation over FSH. Elevated LH continuously stimulates ovarian theca cells to produce androgens (testosterone, androstenedione). Insufficient FSH prevents granulosa cells from converting these androgens to estrogen (aromatization) and from promoting full follicle maturation — follicles arrest at the antral stage, creating the peripheral \"string of pearls\" appearance on ultrasound. Insulin resistance (present in 50–70% of PCOS) amplifies this by increasing LH sensitivity of theca cells and directly stimulating androgen production. The elevated LH:FSH ratio (>2:1 in this case: 18:5) and elevated testosterone confirm the mechanism.",
-    "pearl": "PCOS pathophysiology: ↑LH:FSH → theca cell androgen overproduction. Insulin resistance amplifies androgen production. Rotterdam criteria (2 of 3): oligo/anovulation, hyperandrogenism (clinical or lab), polycystic ovaries on US. Treatment: OCP (hirsutism/cycle), metformin (insulin resistance), clomiphene (fertility), spironolactone (anti-androgen)."
+    "explanation": "In PCOS, altered GnRH pulsatility can favor LH secretion, and LH stimulates ovarian theca cells to synthesize androgens. Hyperinsulinemia amplifies theca-cell androgen production and lowers hepatic sex hormone-binding globulin, increasing free testosterone. Follicular maturation stalls, producing chronic oligo-anovulation. The LH-to-FSH ratio is not required for diagnosis and should not be treated as a diagnostic criterion.",
+    "pearl": "PCOS diagnosis requires two of three features after excluding mimics: oligo-anovulation, clinical or biochemical hyperandrogenism, and polycystic ovarian morphology. Combined hormonal contraception treats cycle irregularity and hyperandrogenism; letrozole is preferred for ovulation induction."
   },
   {
     "id": "q080",
@@ -1099,7 +1099,7 @@ export const NBME_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "Precursor B-cell ALL is the most common childhood malignancy and the most common cause of cancer death in children. The diagnostic criteria are met: age 5, lymphoblasts >25% of bone marrow, and immunophenotype showing TdT+ (expressed in early lymphoid precursors, not mature lymphocytes or myeloid cells), CD10+ (CALLA, common ALL antigen), and CD19+ (B lineage marker). Treatment follows a three-phase protocol: induction (vincristine + prednisolone + asparaginase ± anthracycline → aim for complete remission), consolidation, and maintenance. CNS prophylaxis with intrathecal methotrexate is essential. Children have a 90% long-term cure rate with modern protocols.",
+    "explanation": "Precursor B-cell ALL is the most common cancer diagnosed in children. The diagnostic criteria are met: lymphoblasts occupy more than 25% of marrow and express TdT, CD10, and the B-lineage marker CD19. Treatment follows induction, consolidation, and maintenance phases, with CNS-directed prophylaxis. Modern pediatric protocols produce long-term survival near 90%; brain and other central nervous system cancers, not ALL, currently account for the highest childhood cancer mortality in the United States.",
     "pearl": "ALL: children, TdT+, CD10+(CALLA). B-ALL: CD19/CD20+. T-ALL: CD3/CD7+. AML: TdT-, MPO+, Auer rods. ALL treatment: induction (vincristine+pred+ASP) → consolidation → maintenance. CNS prophylaxis: intrathecal MTX. t(12;21)/ETV6-RUNX1 = best prognosis (children). Ph+ ALL (BCR-ABL) = add imatinib.",
     "optionExplanations": {
       "A": "The immunophenotype of TdT+/CD10+/CD19+ defines precursor B-cell ALL. Terminal deoxynucleotidyl transferase (TdT) is a DNA polymerase expressed only in immature lymphoid precursors during early development — it is not expressed in mature lymphocytes, myeloid cells, or normal marrow cells. Its presence indicates lymphoblastic origin. CD10 (CALLA) is expressed in the common precursor B-ALL stage. CD19 marks B-lineage commitment. Induction chemotherapy targets the rapidly proliferating blasts: vincristine (spindle poison), corticosteroids (lymphotoxic), asparaginase (depletes asparagine, required for lymphoblast growth), with or without an anthracycline.",
@@ -1364,7 +1364,7 @@ export const NBME_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "Hypertrophic cardiomyopathy (HCM) is the most common cause of sudden cardiac death in young athletes and is highly suggested here: exertional syncope without prodrome, family history of sudden death in a young relative, ECG showing septal hypertrophy, and a harsh systolic murmur that increases with Valsalva (reduced preload worsening LVOT obstruction). During exercise, tachycardia shortens diastolic filling time and sympathetic stimulation reduces afterload and preload, worsening dynamic LVOT obstruction and causing a fall in cardiac output that can precipitate syncope or sudden death from ventricular arrhythmias. Vasovagal syncope has a distinct prodrome and is unrelated to exertion. Fixed aortic stenosis is an unlikely cause of HCM in a 19-year-old without structural disease history.",
+    "explanation": "Hypertrophic cardiomyopathy is strongly suggested by exertional syncope without prodrome, a family history of sudden death, septal hypertrophy on ECG, and a systolic murmur that increases when preload falls during Valsalva. Exercise can worsen dynamic left ventricular outflow obstruction and can also provoke ventricular arrhythmias. Vasovagal syncope usually has a prodrome, and fixed aortic stenosis would require a structural valve lesion rather than the dynamic findings described here.",
     "pearl": "HCM red flags: exertional syncope + family history sudden death + septal hypertrophy + LVOT murmur worsening with Valsalva. Sudden death risk: ventricular arrhythmias from disorganized myofibers. Workup: echo + genetic testing + Holter. Treat: beta-blocker or verapamil for symptoms; ICD for high-risk; alcohol septal ablation or myectomy for refractory obstruction. Activity restriction."
   },
   {
@@ -1380,7 +1380,7 @@ export const NBME_QUESTIONS = [
     "topic": "Heart Failure Emergency Treatment",
     "questionAngle": "treatment",
     "memoryAnchor": "ADHF: congested (wet) → furosemide IV (diuresis). Low CO (cold) → vasopressors or inotropes (dobutamine). Warm wet → IV diuretics + vasodilators (nitroglycerin → reduces preload/afterload). Cold wet = worst (cardiogenic shock) → inotropes + cautious diuresis. BiPAP reduces work of breathing.",
-    "commonTrap": "Students give beta-blockers to someone in acute decompensated heart failure — beta-blockers reduce sympathetic support of the failing heart acutely and can precipitate cardiogenic shock. Beta-blockers are used for CHRONIC heart failure (proven mortality benefit); they must be STOPPED or reduced in acute decompensation, not started.",
+    "commonTrap": "Do not newly initiate or rapidly increase a beta blocker during active pulmonary congestion. However, a chronic evidence-based beta blocker is usually continued when perfusion is adequate and there is no shock, severe bradycardia, or other contraindication.",
     "stem": "A 72-year-old woman with known HFrEF (EF 25%) presents with acute dyspnea at rest, orthopnea, and bilateral crackles to the mid-lungs. BP 158/94, HR 108, SpO2 88% on room air. CXR shows pulmonary vascular congestion and bilateral pleural effusions. She is warm peripherally. Which immediate treatment targets her most critical pathophysiologic problem?",
     "options": [
       {
@@ -1401,7 +1401,7 @@ export const NBME_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "This patient is \"warm and wet\" — adequate peripheral perfusion (warm extremities, normal BP) with pulmonary congestion (crackles, SpO2 88%, X-ray findings). The primary pathologic problem is volume overload and elevated pulmonary venous pressure. IV furosemide is first-line: within minutes, furosemide causes venodilation (reducing preload and congestion before diuresis begins), followed by sustained diuresis over hours. IV furosemide works faster and more reliably than oral in acute congestion (reduced GI absorption in edematous gut). High BP allows addition of IV nitroglycerin for afterload and preload reduction. Beta-blockers are contraindicated in acute decompensation — they remove the compensatory sympathetic support. Digoxin has limited inotropic benefit and narrow therapeutic window; not first-line for acute congestion.",
+    "explanation": "This patient is warm and wet: perfusion is preserved, but pulmonary congestion and elevated filling pressures are causing hypoxemia and dyspnea. Intravenous loop diuresis directly treats the congestion; intravenous vasodilator therapy can also be considered because she is hypertensive. A beta blocker should not be newly initiated or up-titrated during active decompensation. Chronic beta-blocker therapy is generally continued when the patient is perfusing adequately and has no shock, severe bradycardia, or other contraindication.",
     "pearl": "ADHF warm-wet: IV loop diuretic (furosemide) first-line. Add IV nitroglycerin if hypertensive. BiPAP reduces work of breathing. Do NOT start beta-blockers in acute decompensation (may cause cardiogenic shock). Cold-wet (cardiogenic shock): inotropes (dobutamine) + diuresis. Target: symptom relief, normovolemia, optimize chronic HF medications after stabilization."
   },
   {

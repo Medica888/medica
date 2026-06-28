@@ -12,8 +12,8 @@
 
 const COMPLETE_DELAY = 3000    // ms until animationDone — matches ExamLoadingScreen
 
-const QUESTION_BANK_SIZE  = 27  // total questions in mock bank (24 original + 3 loop diuretic)
-const ENRICHED_QUESTIONS  = 13  // coach-mode enriched question count (10 original + 3 loop diuretic)
+const QUESTION_BANK_SIZE  = 310 // validated local bank; keep aligned with the QBank audit gate
+const ENRICHED_QUESTIONS  = 310 // normalization makes the complete local bank Coach-ready
 const LOOP_DIURETICS_POOL = 3   // questions matching topic:'Loop Diuretics' (qLD001–qLD003)
 
 // ─── Inline generation timer ────────────────────────────────────────────────
@@ -36,9 +36,9 @@ function measureMockGeneration(config) {
     bankSize = isTopicFiltered ? LOOP_DIURETICS_POOL : QUESTION_BANK_SIZE
   }
 
-  // ensureQuestionCount clones from the pool until count is reached — always exact.
+  // Production never clones questions. A thin filtered pool returns fewer items.
   const poolSize = bankSize
-  const available = config.questionCount  // clones fill the gap; always exact
+  const available = Math.min(config.questionCount, poolSize)
 
   // Simulate the Array.sort shuffle and normalization overhead
   const fakePool = Array.from({ length: poolSize }, (_, i) => ({
@@ -57,12 +57,6 @@ function measureMockGeneration(config) {
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-
-  // Simulate ensureQuestionCount cloning when pool < requested count
-  while (shuffled.length < available) {
-    const src = fakePool[(shuffled.length - poolSize) % poolSize]
-    shuffled.push({ ...src, id: `${src.id}_v${shuffled.length - poolSize + 1}` })
   }
 
   const questions = shuffled.slice(0, available)

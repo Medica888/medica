@@ -22,6 +22,19 @@ export const HIGH_YIELD_PAIRS = [
   ['Pathology', 'Neurology'],
 ]
 
+export const COMMERCIAL_QBANK_TARGETS = Object.freeze({
+  totalQuestions: 1500,
+  coachReadyQuestions: 1500,
+  minimumPerSubject: 80,
+  minimumPerSystem: 80,
+  minimumPerHighYieldPair: 30,
+  difficulty: Object.freeze({
+    Balanced: 600,
+    'NBME Difficult': 500,
+    'UWorld Challenge': 400,
+  }),
+})
+
 export function getCoverageStatus(count) {
   if (count === 0) return COVERAGE_STATUS.ZERO
   if (count < 5) return COVERAGE_STATUS.GAP
@@ -89,6 +102,54 @@ export function buildQuestionBankCoverageReport(questions, options = {}) {
       pairZero: pairRows.filter(row => row.status === COVERAGE_STATUS.ZERO).length,
     },
     nextTargets,
+  }
+}
+
+export function buildCommercialQuestionBankReadiness(questions, options = {}) {
+  const targets = options.targets || COMMERCIAL_QBANK_TARGETS
+  const coverage = buildQuestionBankCoverageReport(questions, options)
+  const difficultyCounts = questions.reduce((counts, question) => {
+    const difficulty = question.difficulty || 'Balanced'
+    counts[difficulty] = (counts[difficulty] || 0) + 1
+    return counts
+  }, {})
+  const difficulty = Object.entries(targets.difficulty).map(([name, target]) => {
+    const count = difficultyCounts[name] || 0
+    return { name, count, target, deficit: Math.max(0, target - count), met: count >= target }
+  })
+  const subjects = coverage.subjects.map(row => ({
+    ...row,
+    target: targets.minimumPerSubject,
+    deficit: Math.max(0, targets.minimumPerSubject - row.count),
+    met: row.count >= targets.minimumPerSubject,
+  }))
+  const systems = coverage.systems.map(row => ({
+    ...row,
+    target: targets.minimumPerSystem,
+    deficit: Math.max(0, targets.minimumPerSystem - row.count),
+    met: row.count >= targets.minimumPerSystem,
+  }))
+  const highYieldPairs = coverage.highYieldPairs.map(row => ({
+    ...row,
+    target: targets.minimumPerHighYieldPair,
+    deficit: Math.max(0, targets.minimumPerHighYieldPair - row.count),
+    met: row.count >= targets.minimumPerHighYieldPair,
+  }))
+  const totalDeficit = Math.max(0, targets.totalQuestions - questions.length)
+
+  return {
+    target: targets,
+    current: questions.length,
+    totalDeficit,
+    difficulty,
+    subjects,
+    systems,
+    highYieldPairs,
+    met: totalDeficit === 0
+      && difficulty.every(row => row.met)
+      && subjects.every(row => row.met)
+      && systems.every(row => row.met)
+      && highYieldPairs.every(row => row.met),
   }
 }
 

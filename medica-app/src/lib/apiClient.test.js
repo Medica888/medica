@@ -89,6 +89,18 @@ describe('auth.register', () => {
     );
     expect(result.token).toBe('tok');
   });
+
+  it('does not clear session when /api/auth/register returns 401', async () => {
+    setAuthSession('authenticated', 'user-1');
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Email already registered' }),
+    });
+
+    await expect(auth.register('dup@example.com', 'Name', 'pass')).rejects.toThrow('Email already registered');
+    expect(getAuthStateSnapshot()).toBe('authenticated:user-1');
+  });
 });
 
 describe('auth.login', () => {

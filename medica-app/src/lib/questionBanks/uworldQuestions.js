@@ -143,7 +143,7 @@ export const UWORLD_QUESTIONS = [
     "questionAngle": "mechanism",
     "memoryAnchor": "Preeclampsia: defective spiral artery remodeling → ischemic placenta → ↑sFlt-1 → sequesters VEGF → endothelial dysfunction → HTN + proteinuria. Only cure: DELIVERY. Severe features: BP>160/110, thrombocytopenia, elevated LFTs, renal insufficiency, pulmonary edema.",
     "commonTrap": "Students pick elevated aldosterone as the mechanism of hypertension in preeclampsia — aldosterone is actually LOW in preeclampsia because elevated BP suppresses RAAS. The hypertension is driven by anti-angiogenic sFlt-1 causing endothelial dysfunction, not by volume overload.",
-    "stem": "A 26-year-old woman at 32 weeks gestation develops BP 158/104 and 3+ proteinuria with severe headache and epigastric pain. Serum sFlt-1 is markedly elevated and PlGF is low. Which of the following best explains the pathophysiology of hypertension and proteinuria in her condition?",
+    "stem": "A 26-year-old woman at 32 weeks gestation develops BP 158/104 mmHg, proteinuria, severe headache, and epigastric pain. Earlier uterine artery Doppler showed persistent high-resistance flow, and placental pathology now shows shallow trophoblast invasion of maternal spiral arteries. Which downstream molecular mechanism links this placental abnormality to both maternal hypertension and glomerular endotheliosis?",
     "options": [
       {
         "letter": "A",
@@ -315,7 +315,7 @@ export const UWORLD_QUESTIONS = [
     "questionAngle": "treatment",
     "memoryAnchor": "HIT is thrombosis despite thrombocytopenia. Stop heparin and start a non-heparin anticoagulant.",
     "commonTrap": "Students see platelets below 100,000 and stop anticoagulation entirely. In HIT, the patient is hypercoagulable, so anticoagulation must continue with a non-heparin agent.",
-    "stem": "A 59-year-old man is hospitalized for an anterior STEMI and receives unfractionated heparin. On hospital day 6, his platelet count falls from 242,000/uL to 84,000/uL. He develops new painful swelling of the left calf; Doppler ultrasound shows an acute femoral vein thrombosis. PT and PTT were normal before admission. Peripheral smear shows no schistocytes. Which immediate management is most appropriate?",
+    "stem": "A 59-year-old man is hospitalized for an anterior STEMI and receives unfractionated heparin. On hospital day 6, his platelet count falls from 242,000/uL to 84,000/uL and Doppler ultrasound shows a new femoral vein thrombosis. Creatinine is 4.2 mg/dL after contrast-associated acute kidney injury; AST and ALT are normal. PT and PTT were normal before admission, and the smear shows no schistocytes. Which immediate management is most appropriate?",
     "options": [
       {
         "letter": "A",
@@ -323,11 +323,11 @@ export const UWORLD_QUESTIONS = [
       },
       {
         "letter": "B",
-        "text": "Stop heparin without anticoagulation until the platelet count returns above 150,000/uL"
+        "text": "Stop heparin and begin fondaparinux despite the severe acute kidney injury"
       },
       {
         "letter": "C",
-        "text": "Continue heparin and transfuse platelets because the thrombosis indicates consumptive platelet loss"
+        "text": "Stop heparin and transfuse platelets without starting another anticoagulant"
       },
       {
         "letter": "D",
@@ -335,11 +335,11 @@ export const UWORLD_QUESTIONS = [
       }
     ],
     "correct": "A",
-    "explanation": "This patient has heparin-induced thrombocytopenia: platelet fall by more than 50% beginning 5-10 days after heparin exposure plus new thrombosis. IgG antibodies bind platelet factor 4-heparin complexes and activate platelets through Fc receptors, causing thrombocytopenia from platelet consumption but paradoxical arterial and venous thrombosis from thrombin generation. Immediate treatment is to stop all heparin products and start a non-heparin anticoagulant such as argatroban or bivalirudin. Stopping anticoagulation alone is dangerous because HIT is strongly prothrombotic. Platelet transfusion can worsen thrombosis unless life-threatening bleeding is present. Warfarin is avoided initially because early protein C depletion can worsen thrombosis and cause skin necrosis; it is started only after platelet recovery while overlapping with non-heparin anticoagulation.",
+    "explanation": "This patient has heparin-induced thrombocytopenia: a platelet fall greater than 50% beginning 5–10 days after heparin exposure plus new thrombosis. All heparin must be stopped and a non-heparin anticoagulant started immediately because platelet-activating PF4 antibodies generate intense thrombin activity. Argatroban is hepatically cleared and is therefore appropriate with severe acute kidney injury and normal hepatic function. Fondaparinux is substantially renally cleared and is inappropriate in severe renal impairment. Platelet transfusion is avoided unless bleeding is life-threatening, and warfarin is delayed until platelet recovery because early protein C depletion can worsen thrombosis.",
     "optionExplanations": {
-      "A": "Correct. HIT is an immune platelet-activation syndrome, so the correct move is heparin cessation plus immediate non-heparin anticoagulation.",
-      "B": "Wrong. HIT is not a bleeding-predominant thrombocytopenia; withholding anticoagulation leaves the patient at high risk for clot propagation.",
-      "C": "Wrong. Continuing heparin fuels PF4 antibody-mediated platelet activation, and platelet transfusion may add substrate for thrombosis.",
+      "A": "Argatroban is a direct thrombin inhibitor cleared by the liver. It provides immediate non-heparin anticoagulation for acute HIT and is particularly useful here because severe kidney injury makes renally cleared alternatives less attractive.",
+      "B": "Fondaparinux can be used for HIT in selected patients, but it is renally eliminated and should be avoided in severe renal impairment. The creatinine elevation is included to distinguish it from hepatically cleared argatroban.",
+      "C": "Stopping heparin alone is insufficient because HIT is intensely prothrombotic. Platelet transfusion can provide additional substrate for thrombosis and is reserved for life-threatening bleeding or selected urgent procedures.",
       "D": "Wrong. Warfarin is dangerous during acute HIT because rapid protein C depletion can worsen hypercoagulability and cause skin necrosis."
     },
     "pearl": "HIT timing: 5-10 days after heparin, platelet drop over 50%, thrombosis. Treat by stopping heparin and starting argatroban, bivalirudin, or fondaparinux. Avoid warfarin until platelets recover."
@@ -1476,7 +1476,7 @@ export const UWORLD_QUESTIONS = [
     "questionAngle": "mechanism",
     "memoryAnchor": "Ovarian torsion: sudden unilateral pelvic pain, enlarged ovary, decreased venous flow first; arterial flow may persist early. Risk with ovarian mass >5 cm.",
     "commonTrap": "Normal arterial Doppler does not rule out torsion because venous and lymphatic obstruction occur first and dual arterial supply can preserve arterial flow early.",
-    "stem": "A 29-year-old woman has sudden severe right pelvic pain with nausea and vomiting. Temperature is 37.1 C, WBC is 12,600/uL, and pregnancy test is negative. Ultrasound shows a 6.5-cm right ovarian cyst and enlarged edematous ovary. Doppler shows absent venous flow but preserved arterial flow. What is the best explanation?",
+    "stem": "A 29-year-old woman has several brief episodes of right pelvic pain followed by persistent severe pain with nausea and vomiting. Temperature is 37.1 C, WBC is 12,600/uL, and pregnancy test is negative. Ultrasound shows a 6.5-cm ovarian cyst with an enlarged edematous right ovary. Doppler detects arterial inflow but no venous flow. Which mechanism best explains why the imaging does not exclude an evolving vascular emergency?",
     "options": [
       {
         "letter": "A",
@@ -1639,7 +1639,7 @@ export const UWORLD_QUESTIONS = [
     "subject": "Pharmacology",
     "system": "Psychiatry",
     "difficulty": "UWorld Challenge",
-    "testedConcept": "Clozapine - agranulocytosis monitoring with ANC",
+    "testedConcept": "Clozapine-associated severe neutropenia — immediate interruption and infection evaluation",
     "weakSpotCategory": "Antipsychotic Toxicity",
     "usmleContentArea": "Behavioral Health",
     "usmleSubdomain": "Psychopharmacology",
@@ -1648,33 +1648,33 @@ export const UWORLD_QUESTIONS = [
     "questionAngle": "adverse-effect",
     "memoryAnchor": "Clozapine treats refractory schizophrenia and reduces suicidality, but monitor ANC for agranulocytosis. Other risks: seizures, myocarditis, metabolic syndrome, sialorrhea.",
     "commonTrap": "All antipsychotics can cause metabolic effects or EPS, but clozapine has the signature agranulocytosis monitoring requirement.",
-    "stem": "A 28-year-old man with schizophrenia continues to have hallucinations despite adequate trials of risperidone and olanzapine. Clozapine is started. Four weeks later he has fever and sore throat. Temperature is 38.6 C, WBC is 1,900/uL, and absolute neutrophil count is 420/uL. Which monitoring strategy is required for this drug?",
+    "stem": "A 28-year-old man with treatment-resistant schizophrenia starts clozapine after adequate trials of two other antipsychotics. Four weeks later he develops fever, sore throat, and painful swallowing. Temperature is 38.6 C, WBC is 1,900/uL, and absolute neutrophil count is 420/uL. Blood cultures are obtained. Which immediate medication plan is most appropriate while this complication is evaluated and treated?",
     "options": [
       {
         "letter": "A",
-        "text": "Serial absolute neutrophil count measurement due to risk of agranulocytosis"
+        "text": "Interrupt clozapine and urgently manage severe neutropenia while following serial absolute neutrophil counts"
       },
       {
         "letter": "B",
-        "text": "Serial serum prolactin measurement due to risk of pituitary adenoma formation"
+        "text": "Continue clozapine unchanged because infection symptoms are expected during early treatment"
       },
       {
         "letter": "C",
-        "text": "Serial audiometry due to dose-dependent cochlear hair cell toxicity"
+        "text": "Reduce the clozapine dose but continue treatment until the absolute neutrophil count falls below 100/uL"
       },
       {
         "letter": "D",
-        "text": "Serial pulmonary function testing due to progressive interstitial fibrosis"
+        "text": "Start risperidone immediately while continuing clozapine to prevent psychiatric relapse"
       }
     ],
     "correct": "A",
-    "explanation": "Clozapine is used for treatment-resistant schizophrenia and can reduce suicidality, but it carries a risk of severe neutropenia and agranulocytosis. Patients require regular absolute neutrophil count monitoring through a restricted monitoring program. Fever and sore throat in a patient taking clozapine should prompt urgent evaluation for neutropenia because immune dysfunction increases bacteremia and sepsis risk. Clozapine receptor effects also cause seizures, myocarditis, constipation/ileus, sialorrhea, sedation, and metabolic syndrome. It generally causes fewer extrapyramidal symptoms than high-potency typical antipsychotics.",
-    "pearl": "Clozapine = refractory schizophrenia plus ANC monitoring. Fever/sore throat can mean agranulocytosis.",
+    "explanation": "An ANC of 420/uL is severe neutropenia in a patient taking clozapine. This adverse effect causes loss of innate immune protection and therefore creates a high risk of rapidly progressive infection. Immediate management is to interrupt clozapine because continued exposure can worsen the neutropenia; the patient also needs urgent infection evaluation and treatment while ANC is followed closely. Hematology input and granulocyte colony-stimulating factor may be appropriate depending on clinical severity. Routine ANC monitoring is intended to detect this complication before infection becomes life-threatening. Continuing or merely reducing clozapine is unsafe at this count, and adding another antipsychotic does not address the hematologic emergency.",
+    "pearl": "Clozapine is reserved for treatment-resistant schizophrenia but requires ANC surveillance. Fever or sore throat with severe neutropenia requires immediate interruption and urgent infection management.",
     "optionExplanations": {
-      "A": "Serial ANC monitoring is correct because clozapine can cause severe neutropenia and agranulocytosis. Fever and sore throat are warning signs of infection from neutropenia.",
-      "B": "Prolactin elevation is more associated with dopamine-blocking antipsychotics such as risperidone. Clozapine does not require serial prolactin monitoring to detect pituitary adenomas.",
-      "C": "Audiometry is important for ototoxic drugs such as aminoglycosides, cisplatin, or loop diuretics. Clozapine toxicity is not primarily cochlear hair cell injury.",
-      "D": "Pulmonary fibrosis monitoring is associated with drugs such as amiodarone, bleomycin, or nitrofurantoin. Clozapine requires hematologic monitoring instead."
+      "A": "The ANC is below 500/uL, indicating severe neutropenia with symptoms concerning for infection. Clozapine must be interrupted while urgent infection evaluation, treatment, and serial ANC monitoring proceed.",
+      "B": "Fever and sore throat are not expected benign effects of clozapine. Continuing the drug during severe neutropenia risks progression to invasive infection and sepsis.",
+      "C": "Dose reduction is insufficient at an ANC of 420/uL. The medication should be interrupted rather than continued until an arbitrarily lower threshold is reached.",
+      "D": "Adding risperidone does not reverse clozapine-associated neutropenia, and continuing clozapine leaves the hematologic trigger in place. Stabilizing the infection and neutrophil count takes priority."
     }
   },
   {

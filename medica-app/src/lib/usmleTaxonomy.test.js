@@ -5,6 +5,7 @@ import {
   enrichQuestionWithUsmleTaxonomy,
   inferPhysicianTask,
   inferUsmleContentArea,
+  normalizeQuestionAngle,
   normalizeQuestionTaxonomyFields,
   normalizeSubjectLabel,
   normalizeSystemLabel,
@@ -45,6 +46,25 @@ describe('USMLE taxonomy mapping', () => {
     expect(question.system).toBe('Neurology')
     expect(question.usmleContentArea).toBe('Cardiovascular System')
     expect(question.physicianTask).toBe('Patient Care: Diagnosis')
+  })
+
+  it('replaces legacy question-angle placeholders with semantic categories', () => {
+    expect(normalizeQuestionAngle('coverage-qb017', {
+      subject: 'Pathology',
+      stem: 'Which mechanism best explains this disease process?',
+    })).toBe('mechanism')
+
+    expect(normalizeQuestionAngle('nbme-text-only-qnb061', {
+      subject: 'Pharmacology',
+      stem: 'Which medication is the most appropriate treatment?',
+    })).toBe('treatment')
+  })
+
+  it('preserves explicit angles and normalizes known aliases', () => {
+    expect(normalizeQuestionAngle('diagnosis', {})).toBe('diagnosis')
+    expect(normalizeQuestionAngle('procedure anatomy', {})).toBe('anatomy')
+    expect(normalizeQuestionAngle('management', {})).toBe('treatment')
+    expect(normalizeQuestionAngle('', { subject: 'Pharmacology' })).toBe('')
   })
 
   it('infers content area from question metadata and stem keywords', () => {
