@@ -92,7 +92,7 @@ export interface IAnalyticsRepository {
   upsert(snapshot: Omit<AnalyticsSnapshot, 'id'>): Promise<AnalyticsSnapshot>;
 }
 
-export type GeneratedBankStatus = 'validated_generated' | 'approved' | 'quarantined' | 'validation_failed' | 'rejected';
+export type GeneratedBankStatus = 'validated_generated' | 'approved' | 'restored' | 'quarantined' | 'validation_failed' | 'rejected';
 
 export interface IQuestionsRepository {
   /** Upsert a question by its content fingerprint. Returns the DB UUID. */
@@ -139,6 +139,7 @@ export interface IQuestionsRepository {
     legacy: number;
     validatedGenerated: number;
     approved: number;
+    restored: number;
     quarantined: number;
     validationFailed: number;
     rejected: number;
@@ -339,12 +340,14 @@ export interface IQuestionReportsRepository {
    * The service layer applies quarantine thresholds on top of these raw counts.
    */
   getCountsByFingerprint(limit: number): Promise<{
-    globalTotal:       number;
-    globalWrongAnswer: number;
-    globalBadExpl:     number;
-    globalOffTopic:    number;
-    globalAmbiguous:   number;
-    fingerprints:      FingerprintCountRow[];
+    globalTotal:          number;
+    globalWrongAnswer:    number;
+    globalBadExpl:        number;
+    globalOffTopic:       number;
+    globalAmbiguous:      number;
+    globalDuplicate:      number;
+    globalTechnicalIssue: number;
+    fingerprints:         FingerprintCountRow[];
   }>;
 
   /**

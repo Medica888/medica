@@ -555,7 +555,10 @@ describe('QuestionReportService — ambiguous_or_insufficient_clues thresholds',
 
 describe('REPORT_REASON_REVALIDATION_MAP', () => {
   it('contains an entry for every report reason', () => {
-    const allReasons: string[] = ['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues'];
+    const allReasons: string[] = [
+      'wrong_answer', 'bad_explanation', 'off_topic',
+      'ambiguous_or_insufficient_clues', 'duplicate', 'technical_issue',
+    ];
     for (const reason of allReasons) {
       expect(REPORT_REASON_REVALIDATION_MAP).toHaveProperty(reason);
     }
@@ -580,5 +583,98 @@ describe('REPORT_REASON_REVALIDATION_MAP', () => {
 
   it('off_topic maps to scope alignment', () => {
     expect(REPORT_REASON_REVALIDATION_MAP['off_topic']).toContain('scope_alignment');
+  });
+
+  it('duplicate maps to content fingerprint checks', () => {
+    expect(REPORT_REASON_REVALIDATION_MAP['duplicate']).toContain('content_fingerprint');
+    expect(REPORT_REASON_REVALIDATION_MAP['duplicate']).toContain('stem_similarity');
+  });
+
+  it('technical_issue maps to structural checks', () => {
+    expect(REPORT_REASON_REVALIDATION_MAP['technical_issue']).toContain('json_structure');
+    expect(REPORT_REASON_REVALIDATION_MAP['technical_issue']).toContain('option_format');
+  });
+});
+
+// ── Phase 10.0C: duplicate and technical_issue report reasons ─────────────────
+
+describe('POST /api/question-reports — duplicate and technical_issue reasons', () => {
+  it('accepts duplicate reason and returns 201', async () => {
+    const res = await request(app)
+      .post('/api/question-reports')
+      .send({ fingerprint: 'fp_dup', reason: 'duplicate' });
+    expect(res.status).toBe(201);
+    expect(typeof res.body.id).toBe('string');
+  });
+
+  it('accepts technical_issue reason and returns 201', async () => {
+    const res = await request(app)
+      .post('/api/question-reports')
+      .send({ fingerprint: 'fp_tech', reason: 'technical_issue' });
+    expect(res.status).toBe(201);
+    expect(typeof res.body.id).toBe('string');
+  });
+});
+
+describe('QuestionReportService — duplicate and technical_issue thresholds', () => {
+  let repo: InMemoryQuestionReportsRepository;
+  let service: QuestionReportService;
+
+  function makeReport(fp: string, reason: string) {
+    return {
+      user_id: null, question_id: null, fingerprint: fp, reason: reason as any,
+      source: null, mode: null, difficulty: null, requested_subject: null,
+      requested_system: null, requested_topic: null, actual_subject: null,
+      actual_system: null, actual_topic: null, tested_concept: null,
+      usmle_content_area: null, physician_task: null, stem_preview: null,
+    };
+  }
+
+  beforeEach(() => {
+    repo = new InMemoryQuestionReportsRepository();
+    service = new QuestionReportService(repo);
+  });
+
+  it('duplicate >= 1 → quarantined immediately', async () => {
+    await repo.create(makeReport('fp_d1', 'duplicate'));
+    const r = await service.getFingerprintReport('fp_d1');
+    expect(r.quarantineStatus).toBe('quarantined');
+    expect(r.recommendedAction).toBe('quarantine');
+    expect(r.primaryReason).toBe('duplicate');
+  });
+
+  it('technical_issue >= 1 → watch + review', async () => {
+    await repo.create(makeReport('fp_t1', 'technical_issue'));
+    const r = await service.getFingerprintReport('fp_t1');
+    expect(r.quarantineStatus).toBe('watch');
+    expect(r.recommendedAction).toBe('review');
+    expect(r.primaryReason).toBe('technical_issue');
+  });
+
+  it('getQuarantinedFingerprints includes fingerprints with duplicate >= 1', async () => {
+    await repo.create(makeReport('fp_dup_q', 'duplicate'));
+    await repo.create(makeReport('fp_clean', 'bad_explanation'));
+    const quarantined = await service.getQuarantinedFingerprints();
+    expect(quarantined.has('fp_dup_q')).toBe(true);
+    expect(quarantined.has('fp_clean')).toBe(false);
+  });
+
+  it('getSummary includes duplicate and technical_issue counts', async () => {
+    await repo.create(makeReport('fp_s1', 'duplicate'));
+    await repo.create(makeReport('fp_s2', 'technical_issue'));
+    await repo.create(makeReport('fp_s3', 'wrong_answer'));
+    const s = await service.getSummary(20);
+    expect(s.byReason.duplicate).toBe(1);
+    expect(s.byReason.technical_issue).toBe(1);
+    expect(s.byReason.wrong_answer).toBe(1);
+    expect(s.totalReports).toBe(3);
+  });
+
+  it('getFingerprintReport exposes duplicate and technical_issue counts in byReason', async () => {
+    await repo.create(makeReport('fp_r1', 'duplicate'));
+    await repo.create(makeReport('fp_r1', 'technical_issue'));
+    const r = await service.getFingerprintReport('fp_r1');
+    expect(r.byReason.duplicate).toBe(1);
+    expect(r.byReason.technical_issue).toBe(1);
   });
 });

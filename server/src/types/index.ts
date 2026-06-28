@@ -442,7 +442,7 @@ export interface ConceptReviewHistory {
 
 // ── Question reports ──────────────────────────────────────────────────────────
 
-export type QuestionReportReason    = 'wrong_answer' | 'bad_explanation' | 'off_topic' | 'ambiguous_or_insufficient_clues';
+export type QuestionReportReason    = 'wrong_answer' | 'bad_explanation' | 'off_topic' | 'ambiguous_or_insufficient_clues' | 'duplicate' | 'technical_issue';
 export type QuestionQuarantineStatus = 'clear' | 'watch' | 'quarantined';
 export type QuestionRecommendedAction = 'none' | 'review' | 'repair_explanation' | 'quarantine' | 'revalidate_clues';
 
@@ -454,6 +454,8 @@ export interface FingerprintCountRow {
   bad_explanation:                number;
   off_topic:                      number;
   ambiguous_or_insufficient_clues: number;
+  duplicate:                      number;
+  technical_issue:                number;
   unique_users:                   number;
 }
 
@@ -466,6 +468,8 @@ export interface QuestionFingerprintReport {
     bad_explanation:                number;
     off_topic:                      number;
     ambiguous_or_insufficient_clues: number;
+    duplicate:                      number;
+    technical_issue:                number;
   };
   uniqueUsers:       number;
   quarantineStatus:  QuestionQuarantineStatus;
@@ -481,6 +485,8 @@ export interface QuestionReportSummaryEntry {
   badExplanationReports:          number;
   offTopicReports:                number;
   ambiguousReports:               number;
+  duplicateReports:               number;
+  technicalIssueReports:          number;
   uniqueUsers:                    number;
   quarantineStatus:               QuestionQuarantineStatus;
   primaryReason:                  QuestionReportReason | null;
@@ -495,6 +501,8 @@ export interface QuestionReportSummary {
     bad_explanation:                number;
     off_topic:                      number;
     ambiguous_or_insufficient_clues: number;
+    duplicate:                      number;
+    technical_issue:                number;
   };
   topFingerprints: QuestionReportSummaryEntry[];
 }
@@ -504,7 +512,7 @@ export interface QuestionReport {
   user_id:            string | null;  // null for anonymous reporters
   question_id:        string | null;  // TEXT — bank question IDs are non-UUID strings
   fingerprint:        string;
-  reason:             'wrong_answer' | 'bad_explanation' | 'off_topic' | 'ambiguous_or_insufficient_clues';
+  reason:             QuestionReportReason;
   source:             string | null;
   mode:               string | null;
   difficulty:         string | null;

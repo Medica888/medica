@@ -94,7 +94,9 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       return searchLabels.includes(String(actual || ''));
     };
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
-    const allowedStatuses = params.approvedOnly ? ['approved'] : ['validated_generated', 'approved'];
+    const allowedStatuses = params.approvedOnly
+      ? ['approved', 'restored']
+      : ['validated_generated', 'approved', 'restored'];
     return [...this.store.values()]
       .filter(entry =>
         entry.source === 'ai'
@@ -105,10 +107,9 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         && matchesRequested(params.mode, entry.mode, []),
       )
       .sort((a, b) => {
-        if (a.bankStatus !== b.bankStatus) {
-          if (a.bankStatus === 'approved') return -1;
-          if (b.bankStatus === 'approved') return 1;
-        }
+        const aActive = a.bankStatus === 'approved' || a.bankStatus === 'restored';
+        const bActive = b.bankStatus === 'approved' || b.bankStatus === 'restored';
+        if (aActive !== bActive) return aActive ? -1 : 1;
         return 0;
       })
       .map(entry => entry.body)
@@ -212,6 +213,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     legacy: number;
     validatedGenerated: number;
     approved: number;
+    restored: number;
     quarantined: number;
     validationFailed: number;
     rejected: number;
@@ -225,11 +227,12 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
   }> {
     const entries = [...this.store.values()].filter(entry => entry.source === 'ai');
     const approved = entries.filter(entry => entry.bankStatus === 'approved').length;
+    const restored = entries.filter(entry => entry.bankStatus === 'restored').length;
     const quarantined = entries.filter(entry => entry.bankStatus === 'quarantined').length;
     const validatedGenerated = entries.filter(entry => entry.bankStatus === 'validated_generated').length;
     const validationFailed = entries.filter(entry => entry.bankStatus === 'validation_failed').length;
     const rejected = entries.filter(entry => entry.bankStatus === 'rejected').length;
-    const reviewable = approved + quarantined + validatedGenerated + validationFailed + rejected;
+    const reviewable = approved + restored + quarantined + validatedGenerated + validationFailed + rejected;
     const scoredEntries = entries.filter(entry => entry.validationScore != null);
     const avgScore = scoredEntries.length > 0
       ? scoredEntries.reduce((sum, e) => sum + (e.validationScore as number), 0) / scoredEntries.length
@@ -239,12 +242,13 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       legacy: entries.filter(entry => entry.bankStatus === 'legacy').length,
       validatedGenerated,
       approved,
+      restored,
       quarantined,
       validationFailed,
       rejected,
       used: entries.filter(entry => entry.usageCount > 0).length,
       totalUsage: entries.reduce((sum, entry) => sum + entry.usageCount, 0),
-      approvalRate: reviewable > 0 ? approved / reviewable : 0,
+      approvalRate: reviewable > 0 ? (approved + restored) / reviewable : 0,
       quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
       averageValidationScore: avgScore,
       averagePendingAgeDays: null,

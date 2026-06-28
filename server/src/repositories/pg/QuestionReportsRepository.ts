@@ -41,15 +41,21 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
   }
 
   async getCountsByFingerprint(limit: number): Promise<{
-    globalTotal:       number;
-    globalWrongAnswer: number;
-    globalBadExpl:     number;
-    globalOffTopic:    number;
-    globalAmbiguous:   number;
-    fingerprints:      FingerprintCountRow[];
+    globalTotal:          number;
+    globalWrongAnswer:    number;
+    globalBadExpl:        number;
+    globalOffTopic:       number;
+    globalAmbiguous:      number;
+    globalDuplicate:      number;
+    globalTechnicalIssue: number;
+    fingerprints:         FingerprintCountRow[];
   }> {
-    type GlobalRow = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string; ambiguous_or_insufficient_clues: string };
-    type FpRow    = GlobalRow & { fingerprint: string; unique_users: string };
+    type GlobalRow = {
+      total: string; wrong_answer: string; bad_explanation: string;
+      off_topic: string; ambiguous_or_insufficient_clues: string;
+      duplicate: string; technical_issue: string;
+    };
+    type FpRow = GlobalRow & { fingerprint: string; unique_users: string };
 
     const [totals, fps] = await Promise.all([
       this.pool.query<GlobalRow>(`
@@ -58,7 +64,9 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
           COUNT(*) FILTER (WHERE reason = 'wrong_answer')                               AS wrong_answer,
           COUNT(*) FILTER (WHERE reason = 'bad_explanation')                            AS bad_explanation,
           COUNT(*) FILTER (WHERE reason = 'off_topic')                                  AS off_topic,
-          COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues
+          COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues,
+          COUNT(*) FILTER (WHERE reason = 'duplicate')                                  AS duplicate,
+          COUNT(*) FILTER (WHERE reason = 'technical_issue')                            AS technical_issue
         FROM question_reports
       `),
       this.pool.query<FpRow>(`
@@ -69,6 +77,8 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
           COUNT(*) FILTER (WHERE reason = 'bad_explanation')                            AS bad_explanation,
           COUNT(*) FILTER (WHERE reason = 'off_topic')                                  AS off_topic,
           COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues,
+          COUNT(*) FILTER (WHERE reason = 'duplicate')                                  AS duplicate,
+          COUNT(*) FILTER (WHERE reason = 'technical_issue')                            AS technical_issue,
           COUNT(DISTINCT user_id)                                                        AS unique_users
         FROM question_reports
         GROUP BY fingerprint
@@ -77,14 +87,20 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       `, [limit]),
     ]);
 
-    const g = totals.rows[0] ?? { total: '0', wrong_answer: '0', bad_explanation: '0', off_topic: '0', ambiguous_or_insufficient_clues: '0' };
+    const g = totals.rows[0] ?? {
+      total: '0', wrong_answer: '0', bad_explanation: '0',
+      off_topic: '0', ambiguous_or_insufficient_clues: '0',
+      duplicate: '0', technical_issue: '0',
+    };
 
     return {
-      globalTotal:       parseInt(g.total, 10),
-      globalWrongAnswer: parseInt(g.wrong_answer, 10),
-      globalBadExpl:     parseInt(g.bad_explanation, 10),
-      globalOffTopic:    parseInt(g.off_topic, 10),
-      globalAmbiguous:   parseInt(g.ambiguous_or_insufficient_clues, 10),
+      globalTotal:          parseInt(g.total, 10),
+      globalWrongAnswer:    parseInt(g.wrong_answer, 10),
+      globalBadExpl:        parseInt(g.bad_explanation, 10),
+      globalOffTopic:       parseInt(g.off_topic, 10),
+      globalAmbiguous:      parseInt(g.ambiguous_or_insufficient_clues, 10),
+      globalDuplicate:      parseInt(g.duplicate, 10),
+      globalTechnicalIssue: parseInt(g.technical_issue, 10),
       fingerprints: fps.rows.map(r => ({
         fingerprint:                    r.fingerprint,
         total:                          parseInt(r.total, 10),
@@ -92,13 +108,19 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         bad_explanation:                parseInt(r.bad_explanation, 10),
         off_topic:                      parseInt(r.off_topic, 10),
         ambiguous_or_insufficient_clues: parseInt(r.ambiguous_or_insufficient_clues, 10),
+        duplicate:                      parseInt(r.duplicate, 10),
+        technical_issue:                parseInt(r.technical_issue, 10),
         unique_users:                   parseInt(r.unique_users, 10),
       })),
     };
   }
 
   async getCountsForFingerprint(fingerprint: string): Promise<FingerprintCountRow> {
-    type Row = { total: string; wrong_answer: string; bad_explanation: string; off_topic: string; ambiguous_or_insufficient_clues: string; unique_users: string };
+    type Row = {
+      total: string; wrong_answer: string; bad_explanation: string;
+      off_topic: string; ambiguous_or_insufficient_clues: string;
+      duplicate: string; technical_issue: string; unique_users: string;
+    };
     const res = await this.pool.query<Row>(`
       SELECT
         COUNT(*)                                                                     AS total,
@@ -106,6 +128,8 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         COUNT(*) FILTER (WHERE reason = 'bad_explanation')                          AS bad_explanation,
         COUNT(*) FILTER (WHERE reason = 'off_topic')                                AS off_topic,
         COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')          AS ambiguous_or_insufficient_clues,
+        COUNT(*) FILTER (WHERE reason = 'duplicate')                                AS duplicate,
+        COUNT(*) FILTER (WHERE reason = 'technical_issue')                          AS technical_issue,
         COUNT(DISTINCT user_id)                                                      AS unique_users
       FROM question_reports
       WHERE fingerprint = $1
@@ -119,6 +143,8 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       bad_explanation:                parseInt(r.bad_explanation, 10),
       off_topic:                      parseInt(r.off_topic, 10),
       ambiguous_or_insufficient_clues: parseInt(r.ambiguous_or_insufficient_clues, 10),
+      duplicate:                      parseInt(r.duplicate, 10),
+      technical_issue:                parseInt(r.technical_issue, 10),
       unique_users:                   parseInt(r.unique_users, 10),
     };
   }
@@ -131,6 +157,7 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       HAVING
         COUNT(*) FILTER (WHERE reason = 'wrong_answer') >= 2 OR
         COUNT(*) FILTER (WHERE reason = 'off_topic')    >= 3 OR
+        COUNT(*) FILTER (WHERE reason = 'duplicate')    >= 1 OR
         COUNT(*)                                        >= 5
     `);
     return new Set(res.rows.map(r => r.fingerprint));

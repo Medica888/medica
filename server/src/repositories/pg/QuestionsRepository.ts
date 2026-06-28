@@ -83,8 +83,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
   }): Promise<Record<string, unknown>[]> {
     const values: unknown[] = [];
     const bankStatusClause = params.approvedOnly
-      ? "bank_status = 'approved'"
-      : "bank_status IN ('validated_generated', 'approved')";
+      ? "bank_status IN ('approved', 'restored')"
+      : "bank_status IN ('validated_generated', 'approved', 'restored')";
     const clauses = [
       "source = 'ai'",
       bankStatusClause,
@@ -123,7 +123,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       `SELECT body
        FROM questions
        WHERE ${clauses.join(' AND ')}
-       ORDER BY CASE WHEN bank_status = 'approved' THEN 0 ELSE 1 END, created_at DESC
+       ORDER BY CASE WHEN bank_status IN ('approved', 'restored') THEN 0 ELSE 1 END, created_at DESC
        LIMIT $${values.length}`,
       values,
     );
@@ -245,6 +245,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     legacy: number;
     validatedGenerated: number;
     approved: number;
+    restored: number;
     quarantined: number;
     validationFailed: number;
     rejected: number;
@@ -261,6 +262,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       legacy: string;
       validatedGenerated: string;
       approved: string;
+      restored: string;
       quarantined: string;
       validationFailed: string;
       rejected: string;
@@ -274,6 +276,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               COUNT(*) FILTER (WHERE bank_status = 'legacy')::text AS "legacy",
               COUNT(*) FILTER (WHERE bank_status = 'validated_generated')::text AS "validatedGenerated",
               COUNT(*) FILTER (WHERE bank_status = 'approved')::text AS "approved",
+              COUNT(*) FILTER (WHERE bank_status = 'restored')::text AS "restored",
               COUNT(*) FILTER (WHERE bank_status = 'quarantined')::text AS "quarantined",
               COUNT(*) FILTER (WHERE bank_status = 'validation_failed')::text AS "validationFailed",
               COUNT(*) FILTER (WHERE bank_status = 'rejected')::text AS "rejected",
@@ -287,22 +290,24 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     );
     const row = res.rows[0];
     const approved = Number(row?.approved || 0);
+    const restored = Number(row?.restored || 0);
     const quarantined = Number(row?.quarantined || 0);
     const validatedGenerated = Number(row?.validatedGenerated || 0);
     const validationFailed = Number(row?.validationFailed || 0);
     const rejected = Number(row?.rejected || 0);
-    const reviewable = approved + quarantined + validatedGenerated + validationFailed + rejected;
+    const reviewable = approved + restored + quarantined + validatedGenerated + validationFailed + rejected;
     return {
       total: Number(row?.total || 0),
       legacy: Number(row?.legacy || 0),
       validatedGenerated,
       approved,
+      restored,
       quarantined,
       validationFailed,
       rejected,
       used: Number(row?.used || 0),
       totalUsage: Number(row?.totalUsage || 0),
-      approvalRate: reviewable > 0 ? approved / reviewable : 0,
+      approvalRate: reviewable > 0 ? (approved + restored) / reviewable : 0,
       quarantineRate: reviewable > 0 ? quarantined / reviewable : 0,
       averageValidationScore: row?.averageValidationScore != null ? Number(row.averageValidationScore) : null,
       averagePendingAgeDays: row?.averagePendingAgeDays != null ? Number(row.averagePendingAgeDays) : null,

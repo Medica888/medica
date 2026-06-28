@@ -6,7 +6,7 @@ const nullableText = (max: number) =>
 export const createQuestionReportSchema = z.object({
   questionId:       z.string().max(200).nullable().optional().transform(v => v ?? null),
   fingerprint:      z.string().min(1).max(200),
-  reason:           z.enum(['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues']),
+  reason:           z.enum(['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues', 'duplicate', 'technical_issue']),
   source:           z.enum(['ai', 'mock', 'trusted_bank']).nullable().optional().transform(v => v ?? null),
   mode:             z.enum(['exam', 'practice', 'coach']).nullable().optional().transform(v => v ?? null),
   difficulty:       nullableText(50),

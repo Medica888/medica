@@ -1636,6 +1636,27 @@ describe('generated question bank', () => {
     expect(res.body.history[1].action).toBe('approved');
   });
 
+  it('restored status transitions quarantined question back to active without fingerprint block', async () => {
+    // Seed via the shared helper so source='ai' and bankStatus='validated_generated' are set correctly
+    const { fingerprint } = await seedBankQuestion();
+
+    // Quarantine it first
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    // Restore: should succeed — skips fingerprint quarantine check, re-runs validation
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/status`)
+      .set('Authorization', authHeader())
+      .send({ status: 'restored' })
+      .expect(200);
+
+    expect(res.body.question.bankStatus).toBe('restored');
+  });
+
   it('returns 401 AUTH_REQUIRED for unauthenticated generate-questions request', async () => {
     const res = await request(app)
       .post('/api/generate-questions')

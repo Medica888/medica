@@ -345,19 +345,22 @@ router.patch(
 
       const previousStatus = String((reviewRow as Record<string, any>).bankStatus ?? '');
 
-      if (req.body.status === 'approved') {
+      if (req.body.status === 'approved' || req.body.status === 'restored') {
         const body = (reviewRow as Record<string, any>).body as Record<string, any>;
 
-        // P5: quarantine fingerprint check — block approval if content matches a quarantined fingerprint
-        const contentFingerprint = computeQuestionFingerprint(String(body.stem || ''), String(body.testedConcept || ''));
-        const quarantinedFps = await repos.questionReports.getQuarantinedFingerprints();
-        if (quarantinedFps.has(contentFingerprint)) {
-          res.status(422).json({
-            error: 'Question content fingerprint is quarantined',
-            code: 'QUARANTINED_FINGERPRINT',
-            rejectionReasons: ['Content fingerprint matches a quarantined question'],
-          });
-          return;
+        // approved: block if content fingerprint matches any quarantined question (content integrity gate)
+        // restored: admin is explicitly overriding quarantine — skip fingerprint check
+        if (req.body.status === 'approved') {
+          const contentFingerprint = computeQuestionFingerprint(String(body.stem || ''), String(body.testedConcept || ''));
+          const quarantinedFps = await repos.questionReports.getQuarantinedFingerprints();
+          if (quarantinedFps.has(contentFingerprint)) {
+            res.status(422).json({
+              error: 'Question content fingerprint is quarantined',
+              code: 'QUARANTINED_FINGERPRINT',
+              rejectionReasons: ['Content fingerprint matches a quarantined question'],
+            });
+            return;
+          }
         }
 
         const validationConfig = {
