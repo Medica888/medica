@@ -17,17 +17,19 @@ const E2E_DB = 'medica_e2e';
 const ADMIN_URL = 'postgresql://postgres:postgres@localhost:5432/postgres';
 const E2E_DB_URL = `postgresql://postgres:postgres@localhost:5432/${E2E_DB}`;
 
-// Kill any existing process on port 4001 (stale backend from a prior test run).
-// Without this, Playwright's reuseExistingServer:false errors on the occupied port.
-try {
-  // Try netstat + taskkill (works in both cmd and PowerShell on Windows).
-  execSync(
-    'for /f "tokens=5" %a in (\'netstat -ano ^| findstr ":4001 " ^| findstr "LISTENING"\') do taskkill /F /PID %a',
-    { shell: 'cmd.exe', stdio: 'ignore', timeout: 10_000 },
-  );
-  console.log('[e2e/setup-db] Cleared port 4001.');
-} catch {
-  // Port was not in use — this is fine.
+// Kill stale processes from prior test runs. Without this, Playwright's
+// reuseExistingServer:false errors on occupied ports, and a reused Vite
+// server may proxy API calls to the wrong backend.
+for (const port of [4001, 5173]) {
+  try {
+    execSync(
+      `for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${port} " ^| findstr "LISTENING"') do taskkill /F /PID %a`,
+      { shell: 'cmd.exe', stdio: 'ignore', timeout: 10_000 },
+    );
+    console.log(`[e2e/setup-db] Cleared port ${port}.`);
+  } catch {
+    // Port was not in use — this is fine.
+  }
 }
 
 const admin = new Pool({ connectionString: ADMIN_URL });

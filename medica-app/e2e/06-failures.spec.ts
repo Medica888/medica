@@ -46,6 +46,26 @@ test.describe('Failure paths', () => {
     expect(errText).toMatch(/connection|server|reach|network/i);
   });
 
+  // NOTE — UI-level AI generation errors are intentionally out of E2E scope.
+  // App.jsx sets MOCK_FALLBACK_ALLOWED = import.meta.env.DEV, which is true in any
+  // Vite dev server run (including --mode e2e). When MOCK_FALLBACK_ALLOWED is true,
+  // App.jsx never surfaces a generation error to the user — it silently falls back to
+  // the local bank instead. Unit tests in generateAIQuestions.test.js cover the
+  // formatGenerationErrorMessage logic and error propagation. The API-level contract
+  // is exercised below.
+
+  test('generate-questions endpoint returns structured error for invalid payload', async ({ page, request }) => {
+    // Validates that the backend returns a typed error body (not a crash or empty 500).
+    const cookies = await page.context().cookies();
+    const res = await request.post('/api/generate-questions', {
+      headers: { Cookie: cookies.map(c => `${c.name}=${c.value}`).join('; ') },
+      data: { config: { questionCount: -1 } }, // invalid payload
+    });
+    expect([400, 422, 500]).toContain(res.status());
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+
   test('GET /api/health returns ok from the E2E backend', async ({ request }) => {
     const res = await request.get('/api/health');
     expect(res.ok()).toBeTruthy();

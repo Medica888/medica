@@ -89,10 +89,11 @@ describe('POST /api/question-reports', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rejects fingerprint exceeding 200 chars with 400', async () => {
+  it('rejects fingerprint exceeding 300 chars with 400', async () => {
+    // Max is 300 to accommodate bank question fingerprints (stem 120 + "||" + concept).
     const res = await request(app)
       .post('/api/question-reports')
-      .send({ fingerprint: 'x'.repeat(201), reason: 'wrong_answer' });
+      .send({ fingerprint: 'x'.repeat(301), reason: 'wrong_answer' });
     expect(res.status).toBe(400);
   });
 
