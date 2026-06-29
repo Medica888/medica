@@ -25,3 +25,8 @@ dist-ssr
 
 # Local QA browser artifacts
 .qa-output/
+
+# Playwright artifacts
+playwright-report/
+test-results/
+e2e/.auth/

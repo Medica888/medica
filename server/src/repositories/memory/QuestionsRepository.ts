@@ -19,6 +19,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     difficulty: string;
     validationScore: number | null;
     validatedAt: Date | string | null;
+    aiModel: string | null;
+    validatorVersion: string | null;
     usageCount: number;
     lastUsedAt: Date | null;
   }>();
@@ -35,6 +37,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       difficulty?: string;
       validationScore?: number | null;
       validatedAt?: Date | string | null;
+      aiModel?: string | null;
+      validatorVersion?: string | null;
     },
   ): Promise<{ id: string }> {
     const metadata = {
@@ -46,6 +50,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         data.body.validationScore == null ? null : Number(data.body.validationScore)
       ),
       validatedAt: data.validatedAt ?? data.body.validatedAt as string | null ?? null,
+      aiModel: data.aiModel ?? (String(data.body.aiModel || '') || null),
+      validatorVersion: data.validatorVersion ?? (String(data.body.validatorVersion || data.body.validationVersion || '') || null),
     };
     const existing = this.store.get(externalId);
     if (existing) {
@@ -160,6 +166,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         difficulty: entry.difficulty,
         validationScore: entry.validationScore,
         validatedAt: entry.validatedAt,
+        aiModel: entry.aiModel,
+        validatorVersion: entry.validatorVersion,
         lastUsedAt: entry.lastUsedAt,
         usageCount: entry.usageCount,
         reportCount: 0,

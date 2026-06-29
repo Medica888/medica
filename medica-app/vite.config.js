@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.js'],
       testTimeout: 10000,
+      exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
       css: false,
     },
   }

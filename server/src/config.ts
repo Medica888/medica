@@ -20,6 +20,24 @@ function parseDuration(expr: string): number {
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '7d';
 
+export interface GeneratedBankReusePolicy {
+  approvedOnly: boolean;
+  validatedFallbackAllowed: boolean;
+}
+
+export function getGeneratedBankReusePolicy(
+  env: NodeJS.ProcessEnv = process.env,
+): GeneratedBankReusePolicy {
+  const production = env.NODE_ENV === 'production';
+  const explicitlyRequiresApproval = env.REQUIRE_APPROVAL_FOR_PRODUCTION === 'true';
+  const explicitlyDisablesValidatedReuse = env.ALLOW_VALIDATED_REUSE === 'false';
+  const approvedOnly = production || explicitlyRequiresApproval || explicitlyDisablesValidatedReuse;
+  return {
+    approvedOnly,
+    validatedFallbackAllowed: !approvedOnly,
+  };
+}
+
 export const config = {
   port: parseInt(process.env.PORT ?? '4000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -39,6 +57,7 @@ export const config = {
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@medica.app',
   appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:5173',
   cookieSecure: process.env.NODE_ENV === 'production',
+  generatedBankReuse: getGeneratedBankReusePolicy(),
 } as const;
 
 if (config.nodeEnv === 'production') {
@@ -59,6 +78,18 @@ if (config.nodeEnv === 'production') {
 
   if (process.env.AUTH_DEV_TOKENS_ENABLED === 'true') {
     throw new Error('[config] AUTH_DEV_TOKENS_ENABLED must be false in production');
+  }
+
+  if (process.env.ALLOW_VALIDATED_REUSE === 'true') {
+    throw new Error(
+      '[config] ALLOW_VALIDATED_REUSE cannot be true in production; only approved or restored questions may be reused across users.',
+    );
+  }
+
+  if (process.env.REQUIRE_APPROVAL_FOR_PRODUCTION === 'false') {
+    throw new Error(
+      '[config] REQUIRE_APPROVAL_FOR_PRODUCTION cannot be false in production.',
+    );
   }
 
   if (!process.env.SMTP_HOST) {

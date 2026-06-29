@@ -112,6 +112,8 @@ export interface IQuestionsRepository {
       difficulty?: string;
       validationScore?: number | null;
       validatedAt?: Date | string | null;
+      aiModel?: string | null;
+      validatorVersion?: string | null;
     },
     tx?: unknown,
   ): Promise<{ id: string }>;

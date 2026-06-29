@@ -444,6 +444,26 @@ describe('email delivery', () => {
 });
 
 describe('config production guards', () => {
+  it('throws if validated generated reuse is explicitly enabled in production', async () => {
+    const saved = { ...process.env };
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
+      process.env.SMTP_HOST = 'smtp.medica.com';
+      process.env.EMAIL_FROM = 'noreply@medica.com';
+      process.env.APP_BASE_URL = 'https://app.medica.com';
+      process.env.ALLOW_VALIDATED_REUSE = 'true';
+      delete process.env.AUTH_DEV_TOKENS_ENABLED;
+      vi.resetModules();
+      await expect(import('../config.js')).rejects.toThrow('ALLOW_VALIDATED_REUSE cannot be true in production');
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, saved);
+      vi.resetModules();
+    }
+  });
+
   it('throws if AUTH_DEV_TOKENS_ENABLED=true in production', async () => {
     const saved = {
       NODE_ENV: process.env.NODE_ENV,

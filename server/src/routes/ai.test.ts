@@ -2249,6 +2249,10 @@ describe('Phase 2 governance', () => {
     const fp = fingerprintOf(makePromotableQuestion());
     const rows = await getRepositories().questions.findGeneratedBankReview({ externalId: fp, limit: 1 });
     expect((rows[0] as any).bankStatus).toBe('validated_generated');
+    expect((rows[0] as any).aiModel).toBe('claude-haiku-4-5-20251001');
+    expect((rows[0] as any).validatorVersion).toBe('central-validation-engine-v1');
+    expect((rows[0] as any).body.aiModel).toBe('claude-haiku-4-5-20251001');
+    expect((rows[0] as any).body.validatorVersion).toBe('central-validation-engine-v1');
   });
 
   it('_saveGeneratedQuestionsToBank skips questions that fail central validation', async () => {
@@ -2312,6 +2316,27 @@ describe('Phase 2 governance', () => {
     expect(res.body.telemetry.approvedOnly).toBe(false);
     expect(res.body.telemetry.reusePolicy).toBe('approved-first');
     expect(res.body.telemetry.validatedFallbackAllowed).toBe(true);
+  });
+
+  it('production defaults to approved-only reuse without requiring an env flag', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      app = createApp();
+      await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+
+      const res = await request(app)
+        .post('/api/generate-questions')
+        .set('Authorization', authHeader())
+        .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
+
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe('NO_API_KEY');
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      app = createApp();
+    }
   });
 
   it('ALLOW_VALIDATED_REUSE=false blocks validated_generated from bank reuse', async () => {

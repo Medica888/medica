@@ -50,6 +50,7 @@ import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js
 import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
+import { getGeneratedBankReusePolicy } from '../config.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -1860,6 +1861,8 @@ function _questionBodyForGeneratedBank(
   const rawConceptForNorm = question.testedConcept || '';
   const canonicalConceptNorm = normalizeConcept(rawConceptForNorm);
   const canonicalConcepts = canonicalConceptNorm ? [canonicalConceptNorm] : (rawConceptForNorm ? [rawConceptForNorm] : []);
+  const aiModel = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
+  const validatorVersion = 'central-validation-engine-v1';
   return {
     ...question,
     id: fingerprint,
@@ -1875,7 +1878,13 @@ function _questionBodyForGeneratedBank(
     difficulty,
     validationStatus: quality.validationStatus,
     validationScore: quality.qualityScore,
-    validationVersion: 'server-question-validator-v1',
+    aiModel,
+    validatorVersion,
+    validationVersion: validatorVersion,
+    contentVersion: Number((question as Record<string, unknown>).contentVersion || 1),
+    sourceRefs: Array.isArray((question as Record<string, unknown>).sourceRefs)
+      ? (question as Record<string, unknown>).sourceRefs
+      : [],
     generatedAt: now,
     validatedAt: now,
     usageCount: 0,
@@ -1899,6 +1908,8 @@ function _questionBodyForFailedGeneratedCandidate(
   const rawConceptForNorm = question.testedConcept || '';
   const canonicalConceptNorm = normalizeConcept(rawConceptForNorm);
   const canonicalConcepts = canonicalConceptNorm ? [canonicalConceptNorm] : (rawConceptForNorm ? [rawConceptForNorm] : []);
+  const aiModel = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
+  const validatorVersion = 'central-validation-engine-v1';
   return {
     ...question,
     id: fingerprint,
@@ -1914,7 +1925,13 @@ function _questionBodyForFailedGeneratedCandidate(
     difficulty,
     validationStatus: 'fail',
     validationScore: validation.score,
-    validationVersion: 'central-validation-engine-v1',
+    aiModel,
+    validatorVersion,
+    validationVersion: validatorVersion,
+    contentVersion: Number((question as Record<string, unknown>).contentVersion || 1),
+    sourceRefs: Array.isArray((question as Record<string, unknown>).sourceRefs)
+      ? (question as Record<string, unknown>).sourceRefs
+      : [],
     rejectionReasons: validation.rejectionReasons,
     warnings: validation.warnings,
     validatorResults: validation.validators,
@@ -1960,6 +1977,8 @@ export async function _saveGeneratedQuestionsToBank(questions: Record<string, an
       difficulty: String(body.difficulty || ''),
       validationScore: Number(body.validationScore || 0),
       validatedAt: String(body.validatedAt || ''),
+      aiModel: String(body.aiModel || '') || null,
+      validatorVersion: String(body.validatorVersion || '') || null,
     });
     saved++;
   }
@@ -1993,6 +2012,8 @@ async function _saveFailedGeneratedQuestionCandidate(
     difficulty: String(body.difficulty || ''),
     validationScore: Number(body.validationScore || 0),
     validatedAt: String(body.failedAt || ''),
+    aiModel: String(body.aiModel || '') || null,
+    validatorVersion: String(body.validatorVersion || '') || null,
   });
   return true;
 }
@@ -2116,9 +2137,8 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
-    const requireApprovalForProduction = process.env.REQUIRE_APPROVAL_FOR_PRODUCTION === 'true';
-    const allowValidatedReuse = process.env.ALLOW_VALIDATED_REUSE !== 'false';
-    const approvedOnly = requireApprovalForProduction || !allowValidatedReuse;
+    const reusePolicy = getGeneratedBankReusePolicy();
+    const approvedOnly = reusePolicy.approvedOnly;
     const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount, approvedOnly);
     const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {

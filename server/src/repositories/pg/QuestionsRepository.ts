@@ -22,6 +22,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       difficulty?: string;
       validationScore?: number | null;
       validatedAt?: Date | string | null;
+      aiModel?: string | null;
+      validatorVersion?: string | null;
     },
     tx?: unknown,
   ): Promise<{ id: string }> {
@@ -34,10 +36,13 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       data.body.validationScore == null ? null : Number(data.body.validationScore)
     );
     const validatedAt = data.validatedAt ?? data.body.validatedAt ?? null;
+    const aiModel = data.aiModel ?? data.body.aiModel ?? null;
+    const validatorVersion = data.validatorVersion ?? data.body.validatorVersion ?? data.body.validationVersion ?? null;
     const res = await q.query<{ id: string }>(
       `INSERT INTO questions
-         (external_id, subject, system, body, source, bank_status, mode, difficulty, validation_score, validated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (external_id, subject, system, body, source, bank_status, mode, difficulty,
+          validation_score, validated_at, ai_model, validator_version)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (external_id) DO UPDATE
          SET subject = EXCLUDED.subject,
              system  = EXCLUDED.system,
@@ -47,7 +52,9 @@ export class PgQuestionsRepository implements IQuestionsRepository {
              mode = EXCLUDED.mode,
              difficulty = EXCLUDED.difficulty,
              validation_score = EXCLUDED.validation_score,
-             validated_at = EXCLUDED.validated_at
+             validated_at = EXCLUDED.validated_at,
+             ai_model = EXCLUDED.ai_model,
+             validator_version = EXCLUDED.validator_version
        RETURNING id`,
       [
         externalId,
@@ -60,6 +67,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
         difficulty,
         validationScore,
         validatedAt,
+        aiModel,
+        validatorVersion,
       ],
     );
     return res.rows[0];
@@ -181,6 +190,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               difficulty,
               validation_score AS "validationScore",
               validated_at AS "validatedAt",
+              ai_model AS "aiModel",
+              validator_version AS "validatorVersion",
               last_used_at AS "lastUsedAt",
               usage_count AS "usageCount",
               report_count AS "reportCount",

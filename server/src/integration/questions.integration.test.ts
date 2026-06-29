@@ -29,6 +29,8 @@ function makeQuestionData(overrides: Record<string, unknown> = {}) {
       difficulty?: string;
       validationScore?: number | null;
       validatedAt?: Date | string | null;
+      aiModel?: string | null;
+      validatorVersion?: string | null;
     },
   };
 }
@@ -52,6 +54,17 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       const first  = await repo.upsertByExternalId(externalId, data);
       const second = await repo.upsertByExternalId(externalId, { ...data, subject: 'Physiology' });
       expect(second.id).toBe(first.id);
+    });
+
+    it('persists AI model and validator version provenance', async () => {
+      const { externalId, data } = makeQuestionData({
+        aiModel: 'claude-test-model',
+        validatorVersion: 'validator-test-v2',
+      });
+      await repo.upsertByExternalId(externalId, data);
+      const rows = await repo.findGeneratedBankReview({ externalId, limit: 1 });
+      expect(rows[0]['aiModel']).toBe('claude-test-model');
+      expect(rows[0]['validatorVersion']).toBe('validator-test-v2');
     });
 
     it('findByExternalId returns null for unknown id', async () => {
