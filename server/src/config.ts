@@ -4,6 +4,16 @@ dotenv.config();
 
 const DEV_JWT_SECRET = 'dev-secret-change-in-production';
 
+// Parse TRUST_PROXY env var for Express's "trust proxy" setting.
+// Accepts a hop count ("1"), a boolean string ("true"/"false"), or a subnet string ("loopback").
+// Default false (no proxy trust) is safe for direct deployments.
+function parseTrustProxy(v?: string): number | boolean | string {
+  if (!v || v === 'false') return false;
+  if (v === 'true') return true;
+  const n = parseInt(v, 10);
+  return Number.isNaN(n) ? v : n;
+}
+
 // Parse a duration string like '7d', '24h', '3600s' into seconds.
 // Only d/h/m/s units are supported. Throws on unrecognised format.
 function parseDuration(expr: string): number {
@@ -40,6 +50,7 @@ export function getGeneratedBankReusePolicy(
 
 export const config = {
   port: parseInt(process.env.PORT ?? '4000', 10),
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET,
   jwtExpiresIn: JWT_EXPIRES_IN,

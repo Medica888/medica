@@ -4,6 +4,8 @@ import { validateSchema } from './db/validateSchema.js';
 import { getRepositories } from './repositories/index.js';
 import { taxonomyResolutionService } from './services/TaxonomyResolutionService.js';
 import { initRedisStore } from './middleware/rateLimiter.js';
+import { getPool } from './config/db.js';
+import { logger } from './lib/logger.js';
 
 async function bootstrap(): Promise<void> {
   // Fail fast: verify all required migrations are applied before accepting traffic.
@@ -31,14 +33,17 @@ async function bootstrap(): Promise<void> {
   // Graceful shutdown: stop accepting new connections, wait up to 30s for
   // in-flight requests (AI generations) to complete, then exit.
   const shutdown = (signal: string) => {
-    console.log(`\n[shutdown] ${signal} received — draining…`);
-    server.close(() => {
-      console.log('[shutdown] All connections closed. Exiting.');
+    logger.info(`${signal} received — draining`);
+    server.close(async () => {
+      await getPool()?.end().catch((err: Error) =>
+        logger.warn('Pool drain error during shutdown', { error: err.message }),
+      );
+      logger.info('All connections closed. Exiting.');
       process.exit(0);
     });
     // Force exit if drain takes too long (e.g. hung AI stream).
     setTimeout(() => {
-      console.warn('[shutdown] Drain timeout — forcing exit.');
+      logger.warn('Drain timeout — forcing exit.');
       process.exit(1);
     }, 30_000).unref();
   };

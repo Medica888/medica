@@ -1,21 +1,11 @@
 import { Router } from 'express';
-import { config } from '../config.js';
-import { isDbConnected } from '../config/db.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  if (!config.databaseUrl) {
-    res.json({ ok: true, service: 'medica-api', database: 'not-configured' });
-    return;
-  }
-
-  const connected = await isDbConnected();
-  res.json({
-    ok: connected,
-    service: 'medica-api',
-    database: connected ? 'connected' : 'disconnected',
-  });
+// Liveness probe: 200 whenever the process is alive and can respond.
+// Use /api/ready for readiness (503 when dependencies are unavailable).
+router.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'medica-api' });
 });
 
 export default router;
