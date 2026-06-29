@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useState, useCallback, useMemo, useRef } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
@@ -141,6 +141,17 @@ export default function App() {
   const [examReviewFilter, setExamReviewFilter] = useState('all')
   const [generationError, setGenerationError]   = useState(null)
 
+  // Session backend-sync indicator ('idle' | 'saving' | 'synced' | 'local-only')
+  const [sessionSyncStatus, setSessionSyncStatus] = useState('idle')
+  const syncTimerRef = useRef(null)
+  const showSyncStatus = useCallback((status) => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    setSessionSyncStatus(status)
+    if (status !== 'idle') {
+      syncTimerRef.current = setTimeout(() => setSessionSyncStatus('idle'), 4_000)
+    }
+  }, [])
+
   const handleHome = () => {
     setSelectedSkill(null)
     setActiveNav('dashboard')
@@ -240,29 +251,38 @@ export default function App() {
 
   // Called by QuizSession when exam is submitted - receives (results, sessionWithAnswers)
   const handleExamComplete = useCallback((results, sessionWithAnswers) => {
-    persistSession(results, sessionWithAnswers).catch(err => console.warn('[App] save failed:', err.message))
+    showSyncStatus('saving')
+    persistSession(results, sessionWithAnswers)
+      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
+      .catch(() => showSyncStatus('local-only'))
     setExamResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('exam-results')
-  }, [])
+  }, [showSyncStatus])
 
   // Called by PracticeInterface when user clicks "Finish Practice"
   const handlePracticeComplete = useCallback((results, sessionWithAnswers) => {
     savePracticeResults(results)
-    persistSession(results, sessionWithAnswers).catch(err => console.warn('[App] save failed:', err.message))
+    showSyncStatus('saving')
+    persistSession(results, sessionWithAnswers)
+      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
+      .catch(() => showSyncStatus('local-only'))
     setPracticeResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('practice-results')
-  }, [])
+  }, [showSyncStatus])
 
   // Called by CoachInterface when user clicks "Finish Session"
   const handleCoachComplete = useCallback((results, sessionWithAnswers) => {
     saveCoachResults(results)
-    persistSession(results, sessionWithAnswers).catch(err => console.warn('[App] save failed:', err.message))
+    showSyncStatus('saving')
+    persistSession(results, sessionWithAnswers)
+      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
+      .catch(() => showSyncStatus('local-only'))
     setCoachResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('coach-results')
-  }, [])
+  }, [showSyncStatus])
 
   const handleNavigateToFlashcards = useCallback(() => {
     setActiveNav('flashcards')
@@ -487,6 +507,18 @@ export default function App() {
   return (
     <div className="app">
       <a className="skip-link" href="#main-content">Skip to main content</a>
+      {sessionSyncStatus !== 'idle' && (
+        <div
+          className={`sync-toast sync-toast--${sessionSyncStatus}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {sessionSyncStatus === 'saving'     && 'Saving session…'}
+          {sessionSyncStatus === 'synced'     && 'Session synced'}
+          {sessionSyncStatus === 'local-only' && 'Saved locally — will sync when online'}
+        </div>
+      )}
       <Header
         onHome={handleHome}
         pageTitle={pageTitle}

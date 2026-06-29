@@ -8,3 +8,22 @@
 @import './styles/mastery.css';
 @import './styles/exam.css';
 @import './styles/admin.css';
+
+/* ── Session sync toast ────────────────────────────────────────────── */
+.sync-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9000;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  pointer-events: none;
+  animation: sync-toast-in .18s ease;
+}
+.sync-toast--saving    { background: var(--bg2); color: var(--t2); border: 1px solid var(--border); }
+.sync-toast--synced    { background: var(--status-stable); color: #fff; }
+.sync-toast--local-only { background: var(--status-warn); color: #fff; }
+@keyframes sync-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

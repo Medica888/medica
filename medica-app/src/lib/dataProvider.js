@@ -38,7 +38,7 @@ export async function saveSession(results, sessionWithAnswers) {
   const mode = results.mode ?? sessionWithAnswers?.mode ?? 'practice';
   saveCompletedSession({ ...results, mode, questionIds });
 
-  if (!USE_BACKEND) return;
+  if (!USE_BACKEND) return { backendSynced: false };
 
   try {
     const questions = sessionWithAnswers?.questions ?? [];
@@ -93,8 +93,10 @@ export async function saveSession(results, sessionWithAnswers) {
       difficulty:        sessionWithAnswers?.config?.difficulty ?? 'Balanced',
     };
     await api.exams.create(payload);
+    return { backendSynced: true };
   } catch (err) {
     console.warn('[dataProvider] Backend session save failed:', err.message);
+    return { backendSynced: false };
   }
 }
 
