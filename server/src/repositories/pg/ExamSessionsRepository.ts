@@ -82,9 +82,9 @@ export class PgExamSessionsRepository implements IExamSessionsRepository {
     };
   }
 
-  async create(session: Omit<ExamSession, 'id'>, tx?: unknown): Promise<ExamSession> {
+  async create(session: Omit<ExamSession, 'id'> & { id?: string }, tx?: unknown): Promise<ExamSession> {
     const q = (tx as PoolClient | undefined) ?? this.pool;
-    const id = randomUUID();
+    const id = session.id ?? randomUUID();
     const res = await q.query<SessionRow>(
       `INSERT INTO exam_sessions
          (id, user_id, mode, questions, answers, score, percentage, medica_score,

@@ -31,9 +31,9 @@ export class InMemoryExamSessionsRepository implements IExamSessionsRepository {
     };
   }
 
-  async create(session: Omit<ExamSession, 'id'>, _tx?: unknown): Promise<ExamSession> {
-    const id = randomUUID();
-    const newSession: ExamSession = { id, ...session };
+  async create(session: Omit<ExamSession, 'id'> & { id?: string }, _tx?: unknown): Promise<ExamSession> {
+    const id = session.id ?? randomUUID();
+    const newSession: ExamSession = { ...session, id };
     this.store.set(id, newSession);
     return newSession;
   }

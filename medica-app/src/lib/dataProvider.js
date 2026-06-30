@@ -92,11 +92,20 @@ export async function saveSession(results, sessionWithAnswers) {
       duration_seconds:  sessionWithAnswers?.totalTime ?? 0,
       difficulty:        sessionWithAnswers?.config?.difficulty ?? 'Balanced',
     };
-    await api.exams.create(payload);
+    const clientSessionId = sessionWithAnswers?.clientSessionId;
+    await api.exams.create({ ...payload, ...(clientSessionId && { clientSessionId }) });
     return { backendSynced: true };
   } catch (err) {
-    console.warn('[dataProvider] Backend session save failed:', err.message);
-    return { backendSynced: false };
+    // One bounded retry with the same clientSessionId (idempotent — server deduplicates).
+    await new Promise(r => setTimeout(r, 1_500));
+    try {
+      const clientSessionId = sessionWithAnswers?.clientSessionId;
+      await api.exams.create({ ...payload, ...(clientSessionId && { clientSessionId }) });
+      return { backendSynced: true };
+    } catch (retryErr) {
+      console.warn('[dataProvider] Backend session save failed after retry:', (retryErr).message);
+      return { backendSynced: false };
+    }
   }
 }
 

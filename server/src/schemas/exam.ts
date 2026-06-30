@@ -45,6 +45,9 @@ export const createSessionSchema = z.object({
   duration_seconds: z.number().int().min(0).max(86400),
   difficulty: z.string().max(50),
   time_spent: z.record(z.string(), z.number().int().min(0)).optional(),
+  // Client-generated UUID enables idempotent retries: the server uses this as the
+  // session's primary key. Duplicate requests with the same key return the existing session.
+  clientSessionId: z.string().uuid().optional(),
 });
 
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;

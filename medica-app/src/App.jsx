@@ -75,7 +75,8 @@ function buildAISession(config, questions, seenState) {
   const telemetry  = questions.generationTelemetry ?? null
   const qSource    = telemetry?.source ?? 'ai'
   const session = {
-    id:    `session_${Date.now()}`,
+    id:             `session_${Date.now()}`,
+    clientSessionId: crypto.randomUUID(),  // stable UUID for idempotent backend retry
     mode:  config.mode,
     config,
     questions: questions.map(shuffleQuestionOptions),

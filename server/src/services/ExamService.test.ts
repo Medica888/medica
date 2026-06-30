@@ -473,3 +473,53 @@ describe('ExamService — v8.2 canonical concept bridge', () => {
     expect(all.every((c) => c.source !== 'canonical')).toBe(true);
   });
 });
+
+// ── Idempotency (Phase 10.0E) ─────────────────────────────────────────────────
+
+describe('ExamService — clientSessionId idempotency', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let service: ExamService;
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    service = new ExamService(sessionsRepo, new InMemoryQuestionAttemptsRepository());
+  });
+
+  it('creates session with the provided clientSessionId as its id', async () => {
+    const clientId = '11111111-1111-4111-a111-111111111111';
+    const session = await service.createSession('user-1', {
+      ...makeInput(),
+      clientSessionId: clientId,
+    });
+    expect(session.id).toBe(clientId);
+  });
+
+  it('duplicate clientSessionId returns the existing session without creating a new one', async () => {
+    const clientId = '22222222-2222-4222-a222-222222222222';
+    const first  = await service.createSession('user-1', { ...makeInput(), clientSessionId: clientId });
+    const second = await service.createSession('user-1', { ...makeInput(), clientSessionId: clientId });
+    expect(second.id).toBe(first.id);
+    // Only one session should exist in the store
+    const { data } = await sessionsRepo.findByUserId('user-1', { page: 1, limit: 10 });
+    expect(data).toHaveLength(1);
+  });
+
+  it('does NOT deduplicate when clientSessionId is already owned by a different user', async () => {
+    const clientId = '33333333-3333-4333-a333-333333333333';
+    const first  = await service.createSession('user-1', { ...makeInput(), clientSessionId: clientId });
+    const second = await service.createSession('user-2', { ...makeInput(), clientSessionId: clientId });
+    // user-2 gets a fresh server-generated UUID (client ID was owned by user-1)
+    expect(second.user_id).toBe('user-2');
+    expect(second.id).not.toBe(first.id);  // server assigned a different id
+    const { data: u1Sessions } = await sessionsRepo.findByUserId('user-1', { page: 1, limit: 10 });
+    const { data: u2Sessions } = await sessionsRepo.findByUserId('user-2', { page: 1, limit: 10 });
+    expect(u1Sessions).toHaveLength(1);
+    expect(u2Sessions).toHaveLength(1);
+    expect(u1Sessions[0]!.id).toBe(clientId);  // user-1's session retains the client ID
+  });
+
+  it('creates a normal session (server-generated id) when clientSessionId is omitted', async () => {
+    const session = await service.createSession('user-1', makeInput());
+    expect(session.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  });
+});

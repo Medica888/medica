@@ -106,12 +106,28 @@ export class ExamService {
   ) {}
 
   async createSession(userId: string, input: CreateSessionInput): Promise<ExamSession> {
+    // Idempotent retry: if the client supplied a UUID, check for an existing session.
+    // Same user → return it immediately (duplicate retry deduplication).
+    // Different user → ignore the client ID and let the server generate a fresh UUID
+    //   so a user cannot accidentally collide with another user's session ID.
+    let resolvedClientId: string | undefined;
+    if (input.clientSessionId) {
+      const existing = await this.sessions.findById(input.clientSessionId);
+      if (existing) {
+        if (existing.user_id === userId) return existing;
+        // Owned by another user — fall through with no client-supplied ID.
+      } else {
+        resolvedClientId = input.clientSessionId;
+      }
+    }
+
     const normalizedQuestions = input.questions.map(normalizeQuestionTaxonomy);
     const normalizedMissedQuestions = input.missed_questions.map(normalizeQuestionTaxonomy);
     const normalizedSubjectBreakdown = normalizeStatsKeys(input.subject_breakdown, normalizeSubject);
     const normalizedSystemBreakdown = normalizeStatsKeys(input.system_breakdown, normalizeSystem);
 
     const sessionData = {
+      ...(resolvedClientId && { id: resolvedClientId }),
       user_id: userId,
       mode: input.mode,
       questions: normalizedQuestions as Question[],

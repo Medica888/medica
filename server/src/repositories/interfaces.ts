@@ -55,7 +55,8 @@ export interface IUsersRepository {
 export interface IExamSessionsRepository {
   findById(id: string): Promise<ExamSession | null>;
   findByUserId(userId: string, params?: PaginationParams): Promise<PaginatedResult<ExamSession>>;
-  create(session: Omit<ExamSession, 'id'>, tx?: unknown): Promise<ExamSession>;
+  /** If session.id is provided the server uses it as the primary key (idempotent retry support). */
+  create(session: Omit<ExamSession, 'id'> & { id?: string }, tx?: unknown): Promise<ExamSession>;
   delete(id: string): Promise<boolean>;
   /** Write rows into exam_session_questions preserving question order. No-op when links is empty. */
   createQuestionLinks(
