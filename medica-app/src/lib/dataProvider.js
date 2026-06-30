@@ -40,70 +40,71 @@ export async function saveSession(results, sessionWithAnswers) {
 
   if (!USE_BACKEND) return { backendSynced: false };
 
+  const questions = sessionWithAnswers?.questions ?? [];
+  const answers   = sessionWithAnswers?.answers   ?? {};
+
+  const mapQuestion = (q) => {
+    const normalized = normalizeQuestionTaxonomyFields(q);
+    return {
+      id:               q.id,
+      text:             q.stem ?? '',
+      options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
+      correct_answer:   getQuestionCorrectLetter(q),
+      explanation:      q.explanation      ?? '',
+      subject:          normalized.subject ?? '',
+      system:           normalized.system  ?? '',
+      difficulty:       q.difficulty       ?? '',
+      pearl:            q.pearl            ?? '',
+      testedConcept:    q.testedConcept    ?? '',
+      weakSpotCategory: q.weakSpotCategory ?? '',
+      topic:            q.topic            ?? '',
+      canonicalTopic:   q.canonicalTopic   ?? '',
+      topicSlug:        q.topicSlug        ?? '',
+      topicSource:      q.topicSource      ?? '',
+      usmleContentArea: normalized.usmleContentArea ?? '',
+      usmleSubdomain:   q.usmleSubdomain   ?? '',
+      physicianTask:    normalized.physicianTask    ?? '',
+      questionAngle:    q.questionAngle    ?? '',
+      commonTrap:       q.commonTrap       ?? '',
+      memoryAnchor:     q.memoryAnchor     ?? '',
+    };
+  };
+
+  const payload = {
+    mode,
+    questions:         questions.map(mapQuestion),
+    answers,
+    score:             results.correct    ?? 0,
+    percentage:        results.percentage ?? 0,
+    medica_score:      results.medicaScore ?? 0,
+    readiness_label:   results.readinessLabel ?? '',
+    subject_breakdown: _arrayToRecord(results.subjectBreakdown),
+    system_breakdown:  _arrayToRecord(results.systemBreakdown),
+    missed_questions:  questions
+      .filter(q => {
+        const ans = answers[q.id];
+        if (!ans) return true;
+        return normalizeAnswerLetter(ans) !== getQuestionCorrectLetter(q);
+      })
+      .map(mapQuestion),
+    completed_at:      results.completedAt ?? new Date().toISOString(),
+    duration_seconds:  sessionWithAnswers?.totalTime ?? 0,
+    difficulty:        sessionWithAnswers?.config?.difficulty ?? 'Balanced',
+  };
+  const clientSessionId = sessionWithAnswers?.clientSessionId;
+  const apiPayload = { ...payload, ...(clientSessionId && { clientSessionId }) };
+
   try {
-    const questions = sessionWithAnswers?.questions ?? [];
-    const answers   = sessionWithAnswers?.answers   ?? {};
-
-    const mapQuestion = (q) => {
-      const normalized = normalizeQuestionTaxonomyFields(q);
-      return {
-        id:               q.id,
-        text:             q.stem ?? '',
-        options:          (q.options || []).map(o => (typeof o === 'string' ? o : o.text ?? '')),
-        correct_answer:   getQuestionCorrectLetter(q),
-        explanation:      q.explanation      ?? '',
-        subject:          normalized.subject ?? '',
-        system:           normalized.system  ?? '',
-        difficulty:       q.difficulty       ?? '',
-        pearl:            q.pearl            ?? '',
-        testedConcept:    q.testedConcept    ?? '',
-        weakSpotCategory: q.weakSpotCategory ?? '',
-        topic:            q.topic            ?? '',
-        canonicalTopic:   q.canonicalTopic   ?? '',
-        topicSlug:        q.topicSlug        ?? '',
-        topicSource:      q.topicSource      ?? '',
-        usmleContentArea: normalized.usmleContentArea ?? '',
-        usmleSubdomain:   q.usmleSubdomain   ?? '',
-        physicianTask:    normalized.physicianTask    ?? '',
-        questionAngle:    q.questionAngle    ?? '',
-        commonTrap:       q.commonTrap       ?? '',
-        memoryAnchor:     q.memoryAnchor     ?? '',
-      };
-    };
-
-    const payload = {
-      mode,
-      questions:         questions.map(mapQuestion),
-      answers,
-      score:             results.correct    ?? 0,
-      percentage:        results.percentage ?? 0,
-      medica_score:      results.medicaScore ?? 0,
-      readiness_label:   results.readinessLabel ?? '',
-      subject_breakdown: _arrayToRecord(results.subjectBreakdown),
-      system_breakdown:  _arrayToRecord(results.systemBreakdown),
-      missed_questions:  questions
-        .filter(q => {
-          const ans = answers[q.id];
-          if (!ans) return true;
-          return normalizeAnswerLetter(ans) !== getQuestionCorrectLetter(q);
-        })
-        .map(mapQuestion),
-      completed_at:      results.completedAt ?? new Date().toISOString(),
-      duration_seconds:  sessionWithAnswers?.totalTime ?? 0,
-      difficulty:        sessionWithAnswers?.config?.difficulty ?? 'Balanced',
-    };
-    const clientSessionId = sessionWithAnswers?.clientSessionId;
-    await api.exams.create({ ...payload, ...(clientSessionId && { clientSessionId }) });
+    await api.exams.create(apiPayload);
     return { backendSynced: true };
-  } catch (err) {
+  } catch {
     // One bounded retry with the same clientSessionId (idempotent — server deduplicates).
     await new Promise(r => setTimeout(r, 1_500));
     try {
-      const clientSessionId = sessionWithAnswers?.clientSessionId;
-      await api.exams.create({ ...payload, ...(clientSessionId && { clientSessionId }) });
+      await api.exams.create(apiPayload);
       return { backendSynced: true };
     } catch (retryErr) {
-      console.warn('[dataProvider] Backend session save failed after retry:', (retryErr).message);
+      console.warn('[dataProvider] Backend session save failed after retry:', retryErr.message);
       return { backendSynced: false };
     }
   }

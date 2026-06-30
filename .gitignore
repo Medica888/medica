@@ -41,3 +41,8 @@ coverage/
 .vercel/
 .claude/
 .agents/
+
+# Playwright E2E — auth state contains real session cookies; artifacts are large
+medica-app/e2e/.auth/
+medica-app/test-results/
+medica-app/playwright-report/

@@ -80,13 +80,9 @@ test.describe('Quiz builder accessibility', () => {
     await expect(btn).toBeFocused();
   });
 
-  test('quiz builder submit area renders with no accessibility violations on labels', async ({ page }) => {
-    // Verify the Generate Quiz button exists and is reachable by text (not just class).
-    // The button renders differently when generating (Preparing Quiz…) — we only
-    // verify the initial idle state here; the aria-busy transition is too fast to catch.
+  test('Generate Quiz button is exposed with an accessible name and is enabled', async ({ page }) => {
     const btn = page.getByRole('button', { name: 'Generate Quiz' });
-    await expect(btn).not.toBeDisabled();
-    // The button must not be hidden from assistive technology.
     await expect(btn).toBeVisible();
+    await expect(btn).not.toBeDisabled();
   });
 });
