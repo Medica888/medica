@@ -55,14 +55,14 @@ export class PgAnalyticsRepository implements IAnalyticsRepository {
 
   async upsert(snapshot: Omit<AnalyticsSnapshot, 'id'>): Promise<AnalyticsSnapshot> {
     const id = randomUUID();
-    // ON CONFLICT relies on the unique index: analytics_snapshots_user_date_uniq
-    // (user_id, (snapshot_date::date)) — created by migration 1748300000003
+    // ON CONFLICT relies on analytics_snapshots_user_date_uniq (user_id, snapshot_date).
+    // snapshot_date is a DATE column (see migration 1749400000001): no cast needed.
     const res = await this.pool.query<SnapshotRow>(
       `INSERT INTO analytics_snapshots
          (id, user_id, snapshot_date, total_sessions, average_score,
           subject_mastery, system_mastery, weak_areas, study_priorities, mistake_diagnoses)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (user_id, (snapshot_date::date))
+       ON CONFLICT (user_id, snapshot_date)
        DO UPDATE SET
          snapshot_date     = EXCLUDED.snapshot_date,
          total_sessions    = EXCLUDED.total_sessions,

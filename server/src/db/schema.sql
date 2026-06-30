@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS flashcards (
 CREATE TABLE IF NOT EXISTS analytics_snapshots (
   id                UUID        PRIMARY KEY,
   user_id           UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  snapshot_date     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  snapshot_date     DATE        NOT NULL DEFAULT CURRENT_DATE,
   total_sessions    INTEGER     NOT NULL DEFAULT 0,
   average_score     NUMERIC(6,2) NOT NULL DEFAULT 0,
   subject_mastery   JSONB       NOT NULL DEFAULT '{}',

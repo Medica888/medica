@@ -31,12 +31,16 @@ export async function initRedisStore(): Promise<void> {
 }
 
 // Creates a rate limiter that captures the current redisStore on first request.
-// Because initRedisStore() runs before app.listen(), the store is set before
-// any real traffic arrives.
+// initRedisStore() runs before app.listen() so the store is set before any real
+// traffic arrives. validate.creationStack is disabled because express-rate-limit's
+// stack-detection heuristic flags the lazy-initialization pattern as invalid even
+// though the limiter is effectively created at startup (no requests precede it).
 function makeLimiter(opts: Parameters<typeof rateLimit>[0]): RequestHandler {
   let limiter: ReturnType<typeof rateLimit> | null = null;
   return (req, res, next) => {
-    if (!limiter) limiter = rateLimit({ store: redisStore, ...opts });
+    if (!limiter) {
+      limiter = rateLimit({ store: redisStore, validate: { creationStack: false }, ...opts });
+    }
     return limiter(req, res, next);
   };
 }

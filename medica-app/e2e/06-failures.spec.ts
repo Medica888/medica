@@ -55,13 +55,15 @@ test.describe('Failure paths', () => {
   // is exercised below.
 
   test('generate-questions endpoint returns structured error for invalid payload', async ({ page, request }) => {
-    // Validates that the backend returns a typed error body (not a crash or empty 500).
+    // Validates that the Zod validation middleware runs (rate limiter must not throw first).
+    // Before the makeLimiter fix, ERR_ERL_CREATED_IN_REQUEST_HANDLER caused 500 here.
+    // A 400 confirms the request reached the validation layer successfully.
     const cookies = await page.context().cookies();
     const res = await request.post('/api/generate-questions', {
       headers: { Cookie: cookies.map(c => `${c.name}=${c.value}`).join('; ') },
-      data: { config: { questionCount: -1 } }, // invalid payload
+      data: { config: { questionCount: -1 } }, // missing mode + count below min(1)
     });
-    expect([400, 422, 500]).toContain(res.status());
+    expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body).toHaveProperty('error');
   });
