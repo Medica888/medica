@@ -29,7 +29,7 @@ export default defineConfig({
     {
       command: 'npm --prefix ../server run start:test',
       url: `http://localhost:${BACKEND_PORT}/api/health`,
-      timeout: 30_000,
+      timeout: process.env.CI ? 120_000 : 30_000,
       reuseExistingServer: false,
       env: {
         DATABASE_URL: E2E_DB_URL,
@@ -44,7 +44,7 @@ export default defineConfig({
       // --mode e2e loads .env.e2e which points VITE_BACKEND_URL at port 4001.
       command: 'npm run dev -- --mode e2e',
       url: `http://localhost:${FRONTEND_PORT}`,
-      timeout: 30_000,
+      timeout: process.env.CI ? 120_000 : 30_000,
       reuseExistingServer: !process.env.CI,
     },
   ],

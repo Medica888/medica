@@ -46,3 +46,4 @@ coverage/
 medica-app/e2e/.auth/
 medica-app/test-results/
 medica-app/playwright-report/
+test-results/
