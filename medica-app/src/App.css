@@ -8,6 +8,7 @@
 @import './styles/mastery.css';
 @import './styles/exam.css';
 @import './styles/admin.css';
+@import './styles/qbank.css';
 
 /* ── Session sync toast ────────────────────────────────────────────── */
 .sync-toast {

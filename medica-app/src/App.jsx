@@ -19,6 +19,7 @@ import {
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
+const QBankPage = lazy(() => import('./components/qbank/QBankPage'))
 const ExamLoadingScreen = lazy(() => import('./components/loading/ExamLoadingScreen'))
 const SkillsPlatform = lazy(() => import('./components/SkillsPlatform'))
 const QuizSession = lazy(() => import('./components/session/QuizSession'))
@@ -277,6 +278,30 @@ export default function App() {
     }
   }, [])
 
+  const handleQBankStart = useCallback(async ({ mode, questions }) => {
+    const uniqueValues = (items, key) => [...new Set(items.map(item => item?.[key]).filter(Boolean))]
+    const subjects = uniqueValues(questions, 'subject')
+    const systems = uniqueValues(questions, 'system')
+    const difficulties = uniqueValues(questions, 'difficulty')
+    const config = {
+      mode,
+      questionCount: questions.length,
+      subject: subjects.length === 1 ? subjects[0] : 'All Subjects',
+      system: systems.length === 1 ? systems[0] : 'All Systems',
+      topic: '',
+      clinicalFocus: '',
+      difficulty: difficulties.length === 1 ? difficulties[0] : 'Mixed',
+      blockType: 'qbank-selection',
+      source: 'validated-qbank',
+    }
+    const { createSelectedQuestionSession } = await import('./lib/mockQuestions')
+    const session = createSelectedQuestionSession(config, questions)
+    setQuizConfig(session.config)
+    setQuizSession(enrichSessionWithTopicMetadata(session, session.config))
+    setGenerationError(null)
+    setQuizPhase('session')
+  }, [])
+
   const handleLoadingComplete = useCallback(() => {
     setQuizPhase('session')
   }, [])
@@ -381,7 +406,7 @@ export default function App() {
     setExamResults(null)
   }, [])
 
-  const showQuizBuilder = !selectedSkill && ['create-quiz', 'qbank', 'ai-tutor'].includes(activeNav)
+  const showQuizExperience = !selectedSkill && ['create-quiz', 'qbank', 'ai-tutor'].includes(activeNav)
 
   if (authStatus === 'restoring') {
     return <MainLoading />
@@ -444,7 +469,7 @@ export default function App() {
       )
     }
 
-    if (showQuizBuilder) {
+    if (showQuizExperience) {
       if (quizPhase === 'loading' && quizConfig) {
         return (
           <ExamLoadingScreen
@@ -544,6 +569,10 @@ export default function App() {
             onNewQuiz={handleNewQuiz}
           />
         )
+      }
+
+      if (activeNav === 'qbank') {
+        return <QBankPage onStartSelected={handleQBankStart} />
       }
 
       return (

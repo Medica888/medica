@@ -16,6 +16,7 @@ import { filterReportedQuestions, getSessionHistory } from './storage.js'
 import { STANDARDIZED_40Q_BLOCK } from './quizTypes.js'
 import {
   createQuizSession,
+  createSelectedQuestionSession,
   ensureQuestionCount,
   getAvailableQuestionCountForConfig,
   getBankQuestionsForConfig,
@@ -24,6 +25,7 @@ import {
   ENRICHED_IDS,
   getDifficultyAvailability,
   getQuestionBankDifficultyStats,
+  getBrowsableQuestionBank,
   validateHardDifficultyQuestion,
 } from './mockQuestions.js'
 import {
@@ -1082,6 +1084,44 @@ describe('ACTIVE_QUESTION_BANK — quarantine exclusion', () => {
     const uwActive = ACTIVE_QUESTION_BANK.filter(q => q.difficulty === 'UWorld Challenge')
     expect(nbmeActive.length).toBeGreaterThanOrEqual(40)
     expect(uwActive.length).toBeGreaterThanOrEqual(40)
+  })
+})
+
+describe('QBank safe inventory and direct sessions', () => {
+  it('exposes only active, report-filtered questions for browsing', () => {
+    const blockedId = ACTIVE_QUESTION_BANK[0].id
+    vi.mocked(filterReportedQuestions).mockImplementation(questions => questions.filter(question => question.id !== blockedId))
+
+    const inventory = getBrowsableQuestionBank()
+
+    expect(inventory.some(question => question.id === blockedId)).toBe(false)
+    expect(inventory.some(question => isQuarantined(question.id))).toBe(false)
+    expect(validateUniqueQuestions(inventory).valid).toBe(true)
+  })
+
+  it('creates a direct session containing exactly the selected safe questions', () => {
+    const selected = ACTIVE_QUESTION_BANK.slice(0, 3)
+    const session = createSelectedQuestionSession(
+      { ...baseConfig, mode: 'coach', questionCount: selected.length },
+      selected,
+    )
+
+    expect(session.questions.map(question => question.id)).toEqual(selected.map(question => question.id))
+    expect(session.mode).toBe('coach')
+    expect(session.source).toBe('validated-qbank')
+    expect(session.questionSource).toBe('validated-qbank')
+    expect(session.generationTelemetry).toBeUndefined()
+  })
+
+  it('fails closed when a selected question becomes reported before launch', () => {
+    const selected = ACTIVE_QUESTION_BANK.slice(0, 2)
+    vi.mocked(filterReportedQuestions).mockImplementation(questions => questions.filter(question => question.id !== selected[0].id))
+
+    expect(() => createSelectedQuestionSession(baseConfig, selected)).toThrow('no longer available')
+  })
+
+  it('rejects selections above the 40-question cap', () => {
+    expect(() => createSelectedQuestionSession(baseConfig, ACTIVE_QUESTION_BANK.slice(0, 41))).toThrow('limited to 40')
   })
 })
 

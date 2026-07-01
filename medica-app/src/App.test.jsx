@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App, { shouldEnterLocalFallback, shouldUseValidatedLocalFallback } from './App.jsx'
 import { useSessionHistory } from './hooks/useSessionHistory'
+import { generateAIQuestions } from './lib/ai/generateAIQuestions'
 
 vi.mock('./hooks/useSessionHistory', () => ({
   useSessionHistory: vi.fn(() => ({
@@ -45,6 +46,20 @@ vi.mock('./components/quiz-builder/QuizBuilder', () => ({
       <button type="button" onClick={() => onStart(makeConfig('exam'))}>Start Exam Flow</button>
       <button type="button" onClick={() => onStart(makeConfig('practice'))}>Start Practice Flow</button>
       <button type="button" onClick={() => onStart(makeConfig('coach'))}>Start Coach Flow</button>
+    </div>
+  ),
+}))
+
+vi.mock('./components/qbank/QBankPage', () => ({
+  default: ({ onStartSelected }) => (
+    <div>
+      <div>QBank Mock</div>
+      <button
+        type="button"
+        onClick={() => onStartSelected({ mode: 'practice', questions: makeQuestions('qbank') })}
+      >
+        Start QBank Selection
+      </button>
     </div>
   ),
 }))
@@ -172,6 +187,25 @@ vi.mock('./lib/ai/generateAIQuestions', () => ({
   formatGenerationErrorMessage: vi.fn(() => 'generation failed'),
 }))
 
+vi.mock('./lib/mockQuestions', () => ({
+  createSelectedQuestionSession: vi.fn((config, questions) => ({
+    id: 'qbank-session',
+    clientSessionId: '00000000-0000-4000-8000-000000000001',
+    mode: config.mode,
+    config,
+    questions,
+    answers: {},
+    currentIndex: 0,
+    startedAt: new Date().toISOString(),
+    source: 'validated-qbank',
+  })),
+  createQuizSession: vi.fn(config => ({
+    id: 'fallback-session', mode: config.mode, config,
+    questions: makeQuestions(config.mode), answers: {}, currentIndex: 0,
+    startedAt: new Date().toISOString(),
+  })),
+}))
+
 function makeConfig(mode) {
   return {
     mode,
@@ -224,12 +258,23 @@ describe('App quiz phase routing', () => {
     expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
 
-  it('opens the working quiz builder from QBank navigation', async () => {
+  it('opens the validated question library instead of QuizBuilder from QBank navigation', async () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
 
-    expect(await screen.findByText('Quiz Builder Mock')).toBeInTheDocument()
+    expect(await screen.findByText('QBank Mock')).toBeInTheDocument()
+    expect(screen.queryByText('Quiz Builder Mock')).not.toBeInTheDocument()
     expect(screen.queryByText(/will be available in a future phase/i)).not.toBeInTheDocument()
+  })
+
+  it('starts a selected QBank set directly without opening generation loading', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start QBank Selection' }))
+
+    expect(await screen.findByText('Practice Session Mock')).toBeInTheDocument()
+    expect(screen.queryByText(/Loading Mock/)).not.toBeInTheDocument()
+    expect(generateAIQuestions).not.toHaveBeenCalled()
   })
 
   it('opens the working quiz builder in Coach mode from AI Coach navigation', async () => {

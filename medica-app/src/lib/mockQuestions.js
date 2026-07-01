@@ -28,6 +28,9 @@ import { COVERAGE_EXPANSION_QUESTIONS } from './questionBanks/coverageExpansionQ
 import {
   buildSeenState,
   filterUnseenQuestions,
+  getBaseQuestionId,
+  getQuestionFingerprint,
+  normalizeQuestionStem,
   validateUniqueQuestions,
   EMPTY_SEEN_STATE,
 } from './questionDedup.js'
@@ -142,6 +145,78 @@ export const ACTIVE_QUESTION_BANK = QUESTION_BANK.filter(q => !isQuarantined(q.i
 
 // Coach Mode can use every active local question because normalization guarantees A-D explanations.
 export const ENRICHED_IDS = new Set(ACTIVE_QUESTION_BANK.map(q => q.id))
+
+function dedupeQBankInventory(questions) {
+  const seenIds = new Set()
+  const seenBaseIds = new Set()
+  const seenStems = new Set()
+  const seenFingerprints = new Set()
+  return questions.filter(question => {
+    const id = String(question?.id || '')
+    const baseId = getBaseQuestionId(id)
+    const stem = normalizeQuestionStem(question?.stem)
+    const fingerprint = getQuestionFingerprint(question)
+    if (!id || seenIds.has(id) || seenBaseIds.has(baseId) || seenStems.has(stem) || seenFingerprints.has(fingerprint)) return false
+    seenIds.add(id)
+    seenBaseIds.add(baseId)
+    seenStems.add(stem)
+    seenFingerprints.add(fingerprint)
+    return true
+  })
+}
+
+/** Returns active, locally reported-filtered, identity-deduplicated questions for QBank browsing. */
+export function getBrowsableQuestionBank() {
+  return dedupeQBankInventory(filterReportedQuestions(ACTIVE_QUESTION_BANK))
+}
+
+/**
+ * Creates a session from an explicit QBank selection without generation or seen-question filtering.
+ * Questions are resolved against the current safe inventory again at launch time.
+ */
+export function createSelectedQuestionSession(config, selectedQuestions) {
+  const selectedIds = [...new Set((selectedQuestions || []).map(question => String(question?.id || '')).filter(Boolean))]
+  if (selectedIds.length === 0) {
+    throw Object.assign(new Error('Select at least one question to start.'), { code: 'EMPTY_QBANK_SELECTION' })
+  }
+  if (selectedIds.length > 40) {
+    throw Object.assign(new Error('QBank sessions are limited to 40 questions.'), { code: 'QBANK_SELECTION_LIMIT' })
+  }
+
+  const safeById = new Map(getBrowsableQuestionBank().map(question => [String(question.id), question]))
+  const safeQuestions = selectedIds.map(id => safeById.get(id)).filter(Boolean)
+  if (safeQuestions.length !== selectedIds.length) {
+    throw Object.assign(new Error('One or more selected questions are no longer available.'), { code: 'QBANK_SELECTION_STALE' })
+  }
+
+  const normalizedConfig = normalizeGenerationConfig({
+    ...config,
+    questionCount: safeQuestions.length,
+    source: 'validated-qbank',
+  })
+  const finalQuestions = safeQuestions.map(shuffleQuestionOptions)
+
+  return {
+    id: `session_${Date.now()}`,
+    clientSessionId: crypto.randomUUID(),
+    mode: normalizedConfig.mode,
+    config: normalizedConfig,
+    questions: finalQuestions,
+    answers: {},
+    currentIndex: 0,
+    startedAt: new Date().toISOString(),
+    source: 'validated-qbank',
+    questionSource: 'validated-qbank',
+    generatedAt: null,
+    requestedQuestionCount: finalQuestions.length,
+    uniqueQuestionCount: finalQuestions.length,
+    hasDuplicateQuestions: false,
+    hasClonedQuestions: false,
+    hasReusedQuestions: false,
+    generationConfigSnapshot: normalizedConfig,
+    excludedPreviousQuestionCount: 0,
+  }
+}
 
 export function getQuestionBankDifficultyStats() {
   return ACTIVE_QUESTION_BANK.reduce((acc, q) => {
