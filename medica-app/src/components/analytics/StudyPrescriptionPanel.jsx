@@ -6,12 +6,12 @@ import { useAuthState } from '../../hooks/useAuthState'
 // Tier display config — reuses existing badge CSS from Phase 3.4
 const TIER_CONFIG = {
   ontrack:    { label: 'On Track', sub: 'Maintain with spaced review', badgeClass: 'an-subj-badge--ontrack', borderColor: 'var(--blue)' },
-  p1:         { label: 'P1',       sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
-  p2:         { label: 'P2',       sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
-  p3:         { label: 'P3',       sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
-  priority:   { label: 'P1',       sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
-  focus:      { label: 'P2',       sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
-  reinforced: { label: 'P3',       sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
+  p1:         { label: 'Priority',  sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
+  p2:         { label: 'Focus',     sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
+  p3:         { label: 'Reinforce', sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
+  priority:   { label: 'Priority',  sub: 'Mastery below 50%',           badgeClass: 'an-subj-badge--priority', borderColor: 'var(--status-critical)' },
+  focus:      { label: 'Focus',     sub: '50-70% mastery',              badgeClass: 'an-subj-badge--focus', borderColor: 'var(--status-warn)' },
+  reinforced: { label: 'Reinforce', sub: '70-80% mastery',              badgeClass: 'an-subj-badge--reinforced', borderColor: 'var(--status-stable)' },
 }
 
 const EASE_META = [
@@ -432,7 +432,7 @@ export default function StudyPrescriptionPanel() {
       )}
 
       <p className="spp-footnote">
-        Estimates: P1 x5 min - P2 x3 min - P3 x2 min per concept
+        Time estimates reflect concept priority and planned review depth.
       </p>
     </div>
   )

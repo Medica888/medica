@@ -234,7 +234,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
           )}
           {!examSubmitted && (
             <button className={`exam-hdr-finish-btn${allAnswered ? ' ready' : ''}`} onClick={handleSubmitRequest}>
-              Finish Exam
+              Submit Exam
             </button>
           )}
           <button className="exam-exit-btn" onClick={onExit} aria-label="Exit session">
@@ -275,14 +275,14 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
         </aside>
 
         {/* Center: full-width question content */}
-        <main className="exam-center" aria-label="Question">
+        <section className="exam-center" aria-label="Question">
           <div className="exam-center-inner">
 
             {/* Meta row: subject / system tags + utility buttons */}
             <div className="exam-q-meta">
               <div className="exam-q-tags">
                 {question.subject && <span className="exam-q-tag">{question.subject}</span>}
-                {question.system  && <span className="exam-q-tag">{question.system}</span>}
+                {question.system && question.system !== question.subject && <span className="exam-q-tag">{question.system}</span>}
               </div>
               <QuizUtilityBar
                 openDrawer={openDrawer}
@@ -384,7 +384,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             <QuestionReportControl question={question} context={{ mode }} variant="exam" />
 
           </div>
-        </main>
+        </section>
       </div>
 
       {/* ── Footer navigation ──────────────────────────────────────────────── */}
@@ -401,14 +401,6 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
             </svg>
             Previous
           </button>
-          {!examSubmitted && (
-            <button
-              className={`exam-foot-submit-btn${allAnswered ? ' ready' : ''}`}
-              onClick={handleSubmitRequest}
-            >
-              {allAnswered ? 'Submit Exam' : 'Submit All'}
-            </button>
-          )}
         </div>
 
         <div className="exam-footer-center">

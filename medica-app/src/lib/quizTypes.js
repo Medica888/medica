@@ -51,12 +51,12 @@ export const SUBJECTS = [
 
 export const SYSTEMS = [
   'All Systems',
-  ...CANONICAL_SYSTEMS,
+  ...CANONICAL_SYSTEMS.filter(system => system !== 'Multisystem'),
 ]
 
 export const SYSTEM_LABELS = {
-  'All Systems': 'Mixed / All Systems',
-  Multisystem: 'General Principles / Multisystem',
+  'All Systems': 'All Systems',
+  Multisystem: 'Integrated / Cross-system',
 }
 
 export function getSystemLabel(system) {

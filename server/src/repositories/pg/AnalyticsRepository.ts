@@ -6,7 +6,7 @@ import type { IAnalyticsRepository } from '../interfaces.js';
 interface SnapshotRow extends QueryResultRow {
   id: string;
   user_id: string;
-  snapshot_date: Date;
+  snapshot_date: Date | string;
   total_sessions: number;
   average_score: number;
   subject_mastery: Record<string, number>;
@@ -17,10 +17,17 @@ interface SnapshotRow extends QueryResultRow {
 }
 
 function toSnapshot(row: SnapshotRow): AnalyticsSnapshot {
+  const snapshotDate = row.snapshot_date instanceof Date
+    ? new Date(Date.UTC(
+        row.snapshot_date.getFullYear(),
+        row.snapshot_date.getMonth(),
+        row.snapshot_date.getDate(),
+      ))
+    : new Date(`${row.snapshot_date}T00:00:00.000Z`);
   return {
     id: row.id,
     user_id: row.user_id,
-    snapshot_date: row.snapshot_date,
+    snapshot_date: snapshotDate,
     total_sessions: Number(row.total_sessions),
     average_score: Number(row.average_score),
     subject_mastery: row.subject_mastery,

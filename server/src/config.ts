@@ -30,6 +30,17 @@ function parseDuration(expr: string): number {
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '7d';
 
+// Parse a per-day budget integer. Returns null (unlimited) when unset.
+// Requires a complete base-10 integer string — rejects decimals, suffixes, whitespace-only.
+function parseDailyBudget(name: string, raw: string | undefined): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`[config] ${name} must be a non-negative integer (no decimals, no suffixes), got: "${raw}"`);
+  }
+  return parseInt(trimmed, 10);
+}
+
 export interface GeneratedBankReusePolicy {
   approvedOnly: boolean;
   validatedFallbackAllowed: boolean;
@@ -69,6 +80,10 @@ export const config = {
   appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:5173',
   cookieSecure: process.env.NODE_ENV === 'production',
   generatedBankReuse: getGeneratedBankReusePolicy(),
+  /** null = unlimited. Env var: AI_REQUEST_BUDGET_PER_DAY */
+  aiRequestBudgetPerDay: parseDailyBudget('AI_REQUEST_BUDGET_PER_DAY', process.env.AI_REQUEST_BUDGET_PER_DAY),
+  /** null = unlimited. Env var: AI_TOKEN_BUDGET_PER_DAY */
+  aiTokenBudgetPerDay: parseDailyBudget('AI_TOKEN_BUDGET_PER_DAY', process.env.AI_TOKEN_BUDGET_PER_DAY),
 } as const;
 
 if (config.nodeEnv === 'production') {

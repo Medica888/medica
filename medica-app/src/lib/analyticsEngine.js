@@ -456,8 +456,8 @@ function _diagnoseMistakes(sessions) {
 
   const recommendedFixes = []
   if (primaryFailureMode.type === 'retention') {
-    recommendedFixes.push('Use flashcards with spaced repetition for all previously missed questions.')
-    recommendedFixes.push('Re-attempt missed questions in your next Coach session to test recall.')
+    recommendedFixes.push('Use focused concept flashcards with spaced repetition for weak knowledge points.')
+    recommendedFixes.push('Re-attempt related questions in your next Coach session to test transfer and recall.')
   }
   if (topSubjects[0]) {
     recommendedFixes.push(`Schedule a focused ${topSubjects[0].name} block — 20 targeted questions in Coach mode.`)

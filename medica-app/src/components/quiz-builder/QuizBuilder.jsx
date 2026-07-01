@@ -17,7 +17,6 @@ import TopicSelector from './TopicSelector'
 import QuestionCountSelector from './QuestionCountSelector'
 import DifficultySelector from './DifficultySelector'
 import ClinicalFocusInput from './ClinicalFocusInput'
-import CoachTopicInput from './CoachTopicInput'
 import LivePreview from '../layout/LivePreview'
 
 const LOCKED_CONFIG = {
@@ -31,12 +30,17 @@ const LOCKED_CONFIG = {
   blockType:     STANDARDIZED_40Q_BLOCK,
 }
 
-/** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null }} props */
-export default function QuizBuilder({ onStart, generationError = null }) {
+/** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null, initialMode?: 'exam'|'practice'|'coach'|null }} props */
+export default function QuizBuilder({ onStart, generationError = null, initialMode = null }) {
   const authState = useAuthState()
   const [config, setConfig] = useState(() => {
     const saved = getLastQuizConfig()
-    return saved ? { ...DEFAULT_CONFIG, ...saved } : { ...DEFAULT_CONFIG }
+    const restored = saved ? { ...DEFAULT_CONFIG, ...saved } : { ...DEFAULT_CONFIG }
+    const normalized = {
+      ...restored,
+      system: restored.system === 'Multisystem' ? 'All Systems' : restored.system,
+    }
+    return initialMode ? { ...normalized, mode: initialMode } : normalized
   })
   const [saved, setSaved]               = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -177,12 +181,6 @@ export default function QuizBuilder({ onStart, generationError = null }) {
                   value={config.clinicalFocus}
                   onChange={v => update('clinicalFocus', v)}
                 />
-                {config.mode === 'coach' && (
-                  <CoachTopicInput
-                    value={config.topic}
-                    onChange={v => update('topic', v)}
-                  />
-                )}
               </>
             )}
 

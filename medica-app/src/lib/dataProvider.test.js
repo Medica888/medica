@@ -34,6 +34,7 @@ vi.mock('./apiClient.js', () => ({
 
 import * as storage from './storage.js';
 import * as api from './apiClient.js';
+import { getSessionSyncOutbox } from './sessionSyncOutbox.js';
 import {
   saveSession,
   getSessions,
@@ -85,11 +86,16 @@ const sessionWithAnswers = {
 };
 
 beforeEach(() => {
+  localStorage.clear();
   vi.clearAllMocks();
   api.isAuthenticated.mockReturnValue(true);
   api.getCurrentUserId.mockReturnValue('user-123');
   storage.appendFlashcards.mockReturnValue(0);
   storage.getFlashcards.mockReturnValue([]);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('saveSession', () => {
@@ -161,6 +167,68 @@ describe('saveSession', () => {
     const payload = api.exams.create.mock.calls[0][0];
     expect(payload.questions[0].correct_answer).toBe('C');
     expect(payload.missed_questions).toHaveLength(0);
+  });
+
+  it('queues a failed write and retries with the same idempotency key', async () => {
+    vi.useFakeTimers();
+    const session = {
+      ...sessionWithAnswers,
+      clientSessionId: '11111111-1111-4111-a111-111111111111',
+    };
+    api.exams.create
+      .mockRejectedValueOnce(Object.assign(new Error('offline'), { status: 503 }))
+      .mockResolvedValueOnce({ id: session.clientSessionId });
+
+    const pending = saveSession(results, session);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const result = await pending;
+
+    expect(result).toEqual({ backendSynced: true, syncState: 'synced' });
+    expect(api.exams.create).toHaveBeenCalledTimes(2);
+    expect(api.exams.create.mock.calls[0][0].clientSessionId).toBe(session.clientSessionId);
+    expect(api.exams.create.mock.calls[1][0].clientSessionId).toBe(session.clientSessionId);
+    expect(getSessionSyncOutbox('user-123')).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it('keeps a durable pending entry when the initial write and retry fail', async () => {
+    vi.useFakeTimers();
+    const session = {
+      ...sessionWithAnswers,
+      clientSessionId: '22222222-2222-4222-a222-222222222222',
+    };
+    api.exams.create.mockRejectedValue(Object.assign(new Error('offline'), { status: 503 }));
+
+    const pending = saveSession(results, session);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const result = await pending;
+
+    expect(result).toEqual({ backendSynced: false, syncState: 'pending' });
+    expect(getSessionSyncOutbox('user-123')).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('does not queue a permanently invalid session payload', async () => {
+    api.exams.create.mockRejectedValueOnce(Object.assign(new Error('invalid'), { status: 400 }));
+
+    const result = await saveSession(results, sessionWithAnswers);
+
+    expect(result).toEqual({ backendSynced: false, syncState: 'failed' });
+    expect(api.exams.create).toHaveBeenCalledOnce();
+    expect(getSessionSyncOutbox('user-123')).toHaveLength(0);
+  });
+
+  it('queues and pauses after an authentication failure without retrying', async () => {
+    api.exams.create.mockRejectedValueOnce(Object.assign(new Error('expired'), { status: 401 }));
+
+    const result = await saveSession(results, {
+      ...sessionWithAnswers,
+      clientSessionId: '44444444-4444-4444-a444-444444444444',
+    });
+
+    expect(result).toEqual({ backendSynced: false, syncState: 'pending' });
+    expect(api.exams.create).toHaveBeenCalledOnce();
+    expect(getSessionSyncOutbox('user-123')).toHaveLength(1);
   });
 });
 
@@ -298,7 +366,6 @@ describe('saveFlashcards', () => {
   });
 
   it('keeps local cards saved when backend sync fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
     storage.appendFlashcards.mockReturnValueOnce(1);
     storage.getFlashcards
@@ -309,12 +376,9 @@ describe('saveFlashcards', () => {
     const result = await saveFlashcards(cards);
 
     expect(result).toMatchObject({ added: 1, skipped: 0, backendAttempted: true, backendSynced: false });
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   it('sets dirty flag when backend write fails for an authenticated user', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     api.isAuthenticated.mockReturnValue(true);
     const cards = [{ front: 'Q', back: 'A', sourceQuestionId: 'q1', type: 'Recall', tag: 'Bio' }];
     storage.appendFlashcards.mockReturnValueOnce(1);
@@ -324,7 +388,6 @@ describe('saveFlashcards', () => {
     await saveFlashcards(cards);
 
     expect(localStorage.getItem(DIRTY_KEY)).toBe('1');
-    warnSpy.mockRestore();
   });
 
   it('does not set dirty flag when user is not authenticated', async () => {

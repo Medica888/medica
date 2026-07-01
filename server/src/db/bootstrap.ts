@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 // @ts-ignore — node-pg-migrate CJS exports runner as a named export
 import { runner } from 'node-pg-migrate';
+import { logger } from '../lib/logger.js';
 
 // Idempotent: schema.sql uses IF NOT EXISTS; node-pg-migrate skips already-applied migrations.
 export async function bootstrapDatabase(url: string): Promise<void> {
@@ -32,17 +33,17 @@ if (require.main === module) {
 
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.error('DATABASE_URL is not set. Add it to server/.env and retry.');
+    logger.error('DATABASE_URL is not set. Add it to server/.env and retry.');
     process.exit(1);
   }
 
   bootstrapDatabase(url)
     .then(() => {
-      console.log('Database bootstrap complete.');
+      logger.info('Database bootstrap complete.');
       process.exit(0);
     })
     .catch((err: unknown) => {
-      console.error('Bootstrap failed:', err instanceof Error ? err.message : err);
+      logger.error('Bootstrap failed', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
     });
 }

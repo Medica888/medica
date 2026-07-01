@@ -18,6 +18,8 @@ import {
   saveQuestionReport,
   unreportQuestion,
 } from './storage.js'
+import { getSessionSyncOutbox } from './sessionSyncOutbox.js'
+import * as apiClient from './apiClient.js'
 import { setAuthSession } from './apiClient.js'
 
 const question = (id, overrides = {}) => ({
@@ -400,9 +402,11 @@ describe('saveQuestionReport — ambiguous_or_insufficient_clues reason', () => 
   })
 })
 
-// ── saveQuestionReport — backend fire-and-forget POST ─────────────────────────
+// ── saveQuestionReport — outbox sync ─────────────────────────────────────────
 
-describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
+describe('saveQuestionReport — outbox sync', () => {
+  const TEST_USER = 'test-user-storage'
+
   const q = (id, overrides = {}) => ({
     id,
     stem: `A 45-year-old patient presents with ${id}.`,
@@ -414,71 +418,55 @@ describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    vi.spyOn(apiClient, 'getCurrentUserId').mockReturnValue(TEST_USER)
   })
 
   afterEach(() => {
-    vi.unstubAllEnvs()
-    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it('still saves locally when the backend POST fails', () => {
-    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
-
+  it('still saves locally regardless of outbox state', () => {
     saveQuestionReport(q('q-net-fail'), 'wrong_answer', { mode: 'practice' })
 
     expect(getQuestionReports()).toHaveLength(1)
     expect(getQuestionReports()[0].questionId).toBe('q-net-fail')
   })
 
-  it('attempts backend POST when VITE_USE_BACKEND_API is true', () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'srv-1' }) })
-    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
-    vi.stubGlobal('fetch', mockFetch)
-
+  it('enqueues a question-report outbox entry when user is authenticated', () => {
     saveQuestionReport(q('q-post'), 'wrong_answer', { mode: 'practice' })
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:4000/api/question-reports',
-      expect.objectContaining({ method: 'POST' }),
-    )
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox).toHaveLength(1)
+    expect(outbox[0].operationType).toBe('question-report')
   })
 
-  it('does NOT attempt backend POST when VITE_USE_BACKEND_API is not true', () => {
-    const mockFetch = vi.fn()
-    vi.stubEnv('VITE_USE_BACKEND_API', 'false')
-    vi.stubGlobal('fetch', mockFetch)
+  it('does NOT enqueue when no user is authenticated', () => {
+    vi.spyOn(apiClient, 'getCurrentUserId').mockReturnValue('')
 
     saveQuestionReport(q('q-no-post'), 'wrong_answer', { mode: 'practice' })
 
-    expect(mockFetch).not.toHaveBeenCalled()
+    const outbox = getSessionSyncOutbox('')
+    expect(outbox).toHaveLength(0)
     // Local save still happened
     expect(getQuestionReports()).toHaveLength(1)
   })
 
-  it('backend POST payload includes fingerprint and reason', () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
-    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
-    vi.stubGlobal('fetch', mockFetch)
-
+  it('outbox payload includes fingerprint, reason, questionId, mode, source', () => {
     const question = q('q-payload', { stem: 'A 38-year-old woman presents with persistent dry cough after starting lisinopril.' })
     saveQuestionReport(question, 'bad_explanation', { mode: 'coach', source: 'ai' })
 
-    expect(mockFetch).toHaveBeenCalledTimes(1)
-    const [url, opts] = mockFetch.mock.calls[0]
-    expect(url).toBe('http://localhost:4000/api/question-reports')
-    const body = JSON.parse(opts.body)
-    expect(body.fingerprint).toBeDefined()
-    expect(body.fingerprint).not.toBe('')
-    expect(body.reason).toBe('bad_explanation')
-    expect(body.questionId).toBe('q-payload')
-    expect(body.mode).toBe('coach')
-    expect(body.source).toBe('ai')
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox).toHaveLength(1)
+    const { payload } = outbox[0]
+    expect(payload.fingerprint).toBeDefined()
+    expect(payload.fingerprint).not.toBe('')
+    expect(payload.reason).toBe('bad_explanation')
+    expect(payload.questionId).toBe('q-payload')
+    expect(payload.mode).toBe('coach')
+    expect(payload.source).toBe('ai')
   })
 
-  it('local QUESTION_REPORTS_UPDATED_EVENT still fires regardless of backend status', () => {
-    // Backend disabled — event should still fire from local save
-    vi.stubEnv('VITE_USE_BACKEND_API', 'false')
+  it('local QUESTION_REPORTS_UPDATED_EVENT fires from local save', () => {
     let fired = false
     window.addEventListener('medica:question-reports-updated', () => { fired = true }, { once: true })
 
@@ -487,26 +475,27 @@ describe('saveQuestionReport — backend POST (fire-and-forget)', () => {
     expect(fired).toBe(true)
   })
 
-  it('backend POST is sent with the ambiguous_or_insufficient_clues reason', () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
-    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
-    vi.stubGlobal('fetch', mockFetch)
-
+  it('outbox payload contains the ambiguous_or_insufficient_clues reason', () => {
     saveQuestionReport(q('q-ambig-post'), 'ambiguous_or_insufficient_clues', { mode: 'practice' })
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
-    expect(body.reason).toBe('ambiguous_or_insufficient_clues')
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox[0].payload.reason).toBe('ambiguous_or_insufficient_clues')
   })
 
-  it('backend POST body stemPreview is truncated to 100 chars', () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
-    vi.stubEnv('VITE_USE_BACKEND_API', 'true')
-    vi.stubGlobal('fetch', mockFetch)
+  it('outbox payload stemPreview is truncated to 100 chars', () => {
     const longStem = 'A'.repeat(200)
-
     saveQuestionReport(q('q-trunc', { stem: longStem }), 'wrong_answer', {})
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
-    expect(body.stemPreview.length).toBeLessThanOrEqual(100)
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox[0].payload.stemPreview.length).toBeLessThanOrEqual(100)
+  })
+
+  it('outbox payload includes clientReportId for backend dedup', () => {
+    saveQuestionReport(q('q-idem'), 'wrong_answer', {})
+
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox[0].payload.clientReportId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    )
   })
 })

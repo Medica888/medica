@@ -1,12 +1,13 @@
+import { useEffect, useRef } from 'react'
 import { useMasteryConcept, useTopicReadiness, useConceptReviews } from '../../hooks/useMastery'
 
 const TIER_META = {
-  p1:         { label: 'P1',         color: 'var(--status-critical)' },
-  p2:         { label: 'P2',         color: 'var(--status-warn)'     },
-  p3:         { label: 'P3',         color: 'var(--status-stable)'   },
-  priority:   { label: 'P1',         color: 'var(--status-critical)' },
-  focus:      { label: 'P2',         color: 'var(--status-warn)'     },
-  reinforced: { label: 'P3',         color: 'var(--status-stable)'   },
+  p1:         { label: 'Priority',    color: 'var(--status-critical)' },
+  p2:         { label: 'Focus',       color: 'var(--status-warn)'     },
+  p3:         { label: 'Reinforce',   color: 'var(--status-stable)'   },
+  priority:   { label: 'Priority',    color: 'var(--status-critical)' },
+  focus:      { label: 'Focus',       color: 'var(--status-warn)'     },
+  reinforced: { label: 'Reinforce',   color: 'var(--status-stable)'   },
   ontrack:    { label: 'On Track',   color: 'var(--blue)'            },
 }
 
@@ -38,6 +39,7 @@ function fmtInterval(days) {
 }
 
 export default function ConceptDetailModal({ concept, mastery, tier, onClose }) {
+  const panelRef = useRef(null)
   const { data: detail,    loading }            = useMasteryConcept(concept?.id)
   const { data: topicRd,   loading: trLoading } = useTopicReadiness(concept?.id)
   const { data: reviewHist, loading: rhLoading } = useConceptReviews(concept?.id)
@@ -45,6 +47,39 @@ export default function ConceptDetailModal({ concept, mastery, tier, onClose }) 
   const tierMeta = TIER_META[tier] ?? TIER_META.focus
   const masteryPct = Math.round((mastery?.mastery_score ?? 0) * 100)
   const confPct    = Math.round((mastery?.confidence_score ?? 0) * 100)
+
+  const trapFocus = event => {
+    if (event.key !== 'Tab') return
+    const focusable = [...(panelRef.current?.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? [])]
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  useEffect(() => {
+    const previousFocus = document.activeElement
+    panelRef.current?.focus()
+    return () => {
+      previousFocus?.focus?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleEscape = event => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
 
   // Ancestor path from concept detail (array of slugs, root → self)
   const ancestorPath = detail?.ancestor_path ?? []
@@ -57,7 +92,7 @@ export default function ConceptDetailModal({ concept, mastery, tier, onClose }) 
       aria-label={`${concept?.name} mastery details`}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="cdm-panel">
+      <div className="cdm-panel" ref={panelRef} tabIndex={-1} onKeyDown={trapFocus}>
         {/* Header */}
         <div className="cdm-hdr">
           <div className="cdm-hdr-left">
@@ -111,7 +146,7 @@ export default function ConceptDetailModal({ concept, mastery, tier, onClose }) 
         <div className="cdm-conf-section">
           <div className="cdm-conf-row">
             <span className="cdm-conf-label">Confidence ({confPct}%)</span>
-            <span className="cdm-conf-hint">Saturates at 5+ attempts</span>
+            <span className="cdm-conf-hint">More attempts make this estimate steadier</span>
           </div>
           <ConfidenceBar score={mastery?.confidence_score} />
         </div>

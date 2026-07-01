@@ -96,6 +96,7 @@ export class PgFlashcardsRepository implements IFlashcardsRepository {
            unnest($20::integer[]),
            unnest($21::text[]),
            unnest($22::text[])
+         ON CONFLICT (user_id, source_question_id, tag) DO NOTHING
          RETURNING *`,
         [
           ids,

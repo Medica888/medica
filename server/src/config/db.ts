@@ -1,5 +1,6 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { config } from '../config.js';
+import { logger } from '../lib/logger.js';
 
 let _pool: Pool | null = null;
 
@@ -7,7 +8,7 @@ export function getPool(): Pool | null {
   if (!_pool && config.databaseUrl) {
     _pool = new Pool({ connectionString: config.databaseUrl });
     _pool.on('error', (err) => {
-      console.error('[db] Unexpected pool error:', err.message);
+      logger.error('[db] Unexpected pool error', { error: err.message });
     });
   }
   return _pool;
@@ -45,7 +46,7 @@ export async function testDbConnection(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('SELECT 1');
-    console.log('  DB ✓ PostgreSQL connected');
+    logger.info('DB ✓ PostgreSQL connected');
   } finally {
     client.release();
   }

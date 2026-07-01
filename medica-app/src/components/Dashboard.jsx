@@ -283,7 +283,7 @@ export default function Dashboard({ onNavigate }) {
                 </svg>
               </button>
               <button type="button" className="db-btn db-btn--ghost" onClick={() => onNavigate('qbank')}>
-                Explore QBank
+                Build Question Set
               </button>
             </div>
           </section>
@@ -338,8 +338,8 @@ export default function Dashboard({ onNavigate }) {
             />
             <QuickAction
               icon={<QBankIcon />}
-              label="Open QBank"
-              desc="Browse and filter the question bank"
+              label="Build Question Set"
+              desc="Choose a subject, system, topic, and difficulty"
               color="purple"
               onClick={() => onNavigate('qbank')}
             />

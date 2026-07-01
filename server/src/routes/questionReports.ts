@@ -8,6 +8,7 @@ import { getRepositories } from '../repositories/index.js';
 import { QuestionReportService } from '../services/QuestionReportService.js';
 import { ClinicianReviewService } from '../services/ClinicianReviewService.js';
 import { normalizeDifficulty, normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 
@@ -56,6 +57,7 @@ router.post('/', optionalAuth, validate(createQuestionReportSchema), async (req:
       usmle_content_area: body.usmleContentArea ?? null,
       physician_task:     body.physicianTask ?? null,
       stem_preview:       body.stemPreview ?? null,
+      client_report_id:   body.clientReportId ?? null,
     });
 
     res.status(201).json({ id: report.id });
@@ -68,7 +70,7 @@ router.post('/', optionalAuth, validate(createQuestionReportSchema), async (req:
         : 'duplicate report — content adjudication required';
       new ClinicianReviewService(getRepositories().clinicianReviews)
         .createOrEscalate(body.fingerprint, priority, reason)
-        .catch(err => console.warn('[clinician-review] report trigger failed:', (err as Error).message));
+        .catch(err => logger.warn('[clinician-review] report trigger failed', { error: (err as Error).message }));
     }
   } catch {
     res.status(500).json({ error: 'Failed to save report' });

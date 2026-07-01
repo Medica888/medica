@@ -35,7 +35,7 @@ export default function Header({ onHome, pageTitle, readinessStatus }) {
 
       {/* Page title */}
       <div className="hdr-title-wrap">
-        <h1 className="hdr-page-title">{title}</h1>
+        <div className="hdr-page-title" aria-current="page">{title}</div>
       </div>
 
       {/* Right controls */}

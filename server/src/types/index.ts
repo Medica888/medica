@@ -526,6 +526,8 @@ export interface QuestionReport {
   usmle_content_area: string | null;
   physician_task:     string | null;
   stem_preview:       string | null;
+  /** Opaque UUID generated client-side before the first attempt. Used for idempotent retries. */
+  client_report_id?:  string | null;
   created_at:         Date;
 }
 

@@ -433,6 +433,36 @@ export interface IClinicianReviewsRepository {
   getMetrics(): Promise<ClinicianReviewMetrics>;
 }
 
+export interface AIUsageRecord {
+  request_count: number;
+  token_count: number;
+}
+
+export interface IAIUsageBudgetRepository {
+  /**
+   * Atomically reserve one request slot for today, gated by requestLimit and tokenLimit.
+   * Returns 'ok' if the slot was reserved (count was < limit, or limit is null).
+   * Returns 'denied' if either budget is exhausted (count >= limit, including limit === 0).
+   * THROWS on storage failure — callers must treat a throw as a storage error (fail-closed).
+   * Zero limits are handled by the caller before invoking this method.
+   */
+  reserveRequest(userId: string, date: string, requestLimit: number | null, tokenLimit: number | null): Promise<'ok' | 'denied'>;
+  /**
+   * Decrement today's request count by 1 when the provider is never called
+   * (e.g., AbortError before first API call). Best-effort; fire-and-forget acceptable.
+   */
+  releaseRequest(userId: string, date: string): Promise<void>;
+  /**
+   * Atomically add token counts to the daily row. Called after a confirmed response.
+   * Never gates the request — informational only.
+   */
+  addTokens(userId: string, date: string, tokens: number): Promise<void>;
+  /** Atomically increment daily counters. Returns the updated totals. */
+  incrementUsage(userId: string, date: string, requests: number, tokens: number): Promise<AIUsageRecord>;
+  /** Returns null when no row exists for this user+date (zero usage). */
+  getUsage(userId: string, date: string): Promise<AIUsageRecord | null>;
+}
+
 export interface AuditLogEntry {
   userId:         string | null;
   action:         string;

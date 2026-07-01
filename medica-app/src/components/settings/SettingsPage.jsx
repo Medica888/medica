@@ -69,12 +69,12 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
       <div className="stg-scroll">
         <div className="stg-hdr">
           <h1 className="stg-title">Settings</h1>
-          <p className="stg-sub">Account &amp; backend connection</p>
+          <p className="stg-sub">Account, sync, and study preferences</p>
         </div>
 
         {/* ── Backend account ───────────────────────────────────────────── */}
         <div className="stg-card">
-          <div className="stg-card-title">Backend Account</div>
+          <div className="stg-card-title">Medica Account</div>
           <p className="stg-card-desc">
             Connect your account to enable mastery tracking, adaptive learning, and cloud sync across sessions.
           </p>
@@ -110,7 +110,7 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
                 className="stg-logout-btn"
                 onClick={onLogout}
               >
-                Disconnect
+                Log Out
               </button>
             </div>
           ) : (
@@ -198,7 +198,7 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
           <div className="stg-info-rows">
             <div className="stg-info-row">
               <span className="stg-info-label">Version</span>
-              <span className="stg-info-val">Phase 3.4</span>
+              <span className="stg-info-val">Current</span>
             </div>
             <div className="stg-info-row">
               <span className="stg-info-label">Adaptive learning</span>

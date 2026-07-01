@@ -5,11 +5,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { getPool } from '../config/db.js';
+import { logger } from '../lib/logger.js';
 
 async function init(): Promise<void> {
   const pool = getPool();
   if (!pool) {
-    console.error('DATABASE_URL is not set. Set it in server/.env and retry.');
+    logger.error('DATABASE_URL is not set. Set it in server/.env and retry.');
     process.exit(1);
   }
 
@@ -18,11 +19,11 @@ async function init(): Promise<void> {
 
   const client = await pool.connect();
   try {
-    console.log('Running schema initialization...');
+    logger.info('Running schema initialization...');
     await client.query(sql);
-    console.log('✓ Schema initialized successfully');
+    logger.info('Schema initialized successfully');
   } catch (err) {
-    console.error('✗ Schema initialization failed:', err);
+    logger.error('Schema initialization failed', { error: String(err) });
     process.exit(1);
   } finally {
     client.release();

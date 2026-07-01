@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   normalizeOptions, getCorrectLetter, getUserLetter,
   isQuestionAnswered, isQuestionCorrect,
@@ -14,7 +15,8 @@ import QuestionReportControl from '../session/QuestionReportControl'
  *   sessionConfig?: object
  * }} props
  */
-export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked, sessionConfig, highlights = [] }) {
+export default function ExamReviewCard({ question, userAnswer, questionNumber, isMarked, sessionConfig, highlights = [], defaultExpanded = true }) {
+  const [detailsExpanded, setDetailsExpanded] = useState(defaultExpanded)
   const correctLetter = getCorrectLetter(question)
   const userLetter    = getUserLetter(userAnswer)
   const answered      = isQuestionAnswered(userAnswer)
@@ -32,6 +34,13 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
   }
 
   const pearl = question.highYieldPearl || question.pearl
+  const hasTeachingDetails = Boolean(
+    question.explanation
+    || (question.optionExplanations && Object.keys(question.optionExplanations).length > 0)
+    || pearl
+    || question.memoryAnchor
+    || question.commonTrap
+  )
 
   return (
     <div className={cardClass}>
@@ -116,15 +125,26 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
         )}
       </div>
 
+      {hasTeachingDetails && (
+        <button
+          type="button"
+          className="erv-details-toggle"
+          onClick={() => setDetailsExpanded(value => !value)}
+          aria-expanded={detailsExpanded}
+        >
+          {detailsExpanded ? 'Hide teaching details' : 'Show teaching details'}
+        </button>
+      )}
+
       {/* Explanation */}
-      {question.explanation && (
+      {detailsExpanded && question.explanation && (
         <div className="erv-explanation">
           <p>{question.explanation}</p>
         </div>
       )}
 
       {/* Option explanations */}
-      {question.optionExplanations && Object.keys(question.optionExplanations).length > 0 && (
+      {detailsExpanded && question.optionExplanations && Object.keys(question.optionExplanations).length > 0 && (
         <div className="erv-opt-exps">
           <div className="erv-opt-exps-label">Option Dissection</div>
           {['A', 'B', 'C', 'D'].map(letter => {
@@ -141,7 +161,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       )}
 
       {/* High-yield pearl */}
-      {pearl && (
+      {detailsExpanded && pearl && (
         <div className="erv-pearl">
           <span className="erv-pearl-label">High-Yield Pearl</span>
           <p>{pearl}</p>
@@ -149,7 +169,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       )}
 
       {/* Memory anchor */}
-      {question.memoryAnchor && (
+      {detailsExpanded && question.memoryAnchor && (
         <div className="erv-anchor">
           <span className="erv-anchor-label">Memory Anchor</span>
           <p>{question.memoryAnchor}</p>
@@ -157,7 +177,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       )}
 
       {/* Common trap */}
-      {question.commonTrap && (
+      {detailsExpanded && question.commonTrap && (
         <div className="erv-trap">
           <span className="erv-trap-label">Common Trap</span>
           <p>{question.commonTrap}</p>

@@ -12,10 +12,12 @@ export default function TopicSelector({ value, onChange }) {
         className="qb-input"
         value={value}
         onChange={e => onChange(e.target.value)}
-        placeholder="e.g. Heart failure, Loop diuretics, Stroke syndromes, Acid-base disorders"
+        placeholder="e.g. Heart failure, Stroke syndromes, Acid-base disorders"
       />
       <div className="qb-field-sub">
-        Leave blank to let Medica choose a high-yield topic automatically.
+        {value
+          ? 'Medica will keep the session focused on this concept.'
+          : 'Leave blank to let Medica choose a high-yield topic automatically.'}
       </div>
     </div>
   )

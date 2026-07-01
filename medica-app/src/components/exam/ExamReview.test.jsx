@@ -321,6 +321,19 @@ describe('ExamReview — long review renders all cards (Test 6)', () => {
     expect(screen.getAllByRole('button', { name: /report/i }).length).toBe(15)
   })
 
+  it('collapses teaching details by default for a long all-questions review', () => {
+    const questions = Array.from({ length: 15 }, (_, i) => makeQuestion(`q${i}`, 'A'))
+    const session = { id: 's1', mode: 'exam', config: {}, questions, answers: {} }
+    render(
+      <ExamReview session={session} initialFilter="all" onBack={NOOP} onNewQuiz={NOOP} />
+    )
+
+    expect(screen.getAllByRole('button', { name: 'Show teaching details' })).toHaveLength(15)
+    expect(screen.queryByText('Explanation for q0')).not.toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Show teaching details' })[0])
+    expect(screen.getByText('Explanation for q0')).toBeInTheDocument()
+  })
+
   it('incorrect-filter on long session renders only wrong cards', () => {
     const questions = Array.from({ length: 10 }, (_, i) => makeQuestion(`q${i}`, 'A'))
     // Answer 4 of them wrong (chose B, correct is A)

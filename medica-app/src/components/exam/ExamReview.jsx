@@ -150,7 +150,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
           </div>
         ) : (
           filtered.map((q) => (
-            <div key={q.id} id={`qnav-${q.id}`}>
+            <div key={`${filter}-${q.id}`} id={`qnav-${q.id}`}>
               <ExamReviewCard
                 question={q}
                 userAnswer={answers[q.id] ?? null}
@@ -158,6 +158,7 @@ export default function ExamReview({ session, initialFilter = 'all', onBack, onN
                 isMarked={!!marked[q.id]}
                 sessionConfig={session.config}
                 highlights={session.highlights?.[q.id] ?? []}
+                defaultExpanded={filtered.length <= 5}
               />
             </div>
           ))

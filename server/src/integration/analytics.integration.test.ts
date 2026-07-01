@@ -10,6 +10,22 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'crypto';
 import { createTestPool, truncateAll } from './helpers.js';
 import type { Pool } from 'pg';
+import { PgAnalyticsRepository } from '../repositories/pg/AnalyticsRepository.js';
+import type { AnalyticsSnapshot } from '../types/index.js';
+
+function snapshot(userId: string, date: string, totalSessions: number): Omit<AnalyticsSnapshot, 'id'> {
+  return {
+    user_id: userId,
+    snapshot_date: new Date(`${date}T12:00:00.000Z`),
+    total_sessions: totalSessions,
+    average_score: 75,
+    subject_mastery: { Pathology: 0.75 },
+    system_mastery: { Cardiovascular: 0.8 },
+    weak_areas: [],
+    study_priorities: [],
+    mistake_diagnoses: [],
+  };
+}
 
 describe('analytics snapshot — PostgreSQL contract', () => {
   let pool: Pool;
@@ -53,45 +69,33 @@ describe('analytics snapshot — PostgreSQL contract', () => {
     expect(def).toContain('snapshot_date');
   });
 
-  it('INSERT ... ON CONFLICT (user_id, snapshot_date) upserts correctly', async () => {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const id1 = randomUUID();
+  it('PgAnalyticsRepository updates the same user and day without changing row identity', async () => {
+    const repo = new PgAnalyticsRepository(pool);
+    const first = await repo.upsert(snapshot(userId, '2026-06-29', 1));
+    const second = await repo.upsert(snapshot(userId, '2026-06-29', 5));
 
+    expect(second.id).toBe(first.id);
+    expect(second.total_sessions).toBe(5);
+    expect(second.snapshot_date).toBeInstanceOf(Date);
+    expect(second.snapshot_date.toISOString()).toBe('2026-06-29T00:00:00.000Z');
+  });
+
+  it('PgAnalyticsRepository isolates users and creates separate rows for separate dates', async () => {
+    const repo = new PgAnalyticsRepository(pool);
+    const otherUserId = randomUUID();
     await pool.query(
-      `INSERT INTO analytics_snapshots
-         (id, user_id, snapshot_date, total_sessions, average_score,
-          subject_mastery, system_mastery, weak_areas, study_priorities, mistake_diagnoses)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (user_id, snapshot_date)
-       DO UPDATE SET total_sessions = EXCLUDED.total_sessions`,
-      [id1, userId, today, 1, 70, '{}', '{}', '[]', '[]', '[]'],
+      `INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)`,
+      [otherUserId, `analytics-${otherUserId}@test.com`, 'Other Analytics User', 'hashed'],
     );
 
-    const after1 = await pool.query<{ total_sessions: number; id: string }>(
-      'SELECT id, total_sessions FROM analytics_snapshots WHERE user_id = $1',
-      [userId],
-    );
-    expect(after1.rows).toHaveLength(1);
-    expect(after1.rows[0].total_sessions).toBe(1);
+    await repo.upsert(snapshot(userId, '2026-06-30', 2));
+    await repo.upsert(snapshot(userId, '2026-07-01', 3));
+    await repo.upsert(snapshot(otherUserId, '2026-06-30', 4));
 
-    // Second upsert on the same calendar day must UPDATE, not insert a second row.
-    await pool.query(
-      `INSERT INTO analytics_snapshots
-         (id, user_id, snapshot_date, total_sessions, average_score,
-          subject_mastery, system_mastery, weak_areas, study_priorities, mistake_diagnoses)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (user_id, snapshot_date)
-       DO UPDATE SET total_sessions = EXCLUDED.total_sessions`,
-      [randomUUID(), userId, today, 5, 85, '{}', '{}', '[]', '[]', '[]'],
-    );
-
-    const after2 = await pool.query<{ total_sessions: number; id: string }>(
-      'SELECT id, total_sessions FROM analytics_snapshots WHERE user_id = $1',
-      [userId],
-    );
-    expect(after2.rows).toHaveLength(1);
-    expect(after2.rows[0].total_sessions).toBe(5);
-    // Same row id confirms UPDATE path, not a new INSERT.
-    expect(after2.rows[0].id).toBe(id1);
+    const primaryRows = await repo.findByUserId(userId);
+    const otherRows = await repo.findByUserId(otherUserId);
+    expect(primaryRows.map(row => row.total_sessions)).toEqual(expect.arrayContaining([2, 3]));
+    expect(otherRows).toHaveLength(1);
+    expect(otherRows[0].total_sessions).toBe(4);
   });
 });

@@ -9,6 +9,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { createSessionSchema } from '../schemas/exam.js';
 import { getRepositories } from '../repositories/index.js';
+import { logger } from '../lib/logger.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,11 +31,11 @@ router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Re
     const { analytics, examSessions, userConceptMastery, masterySnapshots } = getRepositories();
     new AnalyticsService(analytics, examSessions)
       .saveSnapshot(req.userId!)
-      .catch((err) => console.error('[analytics] snapshot update failed:', err));
+      .catch((err) => logger.error('[analytics] snapshot update failed', { error: (err as Error).message }));
     // Fire-and-forget: capture mastery progress snapshot (independent — one cannot swallow the other)
     new ProgressTrackingService(userConceptMastery, masterySnapshots)
       .takeSnapshot(req.userId!, session.id)
-      .catch((err) => console.error('[progress] snapshot failed:', err));
+      .catch((err) => logger.error('[progress] snapshot failed', { error: (err as Error).message }));
     res.status(201).json({ session });
   } catch {
     res.status(500).json({ error: 'Internal server error' });

@@ -26,6 +26,8 @@ vi.mock('./components/Sidebar', () => ({
   default: ({ onNav }) => (
     <nav>
       <button type="button" onClick={() => onNav('create-quiz')}>New Session</button>
+      <button type="button" onClick={() => onNav('qbank')}>QBank</button>
+      <button type="button" onClick={() => onNav('ai-tutor')}>AI Coach</button>
     </nav>
   ),
 }))
@@ -35,9 +37,10 @@ vi.mock('./components/Dashboard', () => ({
 }))
 
 vi.mock('./components/quiz-builder/QuizBuilder', () => ({
-  default: ({ onStart, generationError }) => (
+  default: ({ onStart, generationError, initialMode }) => (
     <div>
       <div>Quiz Builder Mock</div>
+      <div>Initial mode: {initialMode || 'saved'}</div>
       {generationError && <div>{generationError}</div>}
       <button type="button" onClick={() => onStart(makeConfig('exam'))}>Start Exam Flow</button>
       <button type="button" onClick={() => onStart(makeConfig('practice'))}>Start Practice Flow</button>
@@ -219,6 +222,22 @@ describe('App quiz phase routing', () => {
     expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
     expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('opens the working quiz builder from QBank navigation', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+
+    expect(await screen.findByText('Quiz Builder Mock')).toBeInTheDocument()
+    expect(screen.queryByText(/will be available in a future phase/i)).not.toBeInTheDocument()
+  })
+
+  it('opens the working quiz builder in Coach mode from AI Coach navigation', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI Coach' }))
+
+    expect(await screen.findByText('Quiz Builder Mock')).toBeInTheDocument()
+    expect(screen.getByText('Initial mode: coach')).toBeInTheDocument()
   })
 
   it('passes exam flow through builder, loading, session, results, review, and back', async () => {

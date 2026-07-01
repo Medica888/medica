@@ -13,6 +13,12 @@ import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormali
 import { normalizeQuestionTaxonomyFields } from './usmleTaxonomy.js';
 import { fetchAllBackendSessions } from './sessionNormalizer.js';
 import {
+  classifySessionSyncError,
+  drainSessionSyncOutbox,
+  enqueueSessionSync,
+  enqueueFlashcardBatchSync,
+} from './sessionSyncOutbox.js';
+import {
   saveCompletedSession,
   getSessionHistory,
   appendFlashcards,
@@ -38,7 +44,8 @@ export async function saveSession(results, sessionWithAnswers) {
   const mode = results.mode ?? sessionWithAnswers?.mode ?? 'practice';
   saveCompletedSession({ ...results, mode, questionIds });
 
-  if (!USE_BACKEND) return { backendSynced: false };
+  if (!USE_BACKEND) return { backendSynced: false, syncState: 'local-only' };
+  if (!api.isAuthenticated?.()) return { backendSynced: false, syncState: 'local-only' };
 
   const questions = sessionWithAnswers?.questions ?? [];
   const answers   = sessionWithAnswers?.answers   ?? {};
@@ -91,22 +98,34 @@ export async function saveSession(results, sessionWithAnswers) {
     duration_seconds:  sessionWithAnswers?.totalTime ?? 0,
     difficulty:        sessionWithAnswers?.config?.difficulty ?? 'Balanced',
   };
-  const clientSessionId = sessionWithAnswers?.clientSessionId;
-  const apiPayload = { ...payload, ...(clientSessionId && { clientSessionId }) };
+  const clientSessionId = sessionWithAnswers?.clientSessionId || crypto.randomUUID();
+  const apiPayload = { ...payload, clientSessionId };
+  // Capture ownership before the request: apiClient clears current auth state on 401.
+  const syncUserId = api.getCurrentUserId?.();
 
   try {
     await api.exams.create(apiPayload);
-    return { backendSynced: true };
-  } catch {
-    // One bounded retry with the same clientSessionId (idempotent — server deduplicates).
-    await new Promise(r => setTimeout(r, 1_500));
-    try {
-      await api.exams.create(apiPayload);
-      return { backendSynced: true };
-    } catch (retryErr) {
-      console.warn('[dataProvider] Backend session save failed after retry:', retryErr.message);
-      return { backendSynced: false };
+    return { backendSynced: true, syncState: 'synced' };
+  } catch (error) {
+    if (classifySessionSyncError(error) === 'permanent') {
+      console.warn('[dataProvider] Backend rejected session save:', error.message);
+      return { backendSynced: false, syncState: 'failed' };
     }
+
+    const queued = await enqueueSessionSync(apiPayload, syncUserId, error);
+    if (!queued) return { backendSynced: false, syncState: 'failed' };
+    if (classifySessionSyncError(error) === 'paused') {
+      return { backendSynced: false, syncState: 'pending' };
+    }
+
+    const result = await drainSessionSyncOutbox(syncUserId, { force: true });
+    if (result.synced > 0 && result.pending === 0 && result.failed === 0) {
+      return { backendSynced: true, syncState: 'synced' };
+    }
+    return {
+      backendSynced: false,
+      syncState: result.failed > 0 ? 'failed' : 'pending',
+    };
   }
 }
 
@@ -218,16 +237,24 @@ export async function saveFlashcards(cards) {
   }
 
   const _syncUserId = api.getCurrentUserId?.() ?? '';
+  const mapped = savedCards.map(_mapCardToBackendPayload);
+  result.backendAttempted = true;
 
   try {
-    const mapped = savedCards.map(_mapCardToBackendPayload);
-    result.backendAttempted = true;
     const created = await api.flashcards.createMany(mapped);
     _writeBackendIds(created?.flashcards ?? []);
     result.backendSynced = true;
   } catch (err) {
-    console.warn('[dataProvider] Backend flashcard save failed:', err.message);
-    if (_syncUserId) _setFlag(`${SYNC_DIRTY_PREFIX}${_syncUserId}`);
+    if (_syncUserId) {
+      const batchId = crypto.randomUUID();
+      enqueueFlashcardBatchSync(mapped, batchId, _syncUserId, err)
+        .then((queued) => {
+          // queued === null means the per-type capacity (20) is full; batch saved locally only.
+          if (queued) drainSessionSyncOutbox(_syncUserId, { force: true }).catch(() => {});
+        })
+        .catch(() => {});
+      _setFlag(`${SYNC_DIRTY_PREFIX}${_syncUserId}`);
+    }
   }
 
   return result;

@@ -8,13 +8,16 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
 
   async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport> {
     const id = randomUUID();
+    const clientReportId = report.client_report_id ?? null;
     const res = await this.pool.query<QuestionReport>(
       `INSERT INTO question_reports
          (id, user_id, question_id, fingerprint, reason, source, mode, difficulty,
           requested_subject, requested_system, requested_topic,
           actual_subject, actual_system, actual_topic,
-          tested_concept, usmle_content_area, physician_task, stem_preview)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+          tested_concept, usmle_content_area, physician_task, stem_preview, client_report_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       ON CONFLICT (user_id, client_report_id) WHERE client_report_id IS NOT NULL
+       DO UPDATE SET client_report_id = EXCLUDED.client_report_id
        RETURNING *`,
       [
         id,
@@ -35,6 +38,7 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         report.usmle_content_area,
         report.physician_task,
         report.stem_preview,
+        clientReportId,
       ],
     );
     return res.rows[0]!;

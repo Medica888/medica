@@ -24,9 +24,9 @@ const RANGE_NOTE = {
 }
 
 const SUBJECT_STATUS = (pct) => {
-  if (pct < 50) return { label: 'P1',          variant: 'priority' }
-  if (pct < 70) return { label: 'P2',          variant: 'focus' }
-  if (pct < 80) return { label: 'P3',          variant: 'reinforced' }
+  if (pct < 50) return { label: 'Priority',    variant: 'priority' }
+  if (pct < 70) return { label: 'Focus',       variant: 'focus' }
+  if (pct < 80) return { label: 'Reinforce',   variant: 'reinforced' }
   return              { label: 'On track',     variant: 'ontrack' }
 }
 
@@ -71,6 +71,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
                   type="button"
                   className={`an-time-btn${timeFilter === t ? ' active' : ''}`}
                   onClick={() => setTimeFilter(t)}
+                  aria-pressed={timeFilter === t}
                 >
                   {t}
                 </button>
@@ -95,6 +96,12 @@ export default function AnalyticsDashboard({ onNavigate }) {
     return (
       <div className="an-page">
         <div className="an-scroll">
+          <div className="an-intel-hdr">
+            <div>
+              <h1 className="an-intel-title">Analytics</h1>
+              <p className="an-intel-sub">Performance Intelligence | Step 1</p>
+            </div>
+          </div>
           <div className="an-empty">
             <div className="an-empty-icon" aria-hidden="true" />
             <div className="an-empty-title">No Session Data Yet</div>
@@ -141,6 +148,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
                 type="button"
                 className={`an-time-btn${timeFilter === t ? ' active' : ''}`}
                 onClick={() => setTimeFilter(t)}
+                aria-pressed={timeFilter === t}
               >
                 {t}
               </button>
@@ -151,6 +159,11 @@ export default function AnalyticsDashboard({ onNavigate }) {
         {/* Range subtitle */}
         {rangeNote && (
           <p className="an-range-note" data-testid="range-note">{rangeNote}</p>
+        )}
+        {overview.totalSessions < 3 && (
+          <p className="an-range-note" role="note">
+            Early estimate based on {overview.totalSessions} session{overview.totalSessions !== 1 ? 's' : ''}. Complete at least 3 sessions before treating trends or readiness as reliable.
+          </p>
         )}
 
         {/* Two-column layout */}

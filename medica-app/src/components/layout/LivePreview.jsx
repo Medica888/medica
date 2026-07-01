@@ -28,8 +28,8 @@ export default function LivePreview({ config }) {
         <div className={`lp-mode-badge ${mode}`}>{modeLabel} Mode</div>
 
         <div className="lp-rows">
-          <Row label="Subject"    value={subject} />
-          <Row label="System"     value={getSystemLabel(system)} />
+          <Row label="Subject"    value={subject || 'All Subjects'} />
+          <Row label="System"     value={getSystemLabel(system) || 'All Systems'} />
           <Row label="Topic" value={topic || 'Auto-selected (high-yield)'} />
           <Row label="Questions"  value={`${questionCount} questions`} />
           <Row label="Time"       value={timeLabel} />

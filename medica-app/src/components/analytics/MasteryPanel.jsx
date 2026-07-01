@@ -4,12 +4,12 @@ import { useAuthState } from '../../hooks/useAuthState'
 import ConceptDetailModal from './ConceptDetailModal'
 
 const TIER_META = {
-  p1:         { label: 'P1',         color: 'var(--status-critical)' },
-  p2:         { label: 'P2',         color: 'var(--status-warn)'     },
-  p3:         { label: 'P3',         color: 'var(--status-stable)'   },
-  priority:   { label: 'P1',         color: 'var(--status-critical)' },
-  focus:      { label: 'P2',         color: 'var(--status-warn)'     },
-  reinforced: { label: 'P3',         color: 'var(--status-stable)'   },
+  p1:         { label: 'Priority',    color: 'var(--status-critical)' },
+  p2:         { label: 'Focus',       color: 'var(--status-warn)'     },
+  p3:         { label: 'Reinforce',   color: 'var(--status-stable)'   },
+  priority:   { label: 'Priority',    color: 'var(--status-critical)' },
+  focus:      { label: 'Focus',       color: 'var(--status-warn)'     },
+  reinforced: { label: 'Reinforce',   color: 'var(--status-stable)'   },
   ontrack:    { label: 'On Track',   color: 'var(--blue)'            },
 }
 
@@ -276,14 +276,14 @@ export default function MasteryPanel() {
 
         {/* ── Row 2: Weakest concepts ──────────────────────────────── */}
         <div className="an-intel-card mp-concept-card mp-weak-card">
-          <div className="an-intel-card-title">P1 Concepts</div>
+          <div className="an-intel-card-title">Priority Concepts</div>
           <div className="an-intel-card-sub">Needs reinforcement — sorted weakest first</div>
           {weakest.loading ? (
             <div className="mp-skeleton-rows">{[0,1,2,3,4].map(i => <SkeletonRow key={i} />)}</div>
           ) : !weakest.data?.concepts?.length ? (
             <p className="an-intel-muted">
               {ov?.total_concepts > 0
-                ? 'All tracked concepts are performing at P2 level or above.'
+                ? 'No tracked concepts currently need priority review.'
                 : 'No weak concepts identified yet.'}
             </p>
           ) : (

@@ -16,6 +16,7 @@ import { InMemoryQuestionReportsRepository } from './memory/QuestionReportsRepos
 import { InMemoryAuditLogRepository } from './memory/AuditLogRepository.js';
 import { InMemoryTaxonomyCandidatesRepository } from './memory/TaxonomyCandidatesRepository.js';
 import { InMemoryClinicianReviewsRepository } from './memory/ClinicianReviewsRepository.js';
+import { InMemoryAIUsageBudgetRepository } from './memory/AIUsageBudgetRepository.js';
 
 import { PgUsersRepository } from './pg/UsersRepository.js';
 import { PgAuthTokensRepository } from './pg/AuthTokensRepository.js';
@@ -33,6 +34,7 @@ import { PgQuestionReportsRepository } from './pg/QuestionReportsRepository.js';
 import { PgAuditLogRepository } from './pg/AuditLogRepository.js';
 import { PgTaxonomyCandidatesRepository } from './pg/TaxonomyCandidatesRepository.js';
 import { PgClinicianReviewsRepository } from './pg/ClinicianReviewsRepository.js';
+import { PgAIUsageBudgetRepository } from './pg/AIUsageBudgetRepository.js';
 
 import type { IUsersRepository } from './interfaces.js';
 import type { IAuthTokensRepository } from './interfaces.js';
@@ -50,6 +52,7 @@ import type { IQuestionReportsRepository } from './interfaces.js';
 import type { IAuditLogRepository } from './interfaces.js';
 import type { ITaxonomyCandidatesRepository } from './interfaces.js';
 import type { IClinicianReviewsRepository } from './interfaces.js';
+import type { IAIUsageBudgetRepository } from './interfaces.js';
 
 import { config } from '../config.js';
 
@@ -70,6 +73,7 @@ export interface Repositories {
   auditLog:           IAuditLogRepository;
   taxonomyCandidates: ITaxonomyCandidatesRepository;
   clinicianReviews:   IClinicianReviewsRepository;
+  aiUsageBudget:      IAIUsageBudgetRepository;
 }
 
 let _repos: Repositories | null = null;
@@ -101,6 +105,7 @@ export function createInMemoryRepositories(): Repositories {
     auditLog:           new InMemoryAuditLogRepository(),
     taxonomyCandidates: new InMemoryTaxonomyCandidatesRepository(),
     clinicianReviews:   new InMemoryClinicianReviewsRepository(),
+    aiUsageBudget:      new InMemoryAIUsageBudgetRepository(),
   };
 }
 
@@ -124,6 +129,7 @@ export function createPgRepositories(): Repositories {
     auditLog:           new PgAuditLogRepository(pool),
     taxonomyCandidates: new PgTaxonomyCandidatesRepository(pool),
     clinicianReviews:   new PgClinicianReviewsRepository(pool),
+    aiUsageBudget:      new PgAIUsageBudgetRepository(pool),
   };
 }
 

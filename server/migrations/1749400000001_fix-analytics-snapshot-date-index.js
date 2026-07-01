@@ -29,6 +29,22 @@ exports.up = (pgm) => {
     name: 'analytics_snapshots_user_date_uniq',
     ifExists: true,
   });
+  // The old TIMESTAMPTZ index allowed multiple snapshots for one user on the
+  // same UTC calendar day. Keep the newest row before collapsing to DATE.
+  pgm.sql(`
+    WITH ranked AS (
+      SELECT id,
+             row_number() OVER (
+               PARTITION BY user_id, (snapshot_date AT TIME ZONE 'UTC')::date
+               ORDER BY snapshot_date DESC, id DESC
+             ) AS row_number
+      FROM analytics_snapshots
+    )
+    DELETE FROM analytics_snapshots AS snapshot
+    USING ranked
+    WHERE snapshot.id = ranked.id
+      AND ranked.row_number > 1
+  `);
   pgm.sql(`
     ALTER TABLE analytics_snapshots
       ALTER COLUMN snapshot_date TYPE DATE

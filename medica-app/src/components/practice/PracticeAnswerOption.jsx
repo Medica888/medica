@@ -13,7 +13,7 @@ export default function PracticeAnswerOption({ option, state, disabled, onClick 
       className={`pi-option${state !== 'default' ? ` ${state}` : ''}`}
       onClick={onClick}
       disabled={disabled}
-      aria-pressed={state === 'correct' || state === 'wrong'}
+      aria-pressed={state === 'selected' || state === 'correct' || state === 'wrong'}
     >
       <span className="pi-opt-letter">{option.letter}</span>
       <span className="pi-opt-text">{option.text}</span>

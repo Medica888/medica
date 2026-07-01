@@ -3,6 +3,7 @@ export default function AdaptiveGenerateCTA({ plan, state, msg, onGenerate, comp
   const targets = plan.data?.targetConcepts ?? []
   const recCount = plan.data?.recommendedCardCount ?? 10
   const isLoading = state === 'loading'
+  const canGenerate = recCount > 0
 
   if (plan.loading) return null
 
@@ -18,14 +19,18 @@ export default function AdaptiveGenerateCTA({ plan, state, msg, onGenerate, comp
         </div>
         <div className="fc-ai-strip-right">
           {msg && <span className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</span>}
-          <button
-            type="button"
-            className={`fc-action-btn primary sm${isLoading ? ' loading' : ''}`}
-            onClick={onGenerate}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Generating...' : `Generate ${recCount} Cards`}
-          </button>
+          {canGenerate ? (
+            <button
+              type="button"
+              className={`fc-action-btn primary sm${isLoading ? ' loading' : ''}`}
+              onClick={onGenerate}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Generating...' : `Generate ${recCount} Cards`}
+            </button>
+          ) : (
+            <span className="fc-ai-strip-sub">No cards recommended yet</span>
+          )}
         </div>
       </div>
     )
@@ -51,14 +56,18 @@ export default function AdaptiveGenerateCTA({ plan, state, msg, onGenerate, comp
         )}
       </div>
       {msg && <p className={`fc-ai-msg${state === 'error' ? ' err' : ''}`}>{msg}</p>}
-      <button
-        type="button"
-        className={`fc-action-btn primary${isLoading ? ' loading' : ''}`}
-        onClick={onGenerate}
-        disabled={isLoading}
-      >
-        {isLoading ? 'Generating...' : `Generate ${recCount} Cards`}
-      </button>
+      {canGenerate ? (
+        <button
+          type="button"
+          className={`fc-action-btn primary${isLoading ? ' loading' : ''}`}
+          onClick={onGenerate}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Generating...' : `Generate ${recCount} Cards`}
+        </button>
+      ) : (
+        <span className="fc-ai-msg">Complete a session to identify concepts for review.</span>
+      )}
     </div>
   )
 }

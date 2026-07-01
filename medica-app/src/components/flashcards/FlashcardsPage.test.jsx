@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import FlashcardsPage from './FlashcardsPage'
+import AdaptiveGenerateCTA from './AdaptiveGenerateCTA'
 
 const FLASHCARDS_KEY = 'medica:flashcards'
 
@@ -76,6 +77,20 @@ describe('FlashcardsPage - deck view labels', () => {
   it('shows empty state "No Reinforcement Items Yet" when deck is empty', () => {
     render(<FlashcardsPage />)
     expect(screen.getByText('No Reinforcement Items Yet')).toBeInTheDocument()
+  })
+
+  it('does not offer a zero-card generation action', () => {
+    render(
+      <AdaptiveGenerateCTA
+        plan={{ loading: false, data: { enabled: true, targetConcepts: [], recommendedCardCount: 0 } }}
+        state="idle"
+        msg=""
+        onGenerate={() => {}}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: /generate 0 cards/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/complete a session to identify concepts/i)).toBeInTheDocument()
   })
 })
 

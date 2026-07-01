@@ -6,6 +6,10 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
   private store = new Map<string, QuestionReport>();
 
   async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport> {
+    if (report.client_report_id) {
+      const existing = [...this.store.values()].find(r => r.client_report_id === report.client_report_id);
+      if (existing) return existing;
+    }
     const id = randomUUID();
     const record: QuestionReport = { id, ...report, created_at: new Date() };
     this.store.set(id, record);

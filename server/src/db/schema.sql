@@ -93,8 +93,23 @@ CREATE INDEX IF NOT EXISTS idx_question_attempts_session_id
 
 CREATE INDEX IF NOT EXISTS idx_flashcards_user_id
   ON flashcards(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS flashcards_user_source_tag_uniq
+  ON flashcards(user_id, source_question_id, tag);
 
 CREATE INDEX IF NOT EXISTS idx_analytics_snapshots_user_id
   ON analytics_snapshots(user_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_snapshots_date
   ON analytics_snapshots(snapshot_date DESC);
+
+-- ── Per-user AI usage (daily buckets) ────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS user_ai_usage (
+  id            UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  usage_date    DATE    NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  token_count   BIGINT  NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_ai_usage_user_date_uniq
+  ON user_ai_usage(user_id, usage_date);

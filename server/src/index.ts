@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { validateSchema } from './db/validateSchema.js';
 import { getRepositories } from './repositories/index.js';
 import { taxonomyResolutionService } from './services/TaxonomyResolutionService.js';
-import { initRedisStore } from './middleware/rateLimiter.js';
+import { closeRedisStore, initRedisStore } from './middleware/rateLimiter.js';
 import { getPool } from './config/db.js';
 import { logger } from './lib/logger.js';
 
@@ -13,12 +13,12 @@ async function bootstrap(): Promise<void> {
   if (config.databaseUrl) {
     await validateSchema();
   } else {
-    console.log('  DB — running with in-memory repositories (no DATABASE_URL set)');
+    logger.info('DB — running with in-memory repositories (no DATABASE_URL set)');
   }
 
   // Pre-load approved taxonomy aliases into the in-memory resolution cache.
   await taxonomyResolutionService.loadApprovedAliases(getRepositories().taxonomyCandidates).catch(err => {
-    console.warn('  Taxonomy alias cache — load failed (aliases will be unavailable until next refresh):', (err as Error).message);
+    logger.warn('Taxonomy alias cache — load failed (aliases will be unavailable until next refresh)', { error: (err as Error).message });
   });
 
   // Connect Redis rate-limit store (no-op when REDIS_URL is unset).
@@ -27,7 +27,7 @@ async function bootstrap(): Promise<void> {
   const app = createApp();
 
   const server = app.listen(config.port, () => {
-    console.log(`\n  MEDICA API\n  Running at → http://localhost:${config.port}\n`);
+    logger.info(`MEDICA API running at http://localhost:${config.port}`);
   });
 
   // Graceful shutdown: stop accepting new connections, wait up to 30s for
@@ -35,9 +35,14 @@ async function bootstrap(): Promise<void> {
   const shutdown = (signal: string) => {
     logger.info(`${signal} received — draining`);
     server.close(async () => {
-      await getPool()?.end().catch((err: Error) =>
-        logger.warn('Pool drain error during shutdown', { error: err.message }),
-      );
+      await Promise.allSettled([
+        closeRedisStore().catch((err: Error) =>
+          logger.warn('Redis drain error during shutdown', { error: err.message }),
+        ),
+        getPool()?.end().catch((err: Error) =>
+          logger.warn('Pool drain error during shutdown', { error: err.message }),
+        ) ?? Promise.resolve(),
+      ]);
       logger.info('All connections closed. Exiting.');
       process.exit(0);
     });
@@ -53,6 +58,6 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err: Error) => {
-  console.error('\n[startup] FATAL —', err.message);
+  logger.error('[startup] FATAL', { error: err.message });
   process.exit(1);
 });

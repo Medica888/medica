@@ -135,15 +135,15 @@
   border: 1px solid var(--border-s);
 }
 .cdm-metric-val   { font-size: 20px; font-weight: 700; line-height: 1; color: var(--t1); }
-.cdm-metric-label { font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t4); }
+.cdm-metric-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); }
 .cdm-conf-section { display: flex; flex-direction: column; gap: 6px; }
 .cdm-conf-row { display: flex; justify-content: space-between; align-items: baseline; }
 .cdm-conf-label { font-size: 11.5px; color: var(--t2); font-weight: 500; }
-.cdm-conf-hint  { font-size: 10.5px; color: var(--t4); }
+.cdm-conf-hint  { font-size: 11px; color: var(--t3); }
 .cdm-bar-wrap { height: 6px; background: var(--border-s); border-radius: 4px; overflow: hidden; }
 .cdm-bar      { height: 100%; background: var(--blue); border-radius: 4px; transition: width .4s; }
 .cdm-path-section { display: flex; flex-direction: column; gap: 6px; }
-.cdm-section-label { font-size: 9px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; color: var(--t4); }
+.cdm-section-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
 .cdm-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .cdm-path-item { display: flex; align-items: center; gap: 4px; }
 .cdm-path-sep      { color: var(--t4); font-size: 11px; }
@@ -160,7 +160,7 @@
 .cdm-history-count    { font-size: 11px; color: var(--t3); }
 .cdm-history-meta     { display: flex; gap: 16px; flex-wrap: wrap; }
 .cdm-history-meta-item { display: flex; flex-direction: column; gap: 3px; }
-.cdm-history-meta-key  { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t4); }
+.cdm-history-meta-key  { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); }
 .cdm-history-meta-val  { font-size: 13px; font-weight: 600; color: var(--t1); }
 .cdm-history-timeline  { display: flex; flex-direction: column; }
 .cdm-history-entry     { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-s); }

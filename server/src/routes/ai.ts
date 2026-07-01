@@ -50,10 +50,69 @@ import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js
 import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
-import { getGeneratedBankReusePolicy } from '../config.js';
+import { getGeneratedBankReusePolicy, config } from '../config.js';
+import { CircuitBreaker } from '../lib/circuitBreaker.js';
+import { createLogger, logger } from '../lib/logger.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ── Provider circuit breaker ─────────────────────────────────────────────────
+// Only trips on PROVIDER_UNAVAILABLE (429 exhaustion + connection failures).
+// HTTP 4xx from Anthropic (auth, bad request) are never outage signals.
+
+// Strict integer parser: rejects decimals ("1.5"), suffixes ("10abc"), whitespace-only.
+function _strictInt(raw: string | undefined): number {
+  if (raw === undefined) return NaN;
+  if (!/^\d+$/.test(raw.trim())) return NaN;
+  return parseInt(raw.trim(), 10);
+}
+
+const _cbThreshold  = _strictInt(process.env.CB_FAILURE_THRESHOLD);
+const _cbCooldownMs = _strictInt(process.env.CB_COOLDOWN_MS);
+if (process.env.CB_FAILURE_THRESHOLD !== undefined && (isNaN(_cbThreshold) || _cbThreshold < 1)) {
+  throw new Error(`CB_FAILURE_THRESHOLD must be a positive integer, got: "${process.env.CB_FAILURE_THRESHOLD}"`);
+}
+if (process.env.CB_COOLDOWN_MS !== undefined && (isNaN(_cbCooldownMs) || _cbCooldownMs < 100)) {
+  throw new Error(`CB_COOLDOWN_MS must be >= 100ms, got: "${process.env.CB_COOLDOWN_MS}"`);
+}
+const aiBreaker = new CircuitBreaker({
+  failureThreshold: isNaN(_cbThreshold) ? 5 : _cbThreshold,
+  cooldownMs:       isNaN(_cbCooldownMs) ? 60_000 : _cbCooldownMs,
+});
+
+// ── Per-user AI budget helpers ───────────────────────────────────────────────
+// Fail-closed: storage errors block the request rather than allow it through.
+
+async function reserveBudget(userId: string): Promise<'ok' | 'denied' | 'unavailable'> {
+  const reqLimit = config.aiRequestBudgetPerDay;
+  const tokLimit = config.aiTokenBudgetPerDay;
+  // No limits configured — unlimited.
+  if (reqLimit === null && tokLimit === null) return 'ok';
+  // Zero limit means permanently blocked — no storage call needed.
+  if (reqLimit === 0 || tokLimit === 0) return 'denied';
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    return await getRepositories().aiUsageBudget.reserveRequest(userId, today, reqLimit, tokLimit);
+  } catch (err) {
+    logger.warn('[budget] reserveRequest failed — blocking request (fail-closed)', { userId, error: (err as Error).message });
+    return 'unavailable';
+  }
+}
+
+function releaseBudget(userId: string): void {
+  const today = new Date().toISOString().slice(0, 10);
+  getRepositories().aiUsageBudget.releaseRequest(userId, today)
+    .catch((err: Error) => logger.warn('[budget] releaseRequest failed', { userId, error: err.message }));
+}
+
+function recordTokenUsage(userId: string, inputTokens: number, outputTokens: number): void {
+  const tokens = inputTokens + outputTokens;
+  if (tokens <= 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+  getRepositories().aiUsageBudget.addTokens(userId, today, tokens)
+    .catch((err: Error) => logger.warn('[budget] addTokens failed', { userId, error: err.message }));
+}
 
 function hasAnthropicApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
@@ -151,7 +210,7 @@ router.get('/taxonomy-candidates', requireAuth, requireAdmin, async (req: AuthRe
     });
     res.json({ candidates, count: candidates.length, limit, offset });
   } catch (err) {
-    console.error('[taxonomy-candidates]', err instanceof Error ? err.message : String(err));
+    logger.error('[taxonomy-candidates]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Taxonomy candidate review failed', code: 'TAXONOMY_CANDIDATE_REVIEW_FAILED' });
   }
 });
@@ -187,12 +246,12 @@ router.patch(
 
       // Refresh alias cache so approved mappings take effect immediately
       taxonomyResolutionService.refreshCache(getRepositories().taxonomyCandidates).catch(err => {
-        console.warn('[taxonomy-candidates/status] cache refresh failed:', (err as Error).message);
+        logger.warn('[taxonomy-candidates/status] cache refresh failed', { error: (err as Error).message });
       });
 
       res.json({ candidate });
     } catch (err) {
-      console.error('[taxonomy-candidates/status]', err instanceof Error ? err.message : String(err));
+      logger.error('[taxonomy-candidates/status]', { error: err instanceof Error ? err.message : String(err) });
       res.status(500).json({ error: 'Taxonomy candidate status update failed', code: 'TAXONOMY_CANDIDATE_STATUS_FAILED' });
     }
   },
@@ -225,7 +284,7 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
       hasMore: effectiveOffset + questions.length < total,
     });
   } catch (err) {
-    console.error('[generated-question-bank/review]', err instanceof Error ? err.message : String(err));
+    logger.error('[generated-question-bank/review]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Generated question bank review failed', code: 'GENERATED_BANK_REVIEW_FAILED' });
   }
 });
@@ -242,7 +301,7 @@ router.get('/generated-question-bank/review/:id/history', requireAuth, requireAd
     const history = await getRepositories().auditLog.getByQuestionId(externalId, limit, offset);
     res.json({ history, count: history.length });
   } catch (err) {
-    console.error('[generated-question-bank/review/history]', err instanceof Error ? err.message : String(err));
+    logger.error('[generated-question-bank/review/history]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Audit history retrieval failed', code: 'AUDIT_HISTORY_FAILED' });
   }
 });
@@ -261,7 +320,7 @@ router.get('/generated-question-bank/review/:id', requireAuth, requireAdmin, asy
     }
     res.json({ question: rows[0] });
   } catch (err) {
-    console.error('[generated-question-bank/review/:id]', err instanceof Error ? err.message : String(err));
+    logger.error('[generated-question-bank/review/:id]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Generated question detail retrieval failed', code: 'GENERATED_BANK_DETAIL_FAILED' });
   }
 });
@@ -292,7 +351,7 @@ router.get('/generated-question-bank/metrics', requireAuth, requireAdmin, async 
       recentQuarantines,
     });
   } catch (err) {
-    console.error('[generated-question-bank/metrics]', err instanceof Error ? err.message : String(err));
+    logger.error('[generated-question-bank/metrics]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Generated question bank metrics failed', code: 'GENERATED_BANK_METRICS_FAILED' });
   }
 });
@@ -322,7 +381,7 @@ router.get('/generated-question-bank/concept-summary', requireAuth, requireAdmin
       note: 'warnings/failures are per-generation only; no historical aggregation stored',
     });
   } catch (err) {
-    console.error('[generated-question-bank/concept-summary]', err instanceof Error ? err.message : String(err));
+    logger.error('[generated-question-bank/concept-summary]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Concept summary failed', code: 'CONCEPT_SUMMARY_FAILED' });
   }
 });
@@ -334,7 +393,7 @@ router.get('/generated-question-bank/clinician-review/metrics', requireAuth, req
     const metrics = await new ClinicianReviewService(getRepositories().clinicianReviews).getMetrics();
     res.json({ metrics });
   } catch (err) {
-    console.error('[clinician-review/metrics]', err instanceof Error ? err.message : String(err));
+    logger.error('[clinician-review/metrics]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Clinician review metrics failed', code: 'CLINICIAN_REVIEW_METRICS_FAILED' });
   }
 });
@@ -353,7 +412,7 @@ router.get('/generated-question-bank/clinician-review', requireAuth, requireAdmi
     const { reviews, total } = await svc.getQueue({ status, priority, overdue, limit, offset });
     res.json({ reviews, total, count: reviews.length, limit, offset });
   } catch (err) {
-    console.error('[clinician-review/queue]', err instanceof Error ? err.message : String(err));
+    logger.error('[clinician-review/queue]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Clinician review queue failed', code: 'CLINICIAN_REVIEW_QUEUE_FAILED' });
   }
 });
@@ -383,7 +442,7 @@ router.patch(
       });
       res.json({ review });
     } catch (err) {
-      console.error('[clinician-review/update]', err instanceof Error ? err.message : String(err));
+      logger.error('[clinician-review/update]', { error: err instanceof Error ? err.message : String(err) });
       res.status(500).json({ error: 'Clinician review update failed', code: 'CLINICIAN_REVIEW_UPDATE_FAILED' });
     }
   },
@@ -408,7 +467,7 @@ router.post(
       const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId(externalId);
       res.status(201).json({ review });
     } catch (err) {
-      console.error('[clinician-review/trigger]', err instanceof Error ? err.message : String(err));
+      logger.error('[clinician-review/trigger]', { error: err instanceof Error ? err.message : String(err) });
       res.status(500).json({ error: 'Clinician review trigger failed', code: 'CLINICIAN_REVIEW_TRIGGER_FAILED' });
     }
   },
@@ -502,13 +561,13 @@ router.patch(
         if (decision) {
           new ClinicianReviewService(repos.clinicianReviews)
             .createOrEscalate(externalId, decision.priority, decision.reason)
-            .catch(err => console.warn('[clinician-review] sampling trigger failed:', (err as Error).message));
+            .catch(err => logger.warn('[clinician-review] sampling trigger failed', { error: (err as Error).message }));
         }
       }
 
       res.json({ question });
     } catch (err) {
-      console.error('[generated-question-bank/status]', err instanceof Error ? err.message : String(err));
+      logger.error('[generated-question-bank/status]', { error: err instanceof Error ? err.message : String(err) });
       res.status(500).json({ error: 'Generated question status update failed', code: 'GENERATED_BANK_STATUS_FAILED' });
     }
   },
@@ -529,7 +588,19 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
   }
 
   const userId = (req as AuthRequest).userId!;
+
+  const _genBudget = await reserveBudget(userId);
+  if (_genBudget === 'denied') {
+    res.status(429).json({ error: 'Daily AI generation budget exceeded.', code: 'BUDGET_EXCEEDED' });
+    return;
+  }
+  if (_genBudget === 'unavailable') {
+    res.status(503).json({ error: 'Budget service temporarily unavailable.', code: 'BUDGET_STORAGE_UNAVAILABLE' });
+    return;
+  }
+
   if (!tryAcquireSlot(userId)) {
+    releaseBudget(userId);
     res.status(429).json({ error: 'Too many concurrent generation requests. Please wait.', code: 'GENERATION_BUSY' });
     return;
   }
@@ -553,50 +624,65 @@ router.post('/generate', requireAuth, aiUserLimiter, validate(skillsGenerateSche
   const timeoutId = setTimeout(() => controller.abort(), 120_000);
   req.on('close', () => controller.abort());
 
+  let skillInputTokens = 0;
+  let skillOutputTokens = 0;
+  let providerStarted = false;
+
   try {
-    while (true) {
-      let roundText = '';
-      let stopReason: string | null = null;
+    await withStreamBreaker(async () => {
+      providerStarted = true;
+      while (true) {
+        let roundText = '';
+        let stopReason: string | null = null;
 
-      const stream = client.messages.stream({
-        model: isMCQ ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6',
-        max_tokens: isMCQ ? 4096 : 8192,
-        system: systemPrompt,
-        messages,
-      }, { signal: controller.signal } as any);
+        const stream = client.messages.stream({
+          model: isMCQ ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6',
+          max_tokens: isMCQ ? 4096 : 8192,
+          system: systemPrompt,
+          messages,
+        }, { signal: controller.signal } as any);
 
-      await new Promise<void>((resolve, reject) => {
-        stream.on('text', (text: string) => {
-          roundText += text;
-          res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+        await new Promise<void>((resolve, reject) => {
+          stream.on('text', (text: string) => {
+            roundText += text;
+            res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+          });
+          stream.on('finalMessage', (msg: Anthropic.Message) => {
+            skillInputTokens  += msg.usage?.input_tokens  ?? 0;
+            skillOutputTokens += msg.usage?.output_tokens ?? 0;
+            stopReason = msg.stop_reason;
+            resolve();
+          });
+          stream.on('error', reject);
         });
-        stream.on('finalMessage', (msg: Anthropic.Message) => {
-          stopReason = msg.stop_reason;
-          resolve();
-        });
-        stream.on('error', reject);
-      });
 
-      if (stopReason !== 'max_tokens') break;
-      messages.push({ role: 'assistant', content: roundText });
-      messages.push({ role: 'user', content: 'Continue from exactly where you left off. Do not repeat any content.' });
-    }
+        if (stopReason !== 'max_tokens') break;
+        messages.push({ role: 'assistant', content: roundText });
+        messages.push({ role: 'user', content: 'Continue from exactly where you left off. Do not repeat any content.' });
+      }
+    });
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
+    if (!providerStarted) releaseBudget(userId);
     const isAbort = (err as any)?.name === 'AbortError' || controller.signal.aborted;
     if (isAbort) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
+    } else if ((err as any)?.code === 'PROVIDER_UNAVAILABLE') {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI provider is temporarily unavailable.', code: 'PROVIDER_UNAVAILABLE' })}\n\n`);
     } else {
       const rid = (req as any).requestId ?? '-';
-      console.error('[generate]', rid, err instanceof Error ? err.message : String(err));
+      createLogger(rid).error('[generate]', { error: err instanceof Error ? err.message : String(err) });
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
     }
     res.end();
   } finally {
     clearTimeout(timeoutId);
     releaseSlot(userId);
+    // Record tokens from all completed rounds regardless of whether a later round errored.
+    // When Anthropic returns no usage metadata the counts stay 0 and recordTokenUsage is a no-op.
+    recordTokenUsage(userId, skillInputTokens, skillOutputTokens);
   }
 });
 
@@ -633,6 +719,17 @@ router.post('/explain', requireAuth, aiUserLimiter, validate(explainSchema), asy
     return;
   }
 
+  const explainUserId = (req as AuthRequest).userId!;
+  const _explainBudget = await reserveBudget(explainUserId);
+  if (_explainBudget === 'denied') {
+    res.status(429).json({ error: 'Daily AI generation budget exceeded.', code: 'BUDGET_EXCEEDED' });
+    return;
+  }
+  if (_explainBudget === 'unavailable') {
+    res.status(503).json({ error: 'Budget service temporarily unavailable.', code: 'BUDGET_STORAGE_UNAVAILABLE' });
+    return;
+  }
+
   const userContent = `Field: ${field || 'Anatomy'}
 Stem: ${stem}
 Options: ${options.map((o: string, i: number) => `${String.fromCharCode(65 + i)}. ${o.replace(/^[A-E]\.\s*/, '')}`).join(' | ')}
@@ -649,36 +746,51 @@ Write concise UWorld-style explanations for each option and a one-sentence clini
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
   req.on('close', () => controller.abort());
 
-  try {
-    const stream = client.messages.stream({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: EXPLAIN_SYSTEM,
-      messages: [{ role: 'user', content: userContent }],
-    }, { signal: controller.signal } as any);
+  let explainInputTokens = 0;
+  let explainOutputTokens = 0;
+  let providerStarted = false;
 
-    await new Promise<void>((resolve, reject) => {
-      stream.on('text', (text: string) => {
-        res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+  try {
+    await withStreamBreaker(async () => {
+      providerStarted = true;
+      const stream = client.messages.stream({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: EXPLAIN_SYSTEM,
+        messages: [{ role: 'user', content: userContent }],
+      }, { signal: controller.signal } as any);
+
+      await new Promise<void>((resolve, reject) => {
+        stream.on('text', (text: string) => {
+          res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+        });
+        stream.on('finalMessage', (msg: Anthropic.Message) => {
+          explainInputTokens  = msg.usage?.input_tokens  ?? 0;
+          explainOutputTokens = msg.usage?.output_tokens ?? 0;
+          resolve();
+        });
+        stream.on('error', reject);
       });
-      stream.on('finalMessage', () => resolve());
-      stream.on('error', reject);
     });
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
+    if (!providerStarted) releaseBudget(explainUserId);
     const isAbort = (err as any)?.name === 'AbortError' || controller.signal.aborted;
     if (isAbort) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out or was cancelled.', code: 'GENERATION_TIMEOUT' })}\n\n`);
+    } else if ((err as any)?.code === 'PROVIDER_UNAVAILABLE') {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI provider is temporarily unavailable.', code: 'PROVIDER_UNAVAILABLE' })}\n\n`);
     } else {
       const rid = (req as any).requestId ?? '-';
-      console.error('[explain]', rid, err instanceof Error ? err.message : String(err));
+      createLogger(rid).error('[explain]', { error: err instanceof Error ? err.message : String(err) });
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Explanation generation failed' })}\n\n`);
     }
     res.end();
   } finally {
     clearTimeout(timeoutId);
+    recordTokenUsage(explainUserId, explainInputTokens, explainOutputTokens);
   }
 });
 
@@ -724,14 +836,14 @@ async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming, 
       } else if (err?.status == null) {
         // Connection-level error: ECONNRESET, DNS failure, SSL failure, etc.
         if (isLast) {
-          console.warn('[anthropic] connection error persisted after retries:', String(err?.message ?? err).slice(0, 80));
+          logger.warn('[anthropic] connection error persisted after retries', { error: String(err?.message ?? err).slice(0, 80) });
           const out = new Error('AI provider connection failed after retries');
           (out as any).code = 'PROVIDER_UNAVAILABLE';
           throw out;
         }
         // Exponential backoff: 1.5s, 3s + up to 1s jitter each
         const delay = 1500 * attempt + Math.random() * 1000;
-        console.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${Math.round(delay)}ms`);
+        logger.warn(`[anthropic] connection error attempt ${attempt}/3, retrying in ${Math.round(delay)}ms`);
         await sleepInterruptible(delay, signal);
       } else {
         // HTTP error with status (401 auth, 404 model, 400 bad request, etc.) — never retry
@@ -740,6 +852,79 @@ async function callWithRetry(params: Anthropic.MessageCreateParamsNonStreaming, 
     }
   }
   throw new Error('[anthropic] unreachable');
+}
+
+// Wraps callWithRetry with the module-level circuit breaker.
+// Serializes half-open probes: exactly one probe at a time via tryStartProbe().
+// Only PROVIDER_UNAVAILABLE errors trip the breaker — HTTP 4xx are not outage signals.
+async function callWithBreaker(params: Anthropic.MessageCreateParamsNonStreaming, signal?: AbortSignal, onTokens?: (inputTokens: number, outputTokens: number) => void) {
+  if (aiBreaker.isTripped()) {
+    throw Object.assign(new Error('AI provider circuit breaker open'), { code: 'PROVIDER_UNAVAILABLE' });
+  }
+  // If the breaker just transitioned to half-open (via isTripped above), claim the probe slot.
+  // Concurrent callers that also reach half-open get rejected (only one probe at a time).
+  const probing = aiBreaker.currentState === 'half-open';
+  if (probing && !aiBreaker.tryStartProbe()) {
+    throw Object.assign(new Error('AI provider circuit breaker open'), { code: 'PROVIDER_UNAVAILABLE' });
+  }
+  try {
+    const result = await callWithRetry(params, signal);
+    onTokens?.(result.usage?.input_tokens ?? 0, result.usage?.output_tokens ?? 0);
+    aiBreaker.recordSuccess();
+    return result;
+  } catch (err: any) {
+    if (err?.code === 'PROVIDER_UNAVAILABLE') {
+      aiBreaker.recordFailure();
+    } else if (probing) {
+      // Probe ended without a PROVIDER_UNAVAILABLE error — settle the breaker state.
+      // A 4xx means the provider responded (it's up) → close.
+      // AbortError / unknown → provider status unknown → re-arm cooldown.
+      const status = (err as any)?.status;
+      if (typeof status === 'number' && status >= 400 && status < 500) {
+        aiBreaker.recordSuccess();
+      } else {
+        aiBreaker.recordFailure();
+      }
+    }
+    throw err;
+  }
+}
+
+// Wraps a streaming Anthropic call with circuit-breaker logic.
+// Classifies errors the same way callWithBreaker does:
+//   429 and connection errors (no status) → provider failure → trip breaker.
+//   4xx (not 429) → provider responded → close breaker if probing.
+//   AbortError → unknown provider status → if probing, re-arm cooldown.
+async function withStreamBreaker<T>(fn: () => Promise<T>): Promise<T> {
+  if (aiBreaker.isTripped()) {
+    throw Object.assign(new Error('AI provider circuit breaker open'), { code: 'PROVIDER_UNAVAILABLE' });
+  }
+  const probing = aiBreaker.currentState === 'half-open';
+  if (probing && !aiBreaker.tryStartProbe()) {
+    throw Object.assign(new Error('AI provider circuit breaker open'), { code: 'PROVIDER_UNAVAILABLE' });
+  }
+  try {
+    const result = await fn();
+    aiBreaker.recordSuccess();
+    return result;
+  } catch (err: any) {
+    const isAbort = err?.name === 'AbortError';
+    if (!isAbort) {
+      const status = err?.status as number | undefined;
+      const isProviderFailure = status === 429 || (typeof status === 'number' && status >= 500) || status == null;
+      const isClientError = typeof status === 'number' && status >= 400 && status < 500 && status !== 429;
+      if (isProviderFailure) {
+        aiBreaker.recordFailure();
+      } else if (probing && isClientError) {
+        aiBreaker.recordSuccess();
+      } else if (probing) {
+        aiBreaker.recordFailure();
+      }
+    } else if (probing) {
+      aiBreaker.recordFailure();
+    }
+    throw err;
+  }
 }
 
 // ── Fingerprint (mirrors frontend medica-app/src/lib/questionDedup.js) ───────
@@ -1302,16 +1487,17 @@ function normalizeQuestion(q: Record<string, any>, index: number, scope: ReturnT
 async function attemptRepair(
   q: ReturnType<typeof normalizeQuestion>,
   quality: QuestionQuality,
+  onTokens?: (inputTokens: number, outputTokens: number) => void,
 ): Promise<Record<string, any> | null> {
   const prompt = buildRepairPrompt(q as Record<string, unknown>, quality);
   if (!prompt) return null;
   try {
-    const response = await callWithRetry({
+    const response = await callWithBreaker({
       model: process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: 1500,
       system: QUIZ_GEN_SYSTEM,
       messages: [{ role: 'user', content: prompt }],
-    } as Anthropic.MessageCreateParamsNonStreaming);
+    } as Anthropic.MessageCreateParamsNonStreaming, undefined, onTokens);
     const text = response.content
       .filter(b => b.type === 'text')
       .map(b => (b as Anthropic.TextBlock).text)
@@ -1330,15 +1516,16 @@ async function attemptRepair(
 async function callMedicalReview(
   q: ReviewableQuestion,
   difficulty: string,
+  onTokens?: (inputTokens: number, outputTokens: number) => void,
 ): Promise<{ pass: boolean; result: MedicalReviewResult | null; failedCategories: MedicalReviewCategory[] }> {
   try {
     const prompt = buildMedicalReviewPrompt(q, difficulty);
     const model  = process.env.AI_MEDICAL_REVIEW_MODEL || process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
-    const response = await callWithRetry({
+    const response = await callWithBreaker({
       model,
       max_tokens: 512,
       messages: [{ role: 'user', content: prompt }],
-    } as Anthropic.MessageCreateParamsNonStreaming);
+    } as Anthropic.MessageCreateParamsNonStreaming, undefined, onTokens);
     const text = response.content
       .filter(b => b.type === 'text')
       .map(b => (b as Anthropic.TextBlock).text)
@@ -1351,8 +1538,10 @@ async function callMedicalReview(
   }
 }
 
-const validationMedicalReview: MedicalReviewAdapter = async (question, difficulty) =>
-  callMedicalReview(question as ReviewableQuestion, difficulty);
+function makeValidationMedicalReview(onTokens?: (inputTokens: number, outputTokens: number) => void): MedicalReviewAdapter {
+  return async (question, difficulty) =>
+    callMedicalReview(question as ReviewableQuestion, difficulty, onTokens);
+}
 
 function requestedScopeForValidation(scope: ReturnType<typeof resolveScope>) {
   return scope.subject || scope.system || scope.topic
@@ -1364,7 +1553,7 @@ async function runQuestionValidation(
   question: Record<string, any>,
   config: Record<string, any>,
   scope: ReturnType<typeof resolveScope>,
-  options: { medicalReview?: boolean } = {},
+  options: { medicalReview?: boolean; onTokens?: (inputTokens: number, outputTokens: number) => void } = {},
 ): Promise<ValidationEngineResult> {
   const skipMedical = options.medicalReview === false;
   return validateQuestion({
@@ -1372,7 +1561,7 @@ async function runQuestionValidation(
     mode: config.mode || 'practice',
     difficulty: config.difficulty || 'Balanced',
     requestedScope: requestedScopeForValidation(scope),
-    medicalReview: skipMedical ? undefined : validationMedicalReview,
+    medicalReview: skipMedical ? undefined : makeValidationMedicalReview(options.onTokens),
     // When skipping MR, override the policy gate so NBME/UWorld questions
     // are not blocked by medicalReviewSkippedResult(true) in the engine.
     // Phase 2 runs the actual reviews in parallel for rule-based passers only.
@@ -1406,18 +1595,19 @@ export interface BatchResult {
   telemetry: BatchTelemetry;
 }
 
-async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>, signal?: AbortSignal): Promise<BatchResult> {
+async function generateBatch(config: Record<string, any>, count: number, offset: number, scope: ReturnType<typeof resolveScope>, signal?: AbortSignal, onTokens?: (inputTokens: number, outputTokens: number) => void): Promise<BatchResult> {
   const prompt = buildPrompt(config, count, offset, scope);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: prompt }];
   let fullText = '';
 
   while (true) {
-    const response = await callWithRetry({
+    const response = await callWithBreaker({
       model: process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: getMaxTokens(config.mode, count),
       system: QUIZ_GEN_SYSTEM,
       messages,
     } as Anthropic.MessageCreateParamsNonStreaming, signal);
+    onTokens?.(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
 
     const chunk = response.content
       .filter(b => b.type === 'text')
@@ -1440,11 +1630,11 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   try {
     parsed = JSON.parse(s) as { questions?: unknown[] };
   } catch (parseErr) {
-    console.warn('[generateBatch] JSON parse failed:', (parseErr as Error).message?.slice(0, 120));
+    logger.warn('[generateBatch] JSON parse failed', { error: (parseErr as Error).message?.slice(0, 120) });
     return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
   if (!Array.isArray(parsed.questions)) {
-    console.warn('[generateBatch] AI response missing questions array');
+    logger.warn('[generateBatch] AI response missing questions array');
     return { questions: [], telemetry: { medicalReviewRequested: 0, medicalReviewPassed: 0, medicalReviewRejected: 0, medicalReviewSkipped: 0, ruleRejected: 0, scopeRejected: 0, matrixPasses: 0, matrixWarnings: 0, matrixFailures: 0, topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [], conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [], medicalReviewFailureCategories: emptyMedicalReviewFailureCategories() } };
   }
 
@@ -1533,7 +1723,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     if (validation.passed) {
       rulePassers.push({ q: normalized[i], rawQ: rawQuestions[i], validation, idx: i });
       if (isSuspectStem(normalized[i].stem)) {
-        console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQuestions[i]), normalizedStem: normalized[i].stem, disposition: 'rule-pass' }));
+        logger.warn('[stem-guard] rule-pass', { rawKeys: Object.keys(rawQuestions[i]), normalizedStem: normalized[i].stem });
       }
     } else {
       rejectCount++;
@@ -1556,7 +1746,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
     }
   } else {
     const reviewResults = await Promise.all(
-      rulePassers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty)),
+      rulePassers.map(({ q }) => callMedicalReview(q as ReviewableQuestion, difficulty, onTokens)),
     );
     for (let j = 0; j < rulePassers.length; j++) {
       const { q, validation } = rulePassers[j];
@@ -1576,14 +1766,14 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
           status: 'fail',
           rejectionReasons: review.failedCategories.length ? review.failedCategories : ['medical_review_failed'],
         }, 'medical-review').catch(err => {
-          console.warn('[generated-bank] failed candidate capture skipped:', (err as Error).message);
+          logger.warn('[generated-bank] failed candidate capture skipped', { error: (err as Error).message });
         });
         for (const reason of review.failedCategories) {
           if (reason in mrFailureCategories) {
             mrFailureCategories[reason as keyof MedicalReviewFailureCategories]++;
           }
         }
-        console.warn('[validation-engine] medical-review rejected:', review.failedCategories);
+        logger.warn('[validation-engine] medical-review rejected', { failedCategories: review.failedCategories });
       }
     }
   }
@@ -1612,14 +1802,14 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   for (const { q, rawQ, validation, idx } of failers) {
     let disposition = 'rejected';
     let repairedStem: string | null = null;
-    const repairedRaw = await attemptRepair(q, validation.quality);
+    const repairedRaw = await attemptRepair(q, validation.quality, onTokens);
     if (repairedRaw) {
       const repairedNorm    = normalizeQuestion(repairedRaw, offset + idx, scope);
       repairedStem = repairedNorm.stem;
       // Intentionally uses the full validation path (including MR for NBME/UWorld) — no
       // medicalReview:false override.  A repaired question must pass medical review before
       // it can enter the bank, same as a freshly generated one.
-      const repairedValidation = await runQuestionValidation(repairedNorm, config, scope);
+      const repairedValidation = await runQuestionValidation(repairedNorm, config, scope, { onTokens });
       trackValidationTelemetry(repairedValidation);
       if (repairedValidation.passed) {
         results.push({
@@ -1631,31 +1821,31 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
         repairCount++;
         disposition = 'repair-passed';
       } else {
-        console.warn('[validation-engine] repair failed:', repairedValidation.rejectionReasons, '| score:', repairedValidation.score);
+        logger.warn('[validation-engine] repair failed', { rejectionReasons: repairedValidation.rejectionReasons, score: repairedValidation.score });
         await _saveFailedGeneratedQuestionCandidate(q as Record<string, any>, config, validation, 'rule-validation').catch(err => {
-          console.warn('[generated-bank] failed original candidate capture skipped:', (err as Error).message);
+          logger.warn('[generated-bank] failed original candidate capture skipped', { error: (err as Error).message });
         });
         await _saveFailedGeneratedQuestionCandidate(repairedNorm as Record<string, any>, config, repairedValidation, 'repair-validation').catch(err => {
-          console.warn('[generated-bank] failed repair candidate capture skipped:', (err as Error).message);
+          logger.warn('[generated-bank] failed repair candidate capture skipped', { error: (err as Error).message });
         });
         disposition = 'repair-failed';
       }
     } else {
-      console.warn('[validation-engine] rejected:', validation.rejectionReasons, '| score:', validation.score);
+      logger.warn('[validation-engine] rejected', { rejectionReasons: validation.rejectionReasons, score: validation.score });
       await _saveFailedGeneratedQuestionCandidate(q as Record<string, any>, config, validation, 'rule-validation').catch(err => {
-        console.warn('[generated-bank] failed candidate capture skipped:', (err as Error).message);
+        logger.warn('[generated-bank] failed candidate capture skipped', { error: (err as Error).message });
       });
     }
     const logStem = disposition === 'repair-passed' && repairedStem !== null ? repairedStem : q.stem;
     if (isSuspectStem(logStem)) {
-      console.warn('[stem-guard]', JSON.stringify({ rawKeys: Object.keys(rawQ), normalizedStem: logStem, disposition }));
+      logger.warn('[stem-guard]', { rawKeys: Object.keys(rawQ), normalizedStem: logStem, disposition });
     }
   }
 
-  console.log(
-    `[quality] batch result: ${normalized.length} generated → ${passCount} pass, ${repairCount} repaired, ${rejectCount} rejected` +
-    (needsReview ? ` | medical-review: ${mrRequested} req, ${mrPassed} pass, ${mrRejected} reject` : ' | medical-review: skipped'),
-  );
+  logger.info('[quality] batch result', {
+    generated: normalized.length, passCount, repairCount, rejectCount,
+    medicalReview: needsReview ? `${mrRequested} req, ${mrPassed} pass, ${mrRejected} reject` : 'skipped',
+  });
   return {
     questions: results,
     telemetry: {
@@ -1780,10 +1970,7 @@ export async function runAdaptiveRefill(
         batchResult = await batchFn(batchSize, totalGenerated);
       } catch (batchErr: any) {
         stoppedReason = (batchErr as any)?.status === 429 ? 'rate_limited' : 'generation_error';
-        console.warn(
-          `[generate-questions] refill round ${refillRounds + 1} batch error (${stoppedReason}):`,
-          String((batchErr as Error)?.message ?? batchErr).slice(0, 80),
-        );
+        logger.warn(`[generate-questions] refill round ${refillRounds + 1} batch error`, { stoppedReason, error: String((batchErr as Error)?.message ?? batchErr).slice(0, 80) });
         break outerLoop;
       }
 
@@ -1819,10 +2006,7 @@ export async function runAdaptiveRefill(
     }
 
     refillRounds++;
-    console.log(
-      `[generate-questions] refill round ${refillRounds}/${caps.maxRounds}:` +
-      ` +${roundGenerated} generated, accepted=${accepted.length}/${targetCount}, total_candidates=${totalGenerated}`,
-    );
+    logger.info('[generate-questions] refill round', { round: `${refillRounds}/${caps.maxRounds}`, roundGenerated, accepted: accepted.length, targetCount, totalGenerated });
 
     if (accepted.length >= targetCount) { stoppedReason = 'requested_count_reached'; break; }
   }
@@ -2065,6 +2249,9 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
   let slotAcquired = false;
   let controller: AbortController | undefined;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  // Token accumulators declared outside try so finally can record tokens from partial runs.
+  let reqInputTokens = 0;
+  let reqOutputTokens = 0;
 
   try {
     let config = rawConfig;
@@ -2129,7 +2316,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
           .buildAdaptiveBlueprint(req.userId, targetCount);
         if (bp.enabled) adaptiveBlueprint = bp;
       } catch (err) {
-        console.warn('[generate-questions] adaptive blueprint skipped:', (err as Error).message);
+        logger.warn('[generate-questions] adaptive blueprint skipped', { error: (err as Error).message });
       }
     }
     if (adaptiveBlueprint) {
@@ -2255,6 +2442,19 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       return;
     }
 
+    // Reserve budget HERE — after bank-only early returns — so bank-served requests never count.
+    const _qBudget = await reserveBudget(req.userId);
+    if (_qBudget === 'denied') {
+      res.status(429).json({ error: 'Daily AI generation budget exceeded.', code: 'BUDGET_EXCEEDED' });
+      return;
+    }
+    if (_qBudget === 'unavailable') {
+      res.status(503).json({ error: 'Budget service temporarily unavailable.', code: 'BUDGET_STORAGE_UNAVAILABLE' });
+      return;
+    }
+
+    const accTokens = (i: number, o: number) => { reqInputTokens += i; reqOutputTokens += o; };
+
     let allQuestions: Record<string, any>[] = [];
     let totalGenerated = 0;
     let totalMrRequested = 0, totalMrPassed = 0, totalMrRejected = 0, totalMrSkipped = 0;
@@ -2273,7 +2473,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       const loopResult = await runAdaptiveRefill(
         shortfall,
         hardModeCaps,
-        (count, offset) => generateBatch(config, count, offset, scope, controller?.signal),
+        (count, offset) => generateBatch(config, count, offset, scope, controller?.signal, accTokens),
         (qs, existingConcepts) =>
           dedup(qs).filter(q =>
             (!specific || inScope(q, scope)) &&
@@ -2309,7 +2509,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       let offset = 0;
       while (offset < bufferedCount) {
         const batchSize   = Math.min(GENERATE_BATCH_SIZE, bufferedCount - offset);
-        const batchResult = await generateBatch(config, batchSize, offset, scope, controller?.signal);
+        const batchResult = await generateBatch(config, batchSize, offset, scope, controller?.signal, accTokens);
         totalGenerated    += batchSize;
         allQuestions.push(...batchResult.questions);
         totalMrRequested    += batchResult.telemetry.medicalReviewRequested;
@@ -2342,7 +2542,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         const fillGap          = shortfall - allQuestions.length;
         const existingConcepts = new Set(allQuestions.map(q => norm(q.testedConcept)));
         try {
-          const retryResult   = await generateBatch(config, fillGap + 3, allQuestions.length, scope, controller?.signal);
+          const retryResult   = await generateBatch(config, fillGap + 3, allQuestions.length, scope, controller?.signal, accTokens);
           totalGenerated      += fillGap + 3;
           totalMrRequested    += retryResult.telemetry.medicalReviewRequested;
           totalMrPassed       += retryResult.telemetry.medicalReviewPassed;
@@ -2368,7 +2568,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
           totalDedupRejected  += retryResult.questions.length - newDeduped.length;
           allQuestions.push(...newDeduped);
         } catch (retryErr) {
-          console.warn('[generate-questions] retry failed:', (retryErr as Error).message);
+          logger.warn('[generate-questions] retry failed', { error: (retryErr as Error).message });
         }
       }
     }
@@ -2382,14 +2582,14 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
           const fp = computeQuestionFingerprint(q.stem || '', q.testedConcept || '');
           if (quarantinedFps.has(fp)) {
             quarantineRejected++;
-            console.warn(`[quarantine] filtered "${q.testedConcept}"`);
+            logger.warn('[quarantine] filtered', { testedConcept: q.testedConcept });
             return false;
           }
           return true;
         });
       }
     } catch (qErr) {
-      console.warn('[generate-questions] quarantine check failed closed:', (qErr as Error).message);
+      logger.warn('[generate-questions] quarantine check failed closed', { error: (qErr as Error).message });
       res.status(503).json({
         error: 'Question safety check temporarily unavailable',
         code: 'QUARANTINE_CHECK_UNAVAILABLE',
@@ -2420,7 +2620,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
             questions: allQuestions,
             config,
           }).catch(err => {
-            console.warn('[generate-questions] taxonomy candidate capture skipped:', (err as Error).message);
+            logger.warn('[generate-questions] taxonomy candidate capture skipped', { error: (err as Error).message });
             return 0;
           }),
           captureUnknownConceptCandidates({
@@ -2428,7 +2628,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
             questions: allQuestions,
             config,
           }).catch(err => {
-            console.warn('[generate-questions] concept candidate capture skipped:', (err as Error).message);
+            logger.warn('[generate-questions] concept candidate capture skipped', { error: (err as Error).message });
             return 0;
           }),
         ])
@@ -2480,7 +2680,8 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       validatedQueueCount,
       approvedOnlyMode: approvedOnly,
     };
-    console.log('[generate-questions]', JSON.stringify(telemetry));
+    const log = createLogger((req as any).requestId);
+    log.info('[generate-questions]', { telemetry: JSON.stringify(telemetry) });
 
     if (questions.length === 0) {
       res.status(500).json({ error: 'AI generated no valid questions', code: 'EMPTY_RESULT' });
@@ -2519,12 +2720,13 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     const errName  = err instanceof Error ? err.constructor.name : typeof err;
     const errStatus = (err as any)?.status;
     const rid = (req as any).requestId ?? '-';
-    // Safe: logs correlation ID, error class + HTTP status. Never logs question content, API keys, or PII.
-    console.error('[generate-questions] error', rid, errName, errStatus != null ? `status=${errStatus}` : '(no HTTP status)', '|', msg.slice(0, 200));
+    createLogger(rid).error('[generate-questions] error', { errName, errStatus: errStatus ?? null, message: msg.slice(0, 200) });
     res.status(500).json({ error: 'Question generation failed', code: 'GENERATION_FAILED' });
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
     if (slotAcquired && req.userId) releaseSlot(req.userId);
+    // Record tokens from all successful provider calls even if later processing failed.
+    if (req.userId) recordTokenUsage(req.userId, reqInputTokens, reqOutputTokens);
   }
 });
 
@@ -2598,12 +2800,22 @@ function normalizeFlashcard(raw: Record<string, any>, now: string): Record<strin
   };
 }
 
-router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(generateFlashcardsSchema), async (req: AuthRequest, res: Response) => {
+router.post('/generate-flashcards', requireAuth, aiUserLimiter, validate(generateFlashcardsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
   const count = Math.min(Math.max(Number(rawConfig?.count ?? 10), 1), 30);
 
   if (!process.env.ANTHROPIC_API_KEY) {
     res.status(503).json({ error: 'AI generation unavailable — API key not configured', code: 'NO_API_KEY' });
+    return;
+  }
+
+  const _fcBudget = await reserveBudget(req.userId!);
+  if (_fcBudget === 'denied') {
+    res.status(429).json({ error: 'Daily AI generation budget exceeded.', code: 'BUDGET_EXCEEDED' });
+    return;
+  }
+  if (_fcBudget === 'unavailable') {
+    res.status(503).json({ error: 'Budget service temporarily unavailable.', code: 'BUDGET_STORAGE_UNAVAILABLE' });
     return;
   }
 
@@ -2617,7 +2829,7 @@ router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(genera
           .buildAdaptiveFlashcardPlan(req.userId);
         if (bp.enabled) plan = bp;
       } catch (err) {
-        console.warn('[generate-flashcards] adaptive plan skipped:', (err as Error).message);
+        logger.warn('[generate-flashcards] adaptive plan skipped', { error: (err as Error).message });
       }
     }
 
@@ -2629,12 +2841,14 @@ router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(genera
     lines.push('', `Generate exactly ${count} flashcards. Output valid JSON only.`);
     const prompt = lines.join('\n');
 
-    const response = await callWithRetry({
+    const response = await callWithBreaker({
       model:      process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: Math.min(count * 300, 4096),
       system:     FC_GEN_SYSTEM,
       messages:   [{ role: 'user', content: prompt }],
-    } as Anthropic.MessageCreateParamsNonStreaming);
+    } as Anthropic.MessageCreateParamsNonStreaming, undefined,
+    // Record provider tokens immediately — before JSON parsing so parsing failures don't lose them.
+    (i, o) => recordTokenUsage(req.userId!, i, o));
 
     const text = response.content
       .filter((b) => b.type === 'text')
@@ -2664,7 +2878,7 @@ router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(genera
       return;
     }
 
-    console.log(`[generate-flashcards] strategy=${plan ? 'adaptive' : 'random'} requested=${count} returned=${flashcards.length}`);
+    logger.info('[generate-flashcards]', { strategy: plan ? 'adaptive' : 'random', requested: count, returned: flashcards.length });
 
     res.json({
       flashcards,
@@ -2673,7 +2887,7 @@ router.post('/generate-flashcards', optionalAuth, aiUserLimiter, validate(genera
       adaptiveConcepts:  plan ? plan.targetConcepts : [],
     });
   } catch (err) {
-    console.error('[generate-flashcards]', err instanceof Error ? err.message : String(err));
+    logger.error('[generate-flashcards]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Flashcard generation failed', code: 'GENERATION_FAILED' });
   }
 });

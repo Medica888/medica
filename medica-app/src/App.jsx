@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useCallback, useMemo, useRef } from 'react'
+import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
@@ -11,6 +11,11 @@ import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
 import { useSessionHistory } from './hooks/useSessionHistory'
 import { useAuth } from './context/AuthContext'
+import {
+  drainSessionSyncOutbox,
+  getSessionSyncOutbox,
+  subscribeSessionSyncOutbox,
+} from './lib/sessionSyncOutbox'
 
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const QuizBuilder = lazy(() => import('./components/quiz-builder/QuizBuilder'))
@@ -142,15 +147,57 @@ export default function App() {
   const [examReviewFilter, setExamReviewFilter] = useState('all')
   const [generationError, setGenerationError]   = useState(null)
 
-  // Session backend-sync indicator ('idle' | 'saving' | 'synced' | 'local-only')
+  // Session backend-sync indicator ('idle' | 'saving' | 'synced' | 'pending' | 'failed' | 'local-only')
   const [sessionSyncStatus, setSessionSyncStatus] = useState('idle')
   const syncTimerRef = useRef(null)
   const showSyncStatus = useCallback((status) => {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
     setSessionSyncStatus(status)
-    if (status !== 'idle') {
+    if (status === 'synced' || status === 'local-only') {
       syncTimerRef.current = setTimeout(() => setSessionSyncStatus('idle'), 4_000)
+    } else if (status === 'failed') {
+      syncTimerRef.current = setTimeout(() => setSessionSyncStatus('idle'), 8_000)
+    } else if (status === 'pending') {
+      syncTimerRef.current = setTimeout(() => setSessionSyncStatus('idle'), 30_000)
     }
+    // 'saving' stays until the operation resolves
+  }, [])
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !authUser?.id) return undefined
+
+    let retryTimer = null
+    const scheduleNextDrain = () => {
+      if (retryTimer) clearTimeout(retryTimer)
+      const next = getSessionSyncOutbox(authUser.id)
+        .filter(entry => entry.status === 'pending')
+        .sort((left, right) => left.nextAttemptAt - right.nextAttemptAt)[0]
+      if (!next) return
+      const delay = Math.max(next.nextAttemptAt - Date.now(), 250)
+      retryTimer = setTimeout(() => { void drain() }, delay)
+    }
+    const drain = async () => {
+      const result = await drainSessionSyncOutbox(authUser.id)
+      if (result.failed > 0) showSyncStatus('failed')
+      else if (result.pending > 0 || result.paused) showSyncStatus('pending')
+      else if (result.synced > 0) showSyncStatus('synced')
+      scheduleNextDrain()
+    }
+    const onOnline = () => { void drain() }
+    const unsubscribe = subscribeSessionSyncOutbox(({ userId } = {}) => {
+      if (userId === authUser.id) scheduleNextDrain()
+    })
+    void drain()
+    window.addEventListener('online', onOnline)
+    return () => {
+      unsubscribe()
+      if (retryTimer) clearTimeout(retryTimer)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [authStatus, authUser?.id, showSyncStatus])
+
+  useEffect(() => () => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
   }, [])
 
   const handleHome = () => {
@@ -254,8 +301,8 @@ export default function App() {
   const handleExamComplete = useCallback((results, sessionWithAnswers) => {
     showSyncStatus('saving')
     persistSession(results, sessionWithAnswers)
-      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
-      .catch(() => showSyncStatus('local-only'))
+      .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
+      .catch(() => showSyncStatus('failed'))
     setExamResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('exam-results')
@@ -266,8 +313,8 @@ export default function App() {
     savePracticeResults(results)
     showSyncStatus('saving')
     persistSession(results, sessionWithAnswers)
-      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
-      .catch(() => showSyncStatus('local-only'))
+      .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
+      .catch(() => showSyncStatus('failed'))
     setPracticeResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('practice-results')
@@ -278,8 +325,8 @@ export default function App() {
     saveCoachResults(results)
     showSyncStatus('saving')
     persistSession(results, sessionWithAnswers)
-      .then(({ backendSynced }) => showSyncStatus(backendSynced ? 'synced' : 'local-only'))
-      .catch(() => showSyncStatus('local-only'))
+      .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
+      .catch(() => showSyncStatus('failed'))
     setCoachResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('coach-results')
@@ -334,7 +381,7 @@ export default function App() {
     setExamResults(null)
   }, [])
 
-  const showQuizBuilder = !selectedSkill && activeNav === 'create-quiz'
+  const showQuizBuilder = !selectedSkill && ['create-quiz', 'qbank', 'ai-tutor'].includes(activeNav)
 
   if (authStatus === 'restoring') {
     return <MainLoading />
@@ -499,7 +546,14 @@ export default function App() {
         )
       }
 
-      return <QuizBuilder onStart={handleQuizStart} generationError={generationError} />
+      return (
+        <QuizBuilder
+          key={activeNav}
+          onStart={handleQuizStart}
+          generationError={generationError}
+          initialMode={activeNav === 'ai-tutor' ? 'coach' : null}
+        />
+      )
     }
 
     return <Phase1Placeholder activeNav={activeNav} />
@@ -517,7 +571,9 @@ export default function App() {
         >
           {sessionSyncStatus === 'saving'     && 'Saving session…'}
           {sessionSyncStatus === 'synced'     && 'Session synced'}
-          {sessionSyncStatus === 'local-only' && 'Saved locally — will sync when online'}
+          {sessionSyncStatus === 'pending'    && 'Saved locally · pending synchronization'}
+          {sessionSyncStatus === 'failed'     && 'Synchronization failed · session remains on this device'}
+          {sessionSyncStatus === 'local-only' && 'Saved on this device'}
         </div>
       )}
       <Header

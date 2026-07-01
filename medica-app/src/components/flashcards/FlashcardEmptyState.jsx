@@ -18,9 +18,9 @@ export default function FlashcardEmptyState({
             <path d="M18 28h16M18 33h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".45"/>
           </svg>
         </div>
-        <h2 className="fc-empty-title">No Reinforcement Items Yet</h2>
+        <h1 className="fc-empty-title">No Reinforcement Items Yet</h1>
         <p className="fc-empty-body">
-          Finish a Practice or Coach session to automatically generate clinical reinforcement cards from your missed questions.
+          Complete a Practice or Coach session to identify concepts worth reinforcing. Medica creates focused cards that test one idea at a time.
         </p>
         {showAdaptiveCTA && (
           <AdaptiveGenerateCTA

@@ -7,6 +7,7 @@ import type { IUsersRepository } from '../repositories/interfaces.js';
 import type { IAuthTokensRepository } from '../repositories/interfaces.js';
 import type { IEmailSender } from '../lib/email.js';
 import type { User } from '../types/index.js';
+import { logger } from '../lib/logger.js';
 
 const BCRYPT_ROUNDS = config.nodeEnv === 'test' ? 10 : 12;
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;       // 1 hour
@@ -57,7 +58,7 @@ export class AuthService {
   }
 
   async requestPasswordReset(email: string): Promise<{ devToken?: string }> {
-    this.authTokens.deleteExpired().catch((err: unknown) => console.error('[AuthService] deleteExpired failed:', err));
+    this.authTokens.deleteExpired().catch((err: unknown) => logger.error('[AuthService] deleteExpired failed', { error: String(err) }));
 
     const normalizedEmail = email.toLowerCase().trim();
     const user = await this.users.findByEmail(normalizedEmail);
@@ -84,7 +85,7 @@ export class AuthService {
         text: `Click the link below to reset your password. This link expires in 1 hour.\n\n${resetUrl}\n\nIf you did not request a password reset, you can ignore this email.`,
       });
     } catch (err) {
-      console.error('[AuthService] reset email failed:', err);
+      logger.error('[AuthService] reset email failed', { error: String(err) });
     }
     if (config.authDevTokensEnabled) return { devToken: rawToken };
     return {};
@@ -103,7 +104,7 @@ export class AuthService {
   }
 
   async requestEmailVerification(userId: string): Promise<{ devToken?: string }> {
-    this.authTokens.deleteExpired().catch((err: unknown) => console.error('[AuthService] deleteExpired failed:', err));
+    this.authTokens.deleteExpired().catch((err: unknown) => logger.error('[AuthService] deleteExpired failed', { error: String(err) }));
 
     const user = await this.users.findById(userId);
     if (!user) throw new Error('NOT_FOUND');

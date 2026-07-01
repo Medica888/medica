@@ -87,6 +87,12 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
         </div>
 
         {/* ── Two-column body ── */}
+        {total < 10 && (
+          <p className="cr-sample-note" role="note">
+            Early snapshot from {total} question{total !== 1 ? 's' : ''}. Use this session for review, not as a stable readiness estimate.
+          </p>
+        )}
+
         <div className="cr-body-grid">
 
           {/* Left column */}

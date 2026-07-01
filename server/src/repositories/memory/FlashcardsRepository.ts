@@ -41,7 +41,14 @@ export class InMemoryFlashcardsRepository implements IFlashcardsRepository {
   }
 
   async createMany(flashcards: Omit<Flashcard, 'id' | 'created_at'>[]): Promise<Flashcard[]> {
-    return Promise.all(flashcards.map((f) => this.create(f)));
+    const results: Flashcard[] = [];
+    for (const f of flashcards) {
+      const duplicate = [...this.store.values()].find(
+        (c) => c.user_id === f.user_id && c.source_question_id === f.source_question_id && c.tag === (f.tag ?? ''),
+      );
+      if (!duplicate) results.push(await this.create(f));
+    }
+    return results;
   }
 
   async updateStatus(id: string, userId: string, status: Flashcard['review_status']): Promise<Flashcard | null> {
