@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { SHARED_EMAIL } from './helpers/shared-user';
+import { runQuizToCompletion } from './helpers/quiz';
 
 // Uses shared storageState (authenticated as SHARED_EMAIL) from global-setup.
 test.describe('Failure paths', () => {
@@ -17,9 +18,9 @@ test.describe('Failure paths', () => {
 
   test('expired session (cookie cleared) shows anonymous state', async ({ page }) => {
     await page.goto('/');
-    // Verify the user is logged in - Connected card has Disconnect button.
+    // Verify the user is logged in - Connected card has Log Out button.
     await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('button', { name: 'Log Out' })).toBeVisible({ timeout: 5_000 });
 
     // Simulate session expiry.
     await page.context().clearCookies();
@@ -85,5 +86,20 @@ test.describe('Failure paths', () => {
     await page.fill('#stg-password', 'WrongPassword1!');
     await page.locator('.stg-submit-btn').click();
     await expect(page.locator('.stg-error')).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('failed session write survives reload and synchronizes after reconnect', async ({ page }) => {
+    await page.route('**/api/exams', route => {
+      if (route.request().method() === 'POST') route.abort('connectionrefused');
+      else route.continue();
+    });
+
+    await page.goto('/');
+    await runQuizToCompletion(page);
+    await expect(page.locator('.sync-toast')).toContainText('pending synchronization', { timeout: 8_000 });
+
+    await page.unroute('**/api/exams');
+    await page.reload();
+    await expect(page.locator('.sync-toast')).toContainText('Session synced', { timeout: 10_000 });
   });
 });

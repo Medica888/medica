@@ -14,18 +14,18 @@ test.describe('Auth lifecycle', () => {
     await page.context().clearCookies();
     await page.goto('/');
     await register(page, email, TEST_NAME, TEST_PASSWORD);
-    // After registration, the Connected card shows with a Disconnect button.
-    await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
+    // After registration, the Connected card shows with a Log Out button.
+    await expect(page.getByRole('button', { name: 'Log Out' })).toBeVisible();
   });
 
   test('session persists after page reload (HttpOnly cookie)', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Log Out' })).toBeVisible({ timeout: 10_000 });
     await page.reload();
     // Navigate to settings to check auth state.
     await page.getByRole('button', { name: 'Settings' }).click();
-    // After reload, auth.me() restores session from cookie - Disconnect button reappears.
-    await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible({ timeout: 10_000 });
+    // After reload, auth.me() restores session from cookie - Log Out button reappears.
+    await expect(page.getByRole('button', { name: 'Log Out' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('logout clears session - auth form reappears', async ({ page }) => {
@@ -41,7 +41,7 @@ test.describe('Auth lifecycle', () => {
     await page.context().clearCookies();
     await page.goto('/');
     await login(page, SHARED_EMAIL, SHARED_PASSWORD);
-    await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log Out' })).toBeVisible();
   });
 
   test('GET /api/auth/me returns user data for authenticated session', async ({ page, request }) => {

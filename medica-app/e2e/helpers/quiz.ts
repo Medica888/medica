@@ -31,7 +31,7 @@ export async function runQuizToCompletion(page: Page): Promise<void> {
   }
 
   // Submit via the header button.
-  await page.getByRole('button', { name: 'Finish Exam' }).click();
+  await page.getByRole('button', { name: 'Submit Exam' }).click();
 
   // Confirm in the modal — the confirm button has aria-label "Confirm and submit exam".
   await page.waitForSelector('[role="dialog"][aria-label="Submit exam confirmation"]', { timeout: 5_000 });

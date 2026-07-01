@@ -20,7 +20,7 @@ export async function navigateToSettings(page: Page): Promise<void> {
   await page.waitForTimeout(300);
 }
 
-/** After login/register, the app shows the Connected card with a Disconnect button. */
+/** After login/register, the app shows the Connected card with a Log Out button. */
 export async function waitForConnected(page: Page): Promise<void> {
   await page.waitForSelector('button[class*="stg-logout-btn"], .stg-logout-btn', { timeout: 10_000 });
 }
@@ -56,7 +56,7 @@ export async function login(
 
 export async function logout(page: Page): Promise<void> {
   await navigateToSettings(page);
-  await page.getByRole('button', { name: 'Disconnect' }).click();
+  await page.getByRole('button', { name: 'Log Out' }).click();
   // Wait for the auth form to reappear.
   await page.waitForSelector('#stg-email', { timeout: 5_000 });
 }
