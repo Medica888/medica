@@ -14,6 +14,24 @@ import { computeSRS } from './srsScheduler.js'
 
 const USE_BACKEND_API = import.meta.env.VITE_USE_BACKEND_API === 'true'
 
+const REPORT_SOURCE_MAP = Object.freeze({
+  ai: 'ai',
+  ai_generated: 'ai',
+  mock: 'mock',
+  'mock-fallback': 'mock',
+  'fallback-bank': 'mock',
+  trusted_bank: 'trusted_bank',
+  'validated-qbank': 'trusted_bank',
+  'validated-local-bank': 'trusted_bank',
+  authored: 'trusted_bank',
+  backend: 'trusted_bank',
+})
+
+function normalizeReportSource(source) {
+  const key = String(source || '').trim().toLowerCase()
+  return REPORT_SOURCE_MAP[key] ?? null
+}
+
 const KEY = 'medica_last_quiz_config'
 const SESSION_KEY = 'medica_last_quiz_session'
 const QUESTION_REPORTS_KEY = 'medica_question_reports'
@@ -141,7 +159,7 @@ export function saveQuestionReport(question, reason, context = {}) {
         questionId:       question?.id ?? null,
         stemPreview:      String(question?.stem || '').slice(0, 100) || null,
         testedConcept:    taggedQuestion.testedConcept || null,
-        source:           context?.source ?? null,
+        source:           normalizeReportSource(context?.source),
         mode:             report.mode || null,
         difficulty:       question?.difficulty ?? null,
         requestedSubject: context?.subject ?? null,

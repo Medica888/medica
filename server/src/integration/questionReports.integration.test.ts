@@ -154,4 +154,32 @@ describe('PgQuestionReportsRepository — quarantine thresholds — integration'
       reportsRepo.create(makeReport(user.id, { fingerprint: 'fp-bad', reason: 'invalid_reason' })),
     ).rejects.toThrow();
   });
+
+  it.each(['duplicate', 'technical_issue'] as const)(
+    'accepts the %s report reason in PostgreSQL',
+    async (reason) => {
+      const user = await usersRepo.create(makeUser({ email: `${reason}@test.com` }));
+
+      const report = await reportsRepo.create(
+        makeReport(user.id, { fingerprint: `fp-${reason}`, reason }),
+      );
+
+      expect(report.reason).toBe(reason);
+    },
+  );
+
+  it('has exactly one canonical report-reason check constraint', async () => {
+    const result = await pool.query<{ name: string; definition: string }>(`
+      SELECT conname AS name, pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+      WHERE conrelid = 'question_reports'::regclass
+        AND contype = 'c'
+        AND pg_get_constraintdef(oid) LIKE '%reason%'
+    `);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.name).toBe('question_reports_reason_check');
+    expect(result.rows[0]?.definition).toContain('duplicate');
+    expect(result.rows[0]?.definition).toContain('technical_issue');
+  });
 });

@@ -529,6 +529,29 @@ describe('saveQuestionReport — outbox sync', () => {
     expect(payload.source).toBe('ai')
   })
 
+  it.each([
+    ['validated-qbank', 'trusted_bank'],
+    ['authored', 'trusted_bank'],
+    ['validated-local-bank', 'trusted_bank'],
+    ['mock-fallback', 'mock'],
+    ['fallback-bank', 'mock'],
+  ])('normalizes report source %s for the backend contract', (source, expected) => {
+    saveQuestionReport(q(`q-source-${source}`), 'wrong_answer', { mode: 'exam', source })
+
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox[0].payload.source).toBe(expected)
+  })
+
+  it('omits unknown report sources instead of sending an invalid enum value', () => {
+    saveQuestionReport(q('q-source-unknown'), 'wrong_answer', {
+      mode: 'practice',
+      source: 'future-source',
+    })
+
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox[0].payload.source).toBeNull()
+  })
+
   it('local QUESTION_REPORTS_UPDATED_EVENT fires from local save', () => {
     let fired = false
     window.addEventListener('medica:question-reports-updated', () => { fired = true }, { once: true })
