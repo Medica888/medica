@@ -17,21 +17,28 @@ vi.mock('./storage.js', () => ({
 }));
 
 // Mock apiClient
-vi.mock('./apiClient.js', () => ({
-  isAuthenticated: vi.fn(() => true),
-  getCurrentUserId: vi.fn(() => 'user-123'),
-  exams: {
-    create: vi.fn().mockResolvedValue({ id: 'sess-1' }),
-    list:   vi.fn().mockResolvedValue({ data: [], totalPages: 1 }),
-  },
-  flashcards: {
-    list: vi.fn().mockResolvedValue({ flashcards: [] }),
-    createMany: vi.fn().mockResolvedValue({ flashcards: [] }),
-    updateStatus: vi.fn(),
-    markReviewed: vi.fn(),
-  },
-  analytics: { get: vi.fn(), progress: vi.fn() },
-}));
+vi.mock('./apiClient.js', () => {
+  const isAuthenticated = vi.fn(() => true);
+  return {
+    isAuthenticated,
+    // Mirrors the real isBackendEnabled/isBackendSyncEnabled contract (flag-only,
+    // and flag+auth) so tests can keep controlling gating via isAuthenticated alone.
+    isBackendEnabled: vi.fn(() => true),
+    isBackendSyncEnabled: vi.fn(() => isAuthenticated()),
+    getCurrentUserId: vi.fn(() => 'user-123'),
+    exams: {
+      create: vi.fn().mockResolvedValue({ id: 'sess-1' }),
+      list:   vi.fn().mockResolvedValue({ data: [], totalPages: 1 }),
+    },
+    flashcards: {
+      list: vi.fn().mockResolvedValue({ flashcards: [] }),
+      createMany: vi.fn().mockResolvedValue({ flashcards: [] }),
+      updateStatus: vi.fn(),
+      markReviewed: vi.fn(),
+    },
+    analytics: { get: vi.fn(), progress: vi.fn() },
+  };
+});
 
 import * as storage from './storage.js';
 import * as api from './apiClient.js';
@@ -47,6 +54,8 @@ import {
   syncLocalFlashcardsToBackend,
   getBackendFlashcards,
   importBackendFlashcards,
+  getBackendAnalytics,
+  getProgressGains,
 } from './dataProvider.js';
 
 // results shape — output of calculatePracticeResults
@@ -1273,5 +1282,40 @@ describe('syncLocalFlashcardsToBackend — _writeBackendIds (alpha.8)', () => {
 
     const saved = storage.saveFlashcards.mock.calls[0][0];
     expect(saved[0].backendId).toBe('uuid-match');
+  });
+});
+
+// ── Analytics (backend requires auth — /api/analytics has router.use(requireAuth)) ──
+
+describe('getBackendAnalytics / getProgressGains', () => {
+  it('does not call the backend when unauthenticated, avoiding an avoidable 401', async () => {
+    api.isAuthenticated.mockReturnValue(false);
+
+    const analytics = await getBackendAnalytics();
+    const gains = await getProgressGains();
+
+    expect(analytics).toBeNull();
+    expect(gains).toBeNull();
+    expect(api.analytics.get).not.toHaveBeenCalled();
+    expect(api.analytics.progress).not.toHaveBeenCalled();
+  });
+
+  it('fetches from the backend when authenticated', async () => {
+    api.analytics.get.mockResolvedValue({ total: 5 });
+    api.analytics.progress.mockResolvedValue({ gains: { correct: 2 } });
+
+    const analytics = await getBackendAnalytics();
+    const gains = await getProgressGains();
+
+    expect(analytics).toEqual({ total: 5 });
+    expect(gains).toEqual({ correct: 2 });
+  });
+
+  it('falls back to null when the backend call fails', async () => {
+    api.analytics.get.mockRejectedValue(new Error('network error'));
+
+    const analytics = await getBackendAnalytics();
+
+    expect(analytics).toBeNull();
   });
 });

@@ -31,8 +31,6 @@ import {
 } from './storage.js'
 import { classifyAnswer } from './qbankProgress.js';
 
-const USE_BACKEND = import.meta.env.VITE_USE_BACKEND === 'true';
-
 // ── Session persistence ───────────────────────────────────────────────────
 
 /**
@@ -60,8 +58,7 @@ export async function saveSession(results, sessionWithAnswers) {
   saveCompletedSession({ ...results, completedAt, mode, questionIds, questionAttempts })
   markLastQuizSessionCompleted(sessionId, completedAt)
 
-  if (!USE_BACKEND) return { backendSynced: false, syncState: 'local-only' };
-  if (!api.isAuthenticated?.()) return { backendSynced: false, syncState: 'local-only' };
+  if (!api.isBackendSyncEnabled()) return { backendSynced: false, syncState: 'local-only' };
 
   const mapQuestion = (q) => {
     const normalized = normalizeQuestionTaxonomyFields(q);
@@ -144,7 +141,7 @@ export async function saveSession(results, sessionWithAnswers) {
 
 /** Get session history — backend-first for authenticated users, localStorage fallback. */
 export async function getSessions() {
-  if (!USE_BACKEND || !api.isAuthenticated?.()) {
+  if (!api.isBackendSyncEnabled()) {
     return getSessionHistory();
   }
   try {
@@ -245,7 +242,7 @@ export async function saveFlashcards(cards) {
     backendSynced: false,
   };
 
-  if (!USE_BACKEND || !added || !api.isAuthenticated?.() || savedCards.length === 0) {
+  if (!added || !api.isBackendSyncEnabled() || savedCards.length === 0) {
     return result;
   }
 
@@ -280,8 +277,7 @@ export async function saveFlashcards(cards) {
  * Does not delete localStorage cards. Does not set the flag on failure.
  */
 export async function syncLocalFlashcardsToBackend() {
-  if (!USE_BACKEND) return { skipped: true, reason: 'backend disabled' };
-  if (!api.isAuthenticated?.()) return { skipped: true, reason: 'unauthenticated' };
+  if (!api.isBackendSyncEnabled()) return { skipped: true, reason: 'backend disabled or unauthenticated' };
   const userId = api.getCurrentUserId?.() ?? '';
   if (!userId) return { skipped: true, reason: 'unresolvable user id' };
 
@@ -326,7 +322,7 @@ export async function syncLocalFlashcardsToBackend() {
 export async function setFlashcardStatus(id, status) {
   updateFlashcardStatus(id, status);
 
-  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
+  if (!api.isBackendSyncEnabled()) return;
   const backendId = _resolveBackendId(id);
   if (!backendId) { _markDirty(); return; }
   try {
@@ -340,7 +336,7 @@ export async function setFlashcardStatus(id, status) {
 export async function reviewFlashcard(id, ease) {
   markFlashcardReviewed(id, ease);
 
-  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
+  if (!api.isBackendSyncEnabled()) return;
   const backendId = _resolveBackendId(id);
   if (!backendId) { _markDirty(); return; }
   try {
@@ -354,7 +350,7 @@ export async function reviewFlashcard(id, ease) {
 export async function clearFlashcards() {
   _storageFlashcards();
 
-  if (!USE_BACKEND || !api.isAuthenticated?.()) return;
+  if (!api.isBackendSyncEnabled()) return;
   try {
     await api.flashcards.clearAll();
   } catch (err) {
@@ -402,7 +398,7 @@ function _mapBackendCardToFrontend(c) {
  * or the call fails — callers should treat null as "keep current state".
  */
 export async function getBackendFlashcards() {
-  if (!USE_BACKEND || !api.isAuthenticated?.()) return null;
+  if (!api.isBackendSyncEnabled()) return null;
   try {
     const data = await api.flashcards.list();
     const cards = data?.flashcards ?? [];
@@ -499,11 +495,13 @@ export function importBackendFlashcards(backendCards) {
 // ── Analytics (backend-only reads) ───────────────────────────────────────
 
 /**
- * Fetch server-side analytics. Returns null when backend is disabled or
- * the call fails — callers should fall back to the local analyticsEngine.
+ * Fetch server-side analytics. Returns null when backend is disabled, the
+ * session isn't authenticated (both /api/analytics endpoints require auth —
+ * skipping here avoids an avoidable 401 round trip), or the call fails —
+ * callers should fall back to the local analyticsEngine.
  */
 export async function getBackendAnalytics() {
-  if (!USE_BACKEND) return null;
+  if (!api.isBackendSyncEnabled()) return null;
   try {
     return await api.analytics.get();
   } catch (err) {
@@ -513,7 +511,7 @@ export async function getBackendAnalytics() {
 }
 
 export async function getProgressGains() {
-  if (!USE_BACKEND) return null;
+  if (!api.isBackendSyncEnabled()) return null;
   try {
     const { gains } = await api.analytics.progress();
     return gains;

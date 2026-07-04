@@ -7,12 +7,10 @@
 import { validateClinicalCard } from './flashcardValidator.js'
 import { getBaseQuestionId, getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
-import { getCurrentUserId, questionReports as questionReportsApi } from './apiClient.js'
+import { getCurrentUserId, isBackendEnabled, questionReports as questionReportsApi } from './apiClient.js'
 import { getAnonymousStorageKey, getScopedStorageKey } from './storageScope.js'
 import { enqueueQuestionReportSync, drainSessionSyncOutbox } from './sessionSyncOutbox.js'
 import { computeSRS } from './srsScheduler.js'
-
-const USE_BACKEND_API = import.meta.env.VITE_USE_BACKEND_API === 'true'
 
 const REPORT_SOURCE_MAP = Object.freeze({
   ai: 'ai',
@@ -149,8 +147,10 @@ export function saveQuestionReport(question, reason, context = {}) {
     localStorage.setItem(scopedKey(QUESTION_REPORTS_KEY), JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
     // Best-effort backend sync — outbox for authenticated users, fire-and-forget for anonymous.
-    // Only when VITE_USE_BACKEND_API is enabled; respects the same flag as AI generation.
-    if (USE_BACKEND_API) {
+    // Question reports are ordinary backend synchronization (public endpoint, optionalAuth
+    // server-side) — gated on VITE_USE_BACKEND, same flag as sessions/flashcards in
+    // dataProvider.js. VITE_USE_BACKEND_API is reserved for live AI generation only.
+    if (isBackendEnabled()) {
       const userId = getCurrentUserId()
       const backendPayload = {
         clientReportId,

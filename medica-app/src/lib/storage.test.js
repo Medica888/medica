@@ -486,6 +486,7 @@ describe('saveQuestionReport — outbox sync', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   it('still saves locally regardless of outbox state', () => {
@@ -511,6 +512,44 @@ describe('saveQuestionReport — outbox sync', () => {
     const outbox = getSessionSyncOutbox('')
     expect(outbox).toHaveLength(0)
     // Local save still happened
+    expect(getQuestionReports()).toHaveLength(1)
+  })
+
+  // ── Feature flag: VITE_USE_BACKEND (question reports are ordinary backend
+  // sync, same flag as sessions/flashcards — never VITE_USE_BACKEND_API,
+  // which is reserved for live AI generation) ─────────────────────────────
+
+  it('VITE_USE_BACKEND=true enables report synchronization', () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'true')
+
+    saveQuestionReport(q('q-flag-on'), 'wrong_answer', { mode: 'practice' })
+
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox).toHaveLength(1)
+  })
+
+  it('VITE_USE_BACKEND=false keeps reports local — no outbox entry, no backend call', () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'false')
+    const createSpy = vi.spyOn(apiClient.questionReports, 'create')
+
+    saveQuestionReport(q('q-flag-off'), 'wrong_answer', { mode: 'practice' })
+
+    const outbox = getSessionSyncOutbox(TEST_USER)
+    expect(outbox).toHaveLength(0)
+    expect(createSpy).not.toHaveBeenCalled()
+    // Local save still happened — local persistence continues when backend sync is unavailable.
+    expect(getQuestionReports()).toHaveLength(1)
+  })
+
+  it('anonymous reports follow the intended backend behavior: direct fire-and-forget create, not the outbox', () => {
+    vi.spyOn(apiClient, 'getCurrentUserId').mockReturnValue('')
+    const createSpy = vi.spyOn(apiClient.questionReports, 'create').mockResolvedValue({ id: 'r1' })
+
+    saveQuestionReport(q('q-anon'), 'wrong_answer', { mode: 'practice' })
+
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(createSpy.mock.calls[0][0].questionId).toBe('q-anon')
+    expect(getSessionSyncOutbox('')).toHaveLength(0)
     expect(getQuestionReports()).toHaveLength(1)
   })
 

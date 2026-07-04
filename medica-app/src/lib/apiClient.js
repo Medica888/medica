@@ -25,10 +25,18 @@ export function setAuthenticated(val) {
   setAuthSession(val ? 'authenticated' : 'anonymous', val ? _currentUserId : '');
 }
 export function isAuthenticated() { return _authStatus === 'authenticated'; }
-// Backend-driven QBank requires both the feature flag and an authenticated session —
-// anonymous/local-only users keep browsing the bundled question bank.
-export function isQBankBackendEnabled() {
-  return import.meta.env.VITE_USE_BACKEND === 'true' && isAuthenticated();
+// True when the VITE_USE_BACKEND feature flag is on, regardless of auth state.
+// Read live on every call (not cached at module load) so callers stay correct
+// under test-time env stubbing and don't need their own frozen copy of this check.
+export function isBackendEnabled() {
+  return import.meta.env.VITE_USE_BACKEND === 'true';
+}
+// Single source of truth for "should this call attempt the backend": the feature
+// flag is on AND the session is authenticated. Used by dataProvider (session/
+// flashcard sync) and the QBank catalog — anonymous/local-only users keep using
+// the local-only paths.
+export function isBackendSyncEnabled() {
+  return isBackendEnabled() && isAuthenticated();
 }
 export function getAuthStatus() { return _authStatus; }
 export function setCurrentUserId(id) {

@@ -8,6 +8,8 @@ import {
   setAuthSession,
   getAuthStateSnapshot,
   subscribeAuthState,
+  isBackendEnabled,
+  isBackendSyncEnabled,
   auth,
   exams,
   flashcards,
@@ -63,6 +65,35 @@ describe('setAuthenticated / isAuthenticated', () => {
     expect(listener).toHaveBeenCalledTimes(3);
 
     unsubscribe();
+  });
+});
+
+describe('isBackendEnabled / isBackendSyncEnabled', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('isBackendEnabled reflects the VITE_USE_BACKEND flag only, regardless of auth', () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'true');
+    setAuthenticated(false);
+    expect(isBackendEnabled()).toBe(true);
+
+    vi.stubEnv('VITE_USE_BACKEND', 'false');
+    setAuthenticated(true);
+    expect(isBackendEnabled()).toBe(false);
+  });
+
+  it('isBackendSyncEnabled requires both the flag and an authenticated session', () => {
+    vi.stubEnv('VITE_USE_BACKEND', 'true');
+    setAuthenticated(true);
+    expect(isBackendSyncEnabled()).toBe(true);
+
+    setAuthenticated(false);
+    expect(isBackendSyncEnabled()).toBe(false);
+
+    setAuthenticated(true);
+    vi.stubEnv('VITE_USE_BACKEND', 'false');
+    expect(isBackendSyncEnabled()).toBe(false);
   });
 });
 
