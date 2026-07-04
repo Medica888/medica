@@ -35,6 +35,10 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.js'],
+      env: {
+        VITE_USE_BACKEND: 'true',
+        VITE_USE_BACKEND_API: 'true',
+      },
       testTimeout: 10000,
       exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
       css: false,
