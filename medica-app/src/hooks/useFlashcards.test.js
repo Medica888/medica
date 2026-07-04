@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useFlashcards } from './useFlashcards.js'
 
+const authState = vi.hoisted(() => ({
+  current: {
+    isAuthenticated: true,
+    isRestoring: false,
+    userId: 'user-1',
+    scopeKey: 'authenticated:user-1',
+  },
+}))
+
+vi.mock('./useAuthState.js', () => ({
+  useAuthState: () => authState.current,
+}))
+
 vi.mock('../lib/dataProvider.js', () => ({
   getAllFlashcards:              vi.fn(() => []),
   saveFlashcards:               vi.fn(async () => ({ added: 0, skipped: 0, total: 0 })),
@@ -18,6 +31,15 @@ import {
   getBackendFlashcards,
   importBackendFlashcards,
 } from '../lib/dataProvider.js'
+
+beforeEach(() => {
+  authState.current = {
+    isAuthenticated: true,
+    isRestoring: false,
+    userId: 'user-1',
+    scopeKey: 'authenticated:user-1',
+  }
+})
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -133,6 +155,108 @@ describe('useFlashcards — sync on mount', () => {
     const callsBefore = getBackendFlashcards.mock.calls.length
     act(() => result.current.refresh())
     expect(getBackendFlashcards.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('waits for auth restoration, then synchronizes once authenticated', async () => {
+    authState.current = {
+      isAuthenticated: false,
+      isRestoring: true,
+      userId: '',
+      scopeKey: 'restoring:',
+    }
+    const { rerender } = renderHook(() => useFlashcards())
+
+    expect(syncLocalFlashcardsToBackend).not.toHaveBeenCalled()
+    expect(getBackendFlashcards).not.toHaveBeenCalled()
+
+    authState.current = {
+      isAuthenticated: true,
+      isRestoring: false,
+      userId: 'user-1',
+      scopeKey: 'authenticated:user-1',
+    }
+    rerender()
+
+    await waitFor(() => {
+      expect(syncLocalFlashcardsToBackend).toHaveBeenCalledTimes(1)
+      expect(getBackendFlashcards).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('does not call protected flashcard endpoints for anonymous users', () => {
+    authState.current = {
+      isAuthenticated: false,
+      isRestoring: false,
+      userId: '',
+      scopeKey: 'anonymous:',
+    }
+
+    renderHook(() => useFlashcards())
+
+    expect(syncLocalFlashcardsToBackend).not.toHaveBeenCalled()
+    expect(getBackendFlashcards).not.toHaveBeenCalled()
+  })
+
+  it('synchronizes again when the authenticated user changes', async () => {
+    const { rerender } = renderHook(() => useFlashcards())
+    await waitFor(() => expect(syncLocalFlashcardsToBackend).toHaveBeenCalledTimes(1))
+
+    authState.current = {
+      isAuthenticated: true,
+      isRestoring: false,
+      userId: 'user-2',
+      scopeKey: 'authenticated:user-2',
+    }
+    rerender()
+
+    await waitFor(() => {
+      expect(syncLocalFlashcardsToBackend).toHaveBeenCalledTimes(2)
+      expect(getBackendFlashcards).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('replaces the previous user cards when a new authenticated scope has no backend cards', async () => {
+    const userOneCards = [makeCard('user-1-card')]
+    const userTwoCards = [makeCard('user-2-local-card')]
+    getAllFlashcards.mockReturnValueOnce(userOneCards).mockReturnValue(userTwoCards)
+    getBackendFlashcards.mockResolvedValue([])
+
+    const { result, rerender } = renderHook(() => useFlashcards())
+    expect(result.current.cards).toEqual(userOneCards)
+    await waitFor(() => expect(getBackendFlashcards).toHaveBeenCalledTimes(1))
+
+    authState.current = {
+      isAuthenticated: true,
+      isRestoring: false,
+      userId: 'user-2',
+      scopeKey: 'authenticated:user-2',
+    }
+    rerender()
+
+    await waitFor(() => expect(result.current.cards).toEqual(userTwoCards))
+    expect(result.current.source).toBe('localStorage')
+  })
+
+  it('reloads anonymous local cards when the user logs out', async () => {
+    const userCards = [makeCard('user-card')]
+    const anonymousCards = [makeCard('anonymous-card')]
+    getAllFlashcards.mockReturnValueOnce(userCards).mockReturnValue(anonymousCards)
+    getBackendFlashcards.mockResolvedValue([])
+
+    const { result, rerender } = renderHook(() => useFlashcards())
+    await waitFor(() => expect(getBackendFlashcards).toHaveBeenCalledTimes(1))
+
+    authState.current = {
+      isAuthenticated: false,
+      isRestoring: false,
+      userId: '',
+      scopeKey: 'anonymous:',
+    }
+    rerender()
+
+    await waitFor(() => expect(result.current.cards).toEqual(anonymousCards))
+    expect(result.current.source).toBe('localStorage')
+    expect(syncLocalFlashcardsToBackend).toHaveBeenCalledTimes(1)
   })
 })
 
