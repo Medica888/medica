@@ -142,6 +142,20 @@ describe('normalizeBackendSession — breakdown reconstruction', () => {
       { name: 'Biochemistry', correct: 0, total: 1, percentage: 0 },
     ])
   })
+
+  it('reconstructs scoring from correct and correctAnswer aliases', () => {
+    const s = normalizeBackendSession(makeBackendSession({
+      questions: [
+        { id: 'q1', correct: 'A', usmleContentArea: 'Cardiovascular System' },
+        { id: 'q2', correctAnswer: 'b', usmleContentArea: 'Cardiovascular System' },
+      ],
+      answers: { q1: 'a', q2: 'B' },
+    }))
+    expect(s.usmleContentBreakdown).toEqual([
+      { name: 'Cardiovascular System', correct: 2, total: 2, percentage: 100 },
+    ])
+    expect(s.questionAttempts.map(attempt => attempt.result)).toEqual(['correct', 'correct'])
+  })
 })
 
 // ── completedAt dedup ─────────────────────────────────────────────────────

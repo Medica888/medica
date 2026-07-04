@@ -80,4 +80,16 @@ describe('PracticeInterface — Question Navigator wiring', () => {
     expect(screen.getByRole('button', { name: /previous question/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /next question/i })).toBeInTheDocument()
   })
+
+  it('restores the saved question position and answer', () => {
+    const resumed = {
+      ...session,
+      currentIndex: 1,
+      answers: { q2: 'B' },
+    }
+    const { container } = render(<PracticeInterface session={resumed} onComplete={NOOP} onExit={NOOP} />)
+
+    expect(screen.getByText('Stem q2')).toBeInTheDocument()
+    expect(container.querySelector('.pi-option.selected')).toHaveTextContent('Option B')
+  })
 })

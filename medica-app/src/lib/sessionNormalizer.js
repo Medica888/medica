@@ -1,5 +1,6 @@
 import { exams } from './apiClient.js'
-import { normalizeAnswerLetter } from './answerNormalize.js'
+import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js'
+import { classifyAnswer } from './qbankProgress.js'
 
 const PAGE_LIMIT = 100
 const MAX_SESSIONS = 500
@@ -24,7 +25,7 @@ function _rebuildBreakdowns(questions, answers) {
   const taskMap  = {}
 
   for (const q of questions) {
-    const isCorrect = normalizeAnswerLetter(answers[q.id]) === normalizeAnswerLetter(q.correct_answer)
+    const isCorrect = normalizeAnswerLetter(answers[q.id]) === getQuestionCorrectLetter(q)
 
     const usmle = q.usmleContentArea || ''
     if (usmle) {
@@ -59,9 +60,21 @@ export function normalizeBackendSession(s) {
   const answers   = s.answers && typeof s.answers === 'object' ? s.answers : {}
   const { usmleContentBreakdown, physicianTaskBreakdown } = _rebuildBreakdowns(questions, answers)
 
+  const completedAt = _toIso(s.completed_at)
+  const sessionId   = s.id || ''
+
+  const questionIds = questions.map(q => q.id).filter(Boolean)
+  const questionAttempts = questions.map(q => ({
+    questionId: q.id,
+    result: classifyAnswer(answers[q.id], getQuestionCorrectLetter(q)),
+    mode: s.mode,
+    sessionId,
+    completedAt,
+  }))
+
   return {
     id:                    s.id,
-    completedAt:           _toIso(s.completed_at),
+    completedAt,
     mode:                  s.mode,
     total:                 questions.length,
     correct:               s.score ?? 0,
@@ -74,6 +87,8 @@ export function normalizeBackendSession(s) {
     usmleContentBreakdown,
     physicianTaskBreakdown,
     difficulty:            s.difficulty ?? '',
+    questionIds,
+    questionAttempts,
   }
 }
 

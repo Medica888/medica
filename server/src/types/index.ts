@@ -67,6 +67,18 @@ export interface Question {
   canonicalConcepts?: string[];
 }
 
+export interface CatalogQuestion {
+  id: string;
+  subject: string;
+  system: string;
+  difficulty: string;
+  mode: string;
+  topic: string | null;
+  testedConcept: string | null;
+  stem: string | null;
+  options: Array<{ letter: string; text: string }>;
+}
+
 export interface SubjectStats {
   total: number;
   correct: number;

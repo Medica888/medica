@@ -9,6 +9,7 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
+import { qbank } from './lib/apiClient'
 import { useSessionHistory } from './hooks/useSessionHistory'
 import { useAuth } from './context/AuthContext'
 import {
@@ -127,7 +128,7 @@ export default function App() {
     return map[activeNav] || 'Medica'
   }, [activeNav])
 
-  const { sessions: historySessions } = useSessionHistory()
+  const { sessions: historySessions, refresh: refreshHistory } = useSessionHistory()
 
   const readinessStatus = useMemo(() => {
     if (historySessions.length === 0) return { label: 'Getting Started', active: false }
@@ -278,7 +279,69 @@ export default function App() {
     }
   }, [])
 
-  const handleQBankStart = useCallback(async ({ mode, questions }) => {
+  const handleQBankStart = useCallback(async ({ mode, questions, resumeSession = null, backendDriven = false }) => {
+    if (resumeSession) {
+      if (resumeSession.backendDriven) {
+        // Backend-driven resume: never trust the local snapshot's availability — re-resolve
+        // every saved id against the server so cross-user quarantine/edits since the session
+        // was saved are caught. qbank.createSession is atomic (throws SELECTION_STALE if any
+        // id no longer resolves) and used purely as a validity gate here: on success, the
+        // saved question objects resume completely unchanged. They must never be rebuilt
+        // from the freshly resolved body — the saved options/correct were already shuffled
+        // once at session start (shuffleQuestionOptions must never run twice), and a hybrid
+        // fresh-content/old-options question would let a saved answer letter silently point
+        // at a different option than the one the student actually chose.
+        const savedQuestions = resumeSession.questions || []
+        await qbank.createSession(savedQuestions.map(question => String(question.id)))
+
+        const resumedConfig = {
+          ...(resumeSession.config || {}),
+          mode,
+          questionCount: savedQuestions.length,
+          blockType: 'qbank-selection',
+          source: 'validated-qbank',
+        }
+        // Every saved question id and all session state (answers, position, timer, marks,
+        // confidence, notes, highlights, reveal state) carry over untouched via this spread.
+        const resumed = {
+          ...resumeSession,
+          mode,
+          config: resumedConfig,
+          questions: savedQuestions,
+          completed: false,
+          source: 'validated-qbank',
+          questionSource: 'validated-qbank',
+        }
+        setQuizConfig(resumedConfig)
+        setQuizSession(enrichSessionWithTopicMetadata(resumed, resumedConfig))
+        setGenerationError(null)
+        setQuizPhase('session')
+        return
+      }
+
+      const resumedConfig = {
+        ...(resumeSession.config || {}),
+        mode,
+        questionCount: questions.length,
+        blockType: 'qbank-selection',
+        source: 'validated-qbank',
+      }
+      const resumed = {
+        ...resumeSession,
+        mode,
+        config: resumedConfig,
+        questions,
+        completed: false,
+        source: 'validated-qbank',
+        questionSource: 'validated-qbank',
+      }
+      setQuizConfig(resumedConfig)
+      setQuizSession(enrichSessionWithTopicMetadata(resumed, resumedConfig))
+      setGenerationError(null)
+      setQuizPhase('session')
+      return
+    }
+
     const uniqueValues = (items, key) => [...new Set(items.map(item => item?.[key]).filter(Boolean))]
     const subjects = uniqueValues(questions, 'subject')
     const systems = uniqueValues(questions, 'system')
@@ -294,8 +357,17 @@ export default function App() {
       blockType: 'qbank-selection',
       source: 'validated-qbank',
     }
-    const { createSelectedQuestionSession } = await import('./lib/mockQuestions')
-    const session = createSelectedQuestionSession(config, questions)
+    const { createSelectedQuestionSession, createSessionFromResolvedQuestions } = await import('./lib/mockQuestions')
+    let session
+    if (backendDriven) {
+      const resolved = await qbank.createSession(questions.map(question => String(question.id)))
+      session = createSessionFromResolvedQuestions(config, resolved.questions.map(question => question.body))
+    } else {
+      session = createSelectedQuestionSession(config, questions)
+    }
+    // Tagged so a later resume knows whether to re-resolve against the backend
+    // (cross-user quarantine safety) or fall back to the local knownInventory check.
+    session = { ...session, backendDriven, catalogSource: backendDriven ? 'backend' : 'local' }
     setQuizConfig(session.config)
     setQuizSession(enrichSessionWithTopicMetadata(session, session.config))
     setGenerationError(null)
@@ -328,10 +400,11 @@ export default function App() {
     persistSession(results, sessionWithAnswers)
       .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
       .catch(() => showSyncStatus('failed'))
+      .finally(refreshHistory)
     setExamResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('exam-results')
-  }, [showSyncStatus])
+  }, [showSyncStatus, refreshHistory])
 
   // Called by PracticeInterface when user clicks "Finish Practice"
   const handlePracticeComplete = useCallback((results, sessionWithAnswers) => {
@@ -340,10 +413,11 @@ export default function App() {
     persistSession(results, sessionWithAnswers)
       .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
       .catch(() => showSyncStatus('failed'))
+      .finally(refreshHistory)
     setPracticeResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('practice-results')
-  }, [showSyncStatus])
+  }, [showSyncStatus, refreshHistory])
 
   // Called by CoachInterface when user clicks "Finish Session"
   const handleCoachComplete = useCallback((results, sessionWithAnswers) => {
@@ -352,10 +426,11 @@ export default function App() {
     persistSession(results, sessionWithAnswers)
       .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
       .catch(() => showSyncStatus('failed'))
+      .finally(refreshHistory)
     setCoachResults(results)
     if (sessionWithAnswers) setQuizSession(sessionWithAnswers)
     setQuizPhase('coach-results')
-  }, [showSyncStatus])
+  }, [showSyncStatus, refreshHistory])
 
   const handleNavigateToFlashcards = useCallback(() => {
     setActiveNav('flashcards')
@@ -572,7 +647,7 @@ export default function App() {
       }
 
       if (activeNav === 'qbank') {
-        return <QBankPage onStartSelected={handleQBankStart} />
+        return <QBankPage onStartSelected={handleQBankStart} sessions={historySessions} />
       }
 
       return (

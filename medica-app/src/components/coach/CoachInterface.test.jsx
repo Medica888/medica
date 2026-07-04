@@ -76,4 +76,16 @@ describe('CoachInterface — Question Navigator wiring', () => {
     render(<CoachInterface session={session} onComplete={NOOP} onExit={NOOP} />)
     expect(screen.getByRole('button', { name: /previous question/i })).toBeInTheDocument()
   })
+
+  it('restores the saved question position and answer', () => {
+    const resumed = {
+      ...session,
+      currentIndex: 2,
+      answers: { q3: 'B' },
+    }
+    const { container } = render(<CoachInterface session={resumed} onComplete={NOOP} onExit={NOOP} />)
+
+    expect(screen.getByText('Stem q3')).toBeInTheDocument()
+    expect(container.querySelector('.ci-option--selected')).toHaveTextContent('Option B')
+  })
 })

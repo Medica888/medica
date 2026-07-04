@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import QuizSession from './QuizSession.jsx'
+import { saveQuizSession } from '../../lib/storage'
 
 vi.mock('../../lib/storage', () => ({
   saveQuestionReport: vi.fn(() => ({ id: 'report-1' })),
@@ -84,6 +85,55 @@ describe('QuizSession exam answer display', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm and submit exam/i }))
 
     expect(screen.getByText('1/1 correct')).toBeInTheDocument()
+  })
+
+  it('restores timer, position, marks, confidence, and notes from a saved exam', () => {
+    render(
+      <QuizSession
+        session={{
+          ...multiSession,
+          currentIndex: 1,
+          secondsLeft: 137,
+          answers: { q2: 'B' },
+          marked: { q2: true },
+          confidences: { q2: 'Likely' },
+          notes: { q2: 'Recheck the mechanism.' },
+        }}
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Stem q2')).toBeInTheDocument()
+    expect(screen.getByText('2:17')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /unmark question/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Likely' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Notes' }))
+    expect(screen.getByRole('textbox', { name: 'Question scratch pad' })).toHaveValue('Recheck the mechanism.')
+  })
+
+  it('saves the complete exam snapshot before exit', () => {
+    const onExit = vi.fn()
+    render(
+      <QuizSession
+        session={{ ...baseSession, secondsLeft: 42, marked: { q1: true } }}
+        onExit={onExit}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /exit session/i }))
+
+    expect(saveQuizSession).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'session-test',
+      secondsLeft: 42,
+      marked: { q1: true },
+      confidences: {},
+      notes: {},
+      highlights: {},
+    }))
+    expect(onExit).toHaveBeenCalledOnce()
   })
 
   it('labels mock-fallback sessions as validated local bank', () => {

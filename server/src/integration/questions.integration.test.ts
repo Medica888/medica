@@ -157,6 +157,277 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
     it('markUsedByExternalIds is idempotent for unknown ids', async () => {
       await expect(repo.markUsedByExternalIds(['no-such'])).resolves.not.toThrow();
     });
+
+    // ─── Student-safe catalog (findStudentCatalog / findByExternalIds) ─────────
+
+    it('findStudentCatalog only returns authored questions with approved/restored status', async () => {
+      const { externalId: authored, data: authoredData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'Authored stem', options: [{ letter: 'A', text: 'x' }], correct: 'A' },
+      });
+      const { externalId: restored, data: restoredData } = makeQuestionData({
+        source: 'authored', bankStatus: 'restored',
+        body: { stem: 'Restored stem', options: [], correct: 'A' },
+      });
+      const { externalId: pending, data: pendingData } = makeQuestionData({
+        source: 'authored', bankStatus: 'legacy',
+        body: { stem: 'Legacy stem', options: [], correct: 'A' },
+      });
+      const { externalId: aiSourced, data: aiData } = makeQuestionData({
+        source: 'ai', bankStatus: 'approved',
+        body: { stem: 'AI stem', options: [], correct: 'A' },
+      });
+      await Promise.all([
+        repo.upsertByExternalId(authored, authoredData),
+        repo.upsertByExternalId(restored, restoredData),
+        repo.upsertByExternalId(pending, pendingData),
+        repo.upsertByExternalId(aiSourced, aiData),
+      ]);
+
+      const result = await repo.findStudentCatalog({});
+      const ids = result.data.map((q) => q.id);
+      expect(ids).toContain(authored);
+      expect(ids).toContain(restored);
+      expect(ids).not.toContain(pending);
+      expect(ids).not.toContain(aiSourced);
+      expect(result.total).toBe(2);
+    });
+
+    it('findStudentCatalog strips answer-bearing fields from returned questions', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        subject: 'Cardiology', system: 'Cardiovascular', difficulty: 'Balanced',
+        body: {
+          stem: 'A patient presents with...',
+          topic: 'Heart Failure',
+          testedConcept: 'ARNI mechanism',
+          options: [{ letter: 'A', text: 'ARNI' }],
+          correct: 'A',
+          explanation: 'ARNI is correct because...',
+          optionExplanations: { A: 'ARNI explanation' },
+        },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findStudentCatalog({});
+      const found = result.data.find((q) => q.id === externalId)!;
+      expect(found.subject).toBe('Cardiology');
+      expect(found.stem).toBe('A patient presents with...');
+      expect(found.options).toEqual([{ letter: 'A', text: 'ARNI' }]);
+      expect(found).not.toHaveProperty('correct');
+      expect(found).not.toHaveProperty('explanation');
+      expect(found).not.toHaveProperty('optionExplanations');
+    });
+
+    it('findStudentCatalog filters by subject/system/difficulty', async () => {
+      const { externalId: match, data: matchData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        subject: 'Anatomy', system: 'Musculoskeletal', difficulty: 'Hard',
+        body: { stem: 'match', options: [] },
+      });
+      const { externalId: other, data: otherData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        subject: 'Anatomy', system: 'Cardiovascular', difficulty: 'Hard',
+        body: { stem: 'other', options: [] },
+      });
+      await Promise.all([
+        repo.upsertByExternalId(match, matchData),
+        repo.upsertByExternalId(other, otherData),
+      ]);
+
+      const result = await repo.findStudentCatalog({ subject: 'Anatomy', system: 'Musculoskeletal' });
+      expect(result.data.map((q) => q.id)).toEqual([match]);
+    });
+
+    it('findStudentCatalog paginates results', async () => {
+      const entries = await Promise.all(
+        Array.from({ length: 5 }, () => {
+          const { externalId, data } = makeQuestionData({
+            source: 'authored', bankStatus: 'approved',
+            body: { stem: 'stem', options: [] },
+          });
+          return repo.upsertByExternalId(externalId, data);
+        }),
+      );
+      expect(entries).toHaveLength(5);
+
+      const page1 = await repo.findStudentCatalog({ page: 1, limit: 2 });
+      expect(page1.data).toHaveLength(2);
+      expect(page1.total).toBe(5);
+      expect(page1.totalPages).toBe(3);
+
+      const page3 = await repo.findStudentCatalog({ page: 3, limit: 2 });
+      expect(page3.data).toHaveLength(1);
+    });
+
+    it('findByExternalIds returns full bodies only for safe authored questions', async () => {
+      const { externalId: authored, data: authoredData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'Authored stem', correct: 'A' },
+      });
+      const { externalId: aiSourced, data: aiData } = makeQuestionData({
+        source: 'ai', bankStatus: 'approved',
+        body: { stem: 'AI stem', correct: 'A' },
+      });
+      await Promise.all([
+        repo.upsertByExternalId(authored, authoredData),
+        repo.upsertByExternalId(aiSourced, aiData),
+      ]);
+
+      const found = await repo.findByExternalIds([authored, aiSourced, 'no-such-id']);
+      expect(found).toHaveLength(1);
+      expect(found[0]!.id).toBe(authored);
+      expect(found[0]!.body['correct']).toBe('A');
+    });
+
+    it('findByExternalIds returns an empty array for an empty input', async () => {
+      expect(await repo.findByExternalIds([])).toEqual([]);
+    });
+
+    // ─── Catalog option sanitization ─────────────────────────────────────────
+
+    it('findStudentCatalog strips answer-bearing fields from options, keeping only letter/text', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: {
+          stem: 'stem', testedConcept: 'concept',
+          options: [
+            { letter: 'A', text: 'Right', isCorrect: true, correct: true, explanation: 'secret', metadata: { hidden: true } },
+            { letter: 'B', text: 'Wrong', isCorrect: false },
+          ],
+        },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findStudentCatalog({});
+      const found = result.data.find((q) => q.id === externalId)!;
+      expect(found.options).toEqual([
+        { letter: 'A', text: 'Right' },
+        { letter: 'B', text: 'Wrong' },
+      ]);
+      expect(JSON.stringify(found.options)).not.toMatch(/isCorrect|explanation|metadata/);
+    });
+
+    it('findStudentCatalog tolerates a malformed (non-array) options value without crashing', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'stem', options: { not: 'an array' } },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findStudentCatalog({});
+      const found = result.data.find((q) => q.id === externalId)!;
+      expect(found.options).toEqual([]);
+    });
+
+    // ─── Cross-user quarantine (fingerprint exclusion) ──────────────────────
+
+    it('findStudentCatalog excludes rows matching excludeFingerprints, with accurate totals', async () => {
+      const { externalId: clean, data: cleanData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'clean stem', testedConcept: 'clean concept', options: [] },
+      });
+      const { externalId: dirty, data: dirtyData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'dirty stem', testedConcept: 'dirty concept', options: [] },
+      });
+      await repo.upsertByExternalId(clean, cleanData);
+      await repo.upsertByExternalId(dirty, dirtyData);
+
+      const dirtyFingerprint = 'dirty stem||dirty concept';
+      const result = await repo.findStudentCatalog({ excludeFingerprints: [dirtyFingerprint] });
+      expect(result.data.map((q) => q.id)).toEqual([clean]);
+      expect(result.total).toBe(1);
+    });
+
+    it('findStudentCatalog with an empty excludeFingerprints list excludes nothing', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'stem', options: [] },
+      });
+      await repo.upsertByExternalId(externalId, data);
+      const result = await repo.findStudentCatalog({ excludeFingerprints: [] });
+      expect(result.data.map((q) => q.id)).toContain(externalId);
+    });
+
+    it('findByExternalIds excludes rows matching excludeFingerprints', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'dirty stem', testedConcept: 'dirty concept', correct: 'A' },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const found = await repo.findByExternalIds([externalId], ['dirty stem||dirty concept']);
+      expect(found).toEqual([]);
+    });
+
+    // ─── Restored rows override quarantine (see ai.ts: restore = explicit admin override) ──
+
+    it('findStudentCatalog does not exclude a restored row even when its fingerprint is quarantined', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'restored',
+        body: { stem: 'dirty stem', testedConcept: 'dirty concept', options: [] },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findStudentCatalog({ excludeFingerprints: ['dirty stem||dirty concept'] });
+      expect(result.data.map((q) => q.id)).toContain(externalId);
+    });
+
+    it('findStudentCatalog still excludes an approved row with the same fingerprint', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved',
+        body: { stem: 'dirty stem', testedConcept: 'dirty concept', options: [] },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findStudentCatalog({ excludeFingerprints: ['dirty stem||dirty concept'] });
+      expect(result.data.map((q) => q.id)).not.toContain(externalId);
+    });
+
+    it('findByExternalIds does not exclude a restored row even when its fingerprint is quarantined', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'restored',
+        body: { stem: 'dirty stem', testedConcept: 'dirty concept', correct: 'A' },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const found = await repo.findByExternalIds([externalId], ['dirty stem||dirty concept']);
+      expect(found.map((q) => q.id)).toContain(externalId);
+    });
+
+    // ─── Server-side search ──────────────────────────────────────────────────
+
+    it('findStudentCatalog search matches stem, testedConcept, topic, subject, and system', async () => {
+      const { externalId: byStem, data: byStemData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        body: { stem: 'a unique pericarditis vignette', options: [] },
+      });
+      const { externalId: byConcept, data: byConceptData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        body: { stem: 'other stem', testedConcept: 'pericarditis mechanism', options: [] },
+      });
+      const { externalId: unrelated, data: unrelatedData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        body: { stem: 'completely different topic', options: [] },
+      });
+      await repo.upsertByExternalId(byStem, byStemData);
+      await repo.upsertByExternalId(byConcept, byConceptData);
+      await repo.upsertByExternalId(unrelated, unrelatedData);
+
+      const result = await repo.findStudentCatalog({ search: 'pericarditis' });
+      expect(new Set(result.data.map((q) => q.id))).toEqual(new Set([byStem, byConcept]));
+    });
+
+    it('findStudentCatalog search is case-insensitive and matches subject/system', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', subject: 'Nephrology', system: 'Renal',
+        body: { stem: 'irrelevant stem', options: [] },
+      });
+      await repo.upsertByExternalId(externalId, data);
+      const result = await repo.findStudentCatalog({ search: 'NEPHRO' });
+      expect(result.data.map((q) => q.id)).toContain(externalId);
+    });
   });
 }
 

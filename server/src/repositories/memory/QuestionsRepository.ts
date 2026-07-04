@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto';
 import type { GeneratedBankStatus, IQuestionsRepository } from '../interfaces.js';
+import type { CatalogQuestion, PaginatedResult } from '../../types/index.js';
 import {
   difficultySearchLabels,
   isBroadTaxonomyValue,
   subjectSearchLabels,
   systemSearchLabels,
 } from '../../lib/medicaTaxonomy.js';
+import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
 
 export class InMemoryQuestionsRepository implements IQuestionsRepository {
   private store = new Map<string, {
@@ -317,6 +319,85 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       .sort(([, a], [, b]) => b - a)
       .slice(0, 500)
       .map(([concept, count]) => ({ concept, count }));
+  }
+
+  private entryFingerprint(body: Record<string, unknown>): string {
+    return computeQuestionFingerprint(body['stem'], body['testedConcept']);
+  }
+
+  private sanitizeOptions(body: Record<string, unknown>): Array<{ letter: string; text: string }> {
+    const raw = Array.isArray(body['options']) ? (body['options'] as Array<Record<string, unknown>>) : [];
+    return raw.map((opt) => ({ letter: String(opt?.['letter'] ?? ''), text: String(opt?.['text'] ?? '') }));
+  }
+
+  async findStudentCatalog(params: {
+    page?: number;
+    limit?: number;
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    mode?: string;
+    search?: string;
+    excludeFingerprints?: string[];
+  }): Promise<PaginatedResult<CatalogQuestion>> {
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+    const excluded = new Set(params.excludeFingerprints ?? []);
+    const needle = params.search?.trim().toLowerCase() ?? '';
+
+    const entries = [...this.store.entries()].filter(([, e]) => {
+      if (e.source !== 'authored') return false;
+      if (!['approved', 'restored'].includes(e.bankStatus)) return false;
+      if (params.subject?.trim() && e.subject !== params.subject.trim()) return false;
+      if (params.system?.trim() && e.system !== params.system.trim()) return false;
+      if (params.difficulty?.trim() && e.difficulty !== params.difficulty.trim()) return false;
+      if (params.mode?.trim() && e.mode !== params.mode.trim()) return false;
+      // 'restored' rows are exempt from the fingerprint exclusion — see PgQuestionsRepository.
+      if (e.bankStatus !== 'restored' && excluded.has(this.entryFingerprint(e.body))) return false;
+      if (needle) {
+        const haystack = [e.body['stem'], e.body['testedConcept'], e.body['topic'], e.subject, e.system]
+          .map((v) => String(v ?? '').toLowerCase());
+        if (!haystack.some((v) => v.includes(needle))) return false;
+      }
+      return true;
+    });
+
+    // Stable, deterministic order so pagination never skips/duplicates a row —
+    // the in-memory repo has no createdAt to mirror PG's ORDER BY exactly, so it
+    // sorts by external_id instead (still consistent across pages).
+    entries.sort(([aId], [bId]) => aId.localeCompare(bId));
+
+    const total = entries.length;
+    const slice = entries.slice((page - 1) * limit, page * limit);
+
+    const data: CatalogQuestion[] = slice.map(([externalId, e]) => ({
+      id: externalId,
+      subject: e.subject,
+      system: e.system,
+      difficulty: e.difficulty,
+      mode: e.mode,
+      topic: typeof e.body['topic'] === 'string' ? e.body['topic'] : null,
+      testedConcept: typeof e.body['testedConcept'] === 'string' ? e.body['testedConcept'] : null,
+      stem: typeof e.body['stem'] === 'string' ? e.body['stem'] : null,
+      options: this.sanitizeOptions(e.body),
+    }));
+
+    return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  }
+
+  async findByExternalIds(
+    ids: string[],
+    excludeFingerprints: string[] = [],
+  ): Promise<Array<{ id: string; body: Record<string, unknown> }>> {
+    if (ids.length === 0) return [];
+    const safe = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+    const excluded = new Set(excludeFingerprints);
+    return safe.flatMap(externalId => {
+      const e = this.store.get(externalId);
+      if (!e || e.source !== 'authored' || !['approved', 'restored'].includes(e.bankStatus)) return [];
+      if (e.bankStatus !== 'restored' && excluded.has(this.entryFingerprint(e.body))) return [];
+      return [{ id: externalId, body: e.body }];
+    });
   }
 
   _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown>; usageCount?: number; lastUsedAt?: Date | null } | undefined {

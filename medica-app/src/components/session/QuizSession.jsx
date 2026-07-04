@@ -54,6 +54,10 @@ function getMedicalReviewLabel(telemetry) {
   return `${telemetry.medicalReviewPassed}/${telemetry.medicalReviewRequested} medically reviewed`
 }
 
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
 /** @param {{ session: import('../../lib/quizTypes').QuizSession, onExit: () => void, onComplete?: (results: object) => void }} props */
 export default function QuizSession({ session: initialSession, onExit, onComplete }) {
   const normalizedInitial = {
@@ -66,23 +70,32 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const [examSubmitted, setSubmitted]   = useState(false)
   const [secondsLeft, setSecondsLeft]   = useState(
     normalizedInitial.mode === 'exam'
-      ? (normalizedInitial.questions?.length ?? 0) * 60
+      ? (Number.isFinite(normalizedInitial.secondsLeft)
+          ? Math.max(0, Math.floor(normalizedInitial.secondsLeft))
+          : (normalizedInitial.questions?.length ?? 0) * 60)
       : null
   )
-  const [marked, setMarked]             = useState({})
-  const [confidences, setConfidences]   = useState({})
-  const [notes, setNotes]               = useState({})
+  const [marked, setMarked]             = useState(() => asRecord(normalizedInitial.marked))
+  const [confidences, setConfidences]   = useState(() => asRecord(normalizedInitial.confidences))
+  const [notes, setNotes]               = useState(() => asRecord(normalizedInitial.notes))
   const [openDrawer, setOpenDrawer]     = useState(null)
-  const [highlights, setHighlights]     = useState({})
+  const [highlights, setHighlights]     = useState(() => asRecord(normalizedInitial.highlights))
   const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   const timerRef      = useRef(null)
   const onCompleteRef = useRef(onComplete)
-  const markedRef     = useRef({})
-  const highlightsRef = useRef({})
+  const secondsLeftRef = useRef(secondsLeft)
+  const persistedSessionRef = useRef(null)
+  const markedRef     = useRef(marked)
+  const confidencesRef = useRef(confidences)
+  const notesRef      = useRef(notes)
+  const highlightsRef = useRef(highlights)
   useEffect(() => { onCompleteRef.current = onComplete })
+  useEffect(() => { secondsLeftRef.current = secondsLeft }, [secondsLeft])
   useEffect(() => { markedRef.current = marked }, [marked])
+  useEffect(() => { confidencesRef.current = confidences }, [confidences])
+  useEffect(() => { notesRef.current = notes }, [notes])
   useEffect(() => { highlightsRef.current = highlights }, [highlights])
 
   const { mode, questions, answers, currentIndex } = session
@@ -94,7 +107,25 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const medicalReviewLabel  = getMedicalReviewLabel(initialSession.generationTelemetry)
   const stopReasonLabel     = formatStopReason(initialSession.generationTelemetry?.stoppedReason)
 
-  useEffect(() => { saveQuizSession(session) }, [session])
+  useEffect(() => {
+    const snapshot = {
+      ...session,
+      secondsLeft: secondsLeftRef.current,
+      marked,
+      confidences,
+      notes,
+      highlights,
+    }
+    persistedSessionRef.current = snapshot
+    saveQuizSession(snapshot)
+  }, [session, marked, confidences, notes, highlights])
+
+  useEffect(() => {
+    if (!isExam || secondsLeft === null || secondsLeft % 5 !== 0) return
+    const snapshot = { ...(persistedSessionRef.current || session), secondsLeft }
+    persistedSessionRef.current = snapshot
+    saveQuizSession(snapshot)
+  }, [secondsLeft, isExam, session])
 
   useEffect(() => {
     if (!isExam || examSubmitted || secondsLeft === null || secondsLeft <= 0) return
@@ -107,7 +138,14 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     clearTimeout(timerRef.current)
     setSubmitted(true)   // eslint-disable-line react-hooks/set-state-in-effect
     setShowExpl(true)
-    const finalSession = { ...session, marked: markedRef.current, highlights: highlightsRef.current }
+    const finalSession = {
+      ...session,
+      secondsLeft,
+      marked: markedRef.current,
+      confidences: confidencesRef.current,
+      notes: notesRef.current,
+      highlights: highlightsRef.current,
+    }
     const results = calculatePracticeResults(finalSession)
     onCompleteRef.current?.({ ...results, mode: 'exam' }, finalSession)
   }, [isExam, examSubmitted, secondsLeft, totalQ, session])
@@ -144,10 +182,15 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     setSubmitted(true)
     setShowExpl(true)
     if (onCompleteRef.current) {
-      const finalSession = { ...session, marked: markedRef.current, highlights }
+      const finalSession = { ...session, secondsLeft, marked, confidences, notes, highlights }
       const results = calculatePracticeResults(finalSession)
       onCompleteRef.current({ ...results, mode: 'exam' }, finalSession)
     }
+  }
+
+  const handleExit = () => {
+    saveQuizSession({ ...session, secondsLeft, marked, confidences, notes, highlights })
+    onExit()
   }
 
 
@@ -237,7 +280,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
               Submit Exam
             </button>
           )}
-          <button className="exam-exit-btn" onClick={onExit} aria-label="Exit session">
+          <button className="exam-exit-btn" onClick={handleExit} aria-label="Exit session">
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M9 2L4 7L9 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>

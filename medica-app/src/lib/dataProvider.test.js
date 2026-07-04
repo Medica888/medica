@@ -13,6 +13,7 @@ vi.mock('./storage.js', () => ({
   getFlashcards: vi.fn(() => []),
   saveFlashcards: vi.fn(),
   clearFlashcards: vi.fn(),
+  markLastQuizSessionCompleted: vi.fn(),
 }));
 
 // Mock apiClient
@@ -64,6 +65,7 @@ const results = {
 
 // sessionWithAnswers shape — the full session object from the interface
 const sessionWithAnswers = {
+  id: 'session-local-1',
   mode: 'practice',
   questions: [
     {
@@ -107,6 +109,10 @@ describe('saveSession', () => {
     expect(arg.percentage).toBe(83);
     expect(Array.isArray(arg.questionIds)).toBe(true);
     expect(arg.questionIds).toContain('q1');
+    expect(arg.questionAttempts).toEqual([
+      expect.objectContaining({ questionId: 'q1', result: 'correct', sessionId: 'session-local-1' }),
+    ]);
+    expect(storage.markLastQuizSessionCompleted).toHaveBeenCalledWith('session-local-1', results.completedAt);
   });
 
   it('calls api.exams.create with correctly mapped payload', async () => {

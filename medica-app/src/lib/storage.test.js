@@ -7,14 +7,18 @@ import {
   getQuestionReportAnalytics,
   getQuestionReports,
   getFlashcards,
+  getQBankProgressLedger,
   getSessionHistory,
   getTrustedGeneratedQuestionsForConfig,
   hasPendingAnonymousDataMigration,
   importAnonymousStudyData,
   keepAnonymousStudyDataSeparate,
   markFlashcardReviewed,
+  markLastQuizSessionCompleted,
   saveCompletedSession,
   saveFlashcards,
+  saveQuizSession,
+  getLastQuizSession,
   saveQuestionReport,
   unreportQuestion,
 } from './storage.js'
@@ -40,6 +44,65 @@ describe('user-scoped study storage', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     setAuthSession('anonymous')
+  })
+
+  it('marks only the matching saved quiz session as completed', () => {
+    saveQuizSession({ id: 'active-session', clientSessionId: 'client-active', completed: false })
+
+    expect(markLastQuizSessionCompleted('different-session', '2026-07-02T10:00:00.000Z')).toBe(false)
+    expect(getLastQuizSession().completed).toBe(false)
+
+    expect(markLastQuizSessionCompleted('client-active', '2026-07-02T10:00:00.000Z')).toBe(true)
+    expect(getLastQuizSession()).toMatchObject({
+      id: 'active-session',
+      completed: true,
+      completedAt: '2026-07-02T10:00:00.000Z',
+    })
+  })
+
+  it('keeps compact QBank progress after detailed session history is capped', () => {
+    for (let index = 0; index < 51; index += 1) {
+      const completedAt = `2026-06-${String((index % 28) + 1).padStart(2, '0')}T10:${String(index).padStart(2, '0')}:00.000Z`
+      saveCompletedSession({
+        id: `session-${index}`,
+        completedAt,
+        questionAttempts: [{
+          questionId: `q-${index}`,
+          result: index === 0 ? 'incorrect' : 'correct',
+          sessionId: `session-${index}`,
+          completedAt,
+        }],
+      })
+    }
+
+    expect(getSessionHistory()).toHaveLength(50)
+    expect(getSessionHistory().some(session => session.id === 'session-0')).toBe(false)
+    expect(getQBankProgressLedger()).toContainEqual(expect.objectContaining({
+      questionId: 'q-0',
+      attemptCount: 1,
+      latestResult: 'incorrect',
+    }))
+  })
+
+  it('does not count an idempotent session save twice in QBank progress', () => {
+    const record = {
+      id: 'session-repeat',
+      completedAt: '2026-06-20T10:00:00.000Z',
+      questionAttempts: [{
+        questionId: 'q-repeat',
+        result: 'correct',
+        sessionId: 'session-repeat',
+        completedAt: '2026-06-20T10:00:00.000Z',
+      }],
+    }
+    saveCompletedSession(record)
+    saveCompletedSession(record)
+
+    expect(getQBankProgressLedger()).toContainEqual(expect.objectContaining({
+      questionId: 'q-repeat',
+      attemptCount: 1,
+      correctSessionCount: 1,
+    }))
   })
 
   it('isolates sessions and flashcards between browser users', () => {

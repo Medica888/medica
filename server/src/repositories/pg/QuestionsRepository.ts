@@ -1,11 +1,13 @@
 import type { Pool, PoolClient } from 'pg';
 import type { GeneratedBankStatus, IQuestionsRepository } from '../interfaces.js';
+import type { CatalogQuestion, PaginatedResult } from '../../types/index.js';
 import {
   difficultySearchLabels,
   isBroadTaxonomyValue,
   subjectSearchLabels,
   systemSearchLabels,
 } from '../../lib/medicaTaxonomy.js';
+import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
 
 export class PgQuestionsRepository implements IQuestionsRepository {
   constructor(private pool: Pool) {}
@@ -38,11 +40,12 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     const validatedAt = data.validatedAt ?? data.body.validatedAt ?? null;
     const aiModel = data.aiModel ?? data.body.aiModel ?? null;
     const validatorVersion = data.validatorVersion ?? data.body.validatorVersion ?? data.body.validationVersion ?? null;
+    const fingerprint = computeQuestionFingerprint(data.body.stem, data.body.testedConcept);
     const res = await q.query<{ id: string }>(
       `INSERT INTO questions
          (external_id, subject, system, body, source, bank_status, mode, difficulty,
-          validation_score, validated_at, ai_model, validator_version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          validation_score, validated_at, ai_model, validator_version, fingerprint)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (external_id) DO UPDATE
          SET subject = EXCLUDED.subject,
              system  = EXCLUDED.system,
@@ -54,7 +57,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
              validation_score = EXCLUDED.validation_score,
              validated_at = EXCLUDED.validated_at,
              ai_model = EXCLUDED.ai_model,
-             validator_version = EXCLUDED.validator_version
+             validator_version = EXCLUDED.validator_version,
+             fingerprint = EXCLUDED.fingerprint
        RETURNING id`,
       [
         externalId,
@@ -69,6 +73,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
         validatedAt,
         aiModel,
         validatorVersion,
+        fingerprint,
       ],
     );
     return res.rows[0];
@@ -364,6 +369,111 @@ export class PgQuestionsRepository implements IQuestionsRepository {
        ORDER BY created_at DESC
        LIMIT $2`,
       [concept, safeLimit],
+    );
+    return res.rows;
+  }
+
+  async findStudentCatalog(params: {
+    page?: number;
+    limit?: number;
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    mode?: string;
+    search?: string;
+    excludeFingerprints?: string[];
+  }): Promise<PaginatedResult<CatalogQuestion>> {
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const values: unknown[] = [];
+    const clauses: string[] = ["source = 'authored'", "bank_status IN ('approved', 'restored')"];
+
+    if (params.subject && params.subject.trim()) {
+      values.push(params.subject.trim());
+      clauses.push(`subject = $${values.length}`);
+    }
+    if (params.system && params.system.trim()) {
+      values.push(params.system.trim());
+      clauses.push(`system = $${values.length}`);
+    }
+    if (params.difficulty && params.difficulty.trim()) {
+      values.push(params.difficulty.trim());
+      clauses.push(`difficulty = $${values.length}`);
+    }
+    if (params.mode && params.mode.trim()) {
+      values.push(params.mode.trim());
+      clauses.push(`mode = $${values.length}`);
+    }
+    if (params.search && params.search.trim()) {
+      values.push(`%${params.search.trim()}%`);
+      const idx = values.length;
+      clauses.push(
+        `(body->>'stem' ILIKE $${idx} OR body->>'testedConcept' ILIKE $${idx} OR body->>'topic' ILIKE $${idx}
+          OR subject ILIKE $${idx} OR system ILIKE $${idx})`,
+      );
+    }
+    // Cross-user quarantine: excludes content whose fingerprint has crossed the report
+    // thresholds in QuestionReportService, even when bank_status hasn't caught up yet.
+    // `<> ALL` over an empty array is vacuously true, so this is safe to always include.
+    // 'restored' rows are exempt — same precedent as the generated-bank status route
+    // (ai.ts): restoring a question is an explicit admin override of quarantine, so a
+    // stale report-driven fingerprint match must not silently re-hide it.
+    values.push(params.excludeFingerprints ?? []);
+    clauses.push(`(bank_status = 'restored' OR fingerprint <> ALL($${values.length}::text[]))`);
+
+    const where = clauses.join(' AND ');
+
+    const countRes = await this.pool.query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM questions WHERE ${where}`,
+      values,
+    );
+    const total = Number(countRes.rows[0]?.total || 0);
+
+    values.push(limit, offset);
+    const dataRes = await this.pool.query<CatalogQuestion>(
+      `SELECT external_id AS id, subject, system, difficulty, mode,
+              body->>'topic' AS topic,
+              body->>'testedConcept' AS "testedConcept",
+              body->>'stem' AS stem,
+              CASE WHEN jsonb_typeof(body->'options') = 'array' THEN
+                COALESCE(
+                  (SELECT jsonb_agg(jsonb_build_object('letter', elem.opt->>'letter', 'text', elem.opt->>'text') ORDER BY elem.ord)
+                   FROM jsonb_array_elements(body->'options') WITH ORDINALITY AS elem(opt, ord)),
+                  '[]'::jsonb
+                )
+              ELSE '[]'::jsonb END AS options
+       FROM questions
+       WHERE ${where}
+       ORDER BY created_at DESC, external_id ASC
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+
+    return {
+      data: dataRes.rows,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  async findByExternalIds(
+    ids: string[],
+    excludeFingerprints: string[] = [],
+  ): Promise<Array<{ id: string; body: Record<string, unknown> }>> {
+    if (ids.length === 0) return [];
+    const safe = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+    const res = await this.pool.query<{ id: string; body: Record<string, unknown> }>(
+      `SELECT external_id AS id, body
+       FROM questions
+       WHERE external_id = ANY($1::text[])
+         AND source = 'authored'
+         AND bank_status IN ('approved', 'restored')
+         AND (bank_status = 'restored' OR fingerprint <> ALL($2::text[]))`,
+      [safe, excludeFingerprints],
     );
     return res.rows;
   }

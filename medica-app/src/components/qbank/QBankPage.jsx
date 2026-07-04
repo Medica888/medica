@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getBrowsableQuestionBank } from '../../lib/mockQuestions'
-import { subscribeQuestionReports } from '../../lib/storage'
+import {
+  clearLastQuizSession,
+  filterReportedQuestions,
+  getLastQuizSession,
+  getQBankProgressLedger,
+  subscribeQuestionReports,
+} from '../../lib/storage'
+import { dedupeQuestionList } from '../../lib/questionDedup'
+import {
+  buildProgressMaps,
+  getProgressState,
+  computeProgressCounts,
+  getAttemptSummary,
+} from '../../lib/qbankProgress'
+import { useQBankCatalog } from '../../hooks/useQBankCatalog'
 
 const PAGE_SIZE = 20
 const MAX_SELECTION = 40
@@ -9,6 +22,22 @@ const MODES = [
   { id: 'practice', label: 'Practice' },
   { id: 'coach', label: 'Coach' },
 ]
+
+const STATUS_FILTERS = [
+  { id: 'All',              label: 'All' },
+  { id: 'unseen',           label: 'Unseen' },
+  { id: 'in-progress',      label: 'In progress' },
+  { id: 'needs-review',     label: 'Needs review' },
+  { id: 'correct',          label: 'Correct' },
+  { id: 'repeated-correct', label: 'Repeated correct' },
+]
+
+const STATE_LABEL = {
+  'in-progress':      'In progress',
+  'needs-review':     'Needs review',
+  correct:            'Correct',
+  'repeated-correct': 'Repeated correct',
+}
 
 function questionTopic(question) {
   return question.testedConcept
@@ -22,25 +51,99 @@ function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((left, right) => left.localeCompare(right))
 }
 
-export default function QBankPage({ onStartSelected }) {
+function formatDate(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+export default function QBankPage({ onStartSelected, sessions = [] }) {
   const [reportsVersion, setReportsVersion] = useState(0)
+  const [sessionVersion, setSessionVersion] = useState(0)
   const [search, setSearch] = useState('')
   const [subject, setSubject] = useState('All Subjects')
   const [system, setSystem] = useState('All Systems')
   const [difficulty, setDifficulty] = useState('All Difficulties')
+  const [statusFilter, setStatusFilter] = useState('All')
   const [mode, setMode] = useState('practice')
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [preview, setPreview] = useState(null)
   const [page, setPage] = useState(1)
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState(null)
   const previewRef = useRef(null)
   const previewOpenerRef = useRef(null)
 
+  const catalog = useQBankCatalog(search)
+
+  // Accumulates every catalog question ever fetched, across all search terms, so a
+  // selection or an active session made before a search narrowed the catalog (server
+  // search only fetches matching questions) stays valid once the search text changes
+  // what `catalog.questions` currently holds. Never evicts; safety (reports/dedup) is
+  // re-applied fresh on every read via knownInventory below.
+  const [knownQuestions, setKnownQuestions] = useState(() => new Map())
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setKnownQuestions(current => {
+      let changed = false
+      const next = new Map(current)
+      for (const question of catalog.questions) {
+        const id = String(question.id)
+        if (!next.has(id)) {
+          next.set(id, question)
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
+  }, [catalog.questions])
+
   useEffect(() => subscribeQuestionReports(() => setReportsVersion(version => version + 1)), [])
 
+  // Active QBank session: check once on mount, update when reportsVersion changes
+  const activeQBankSession = useMemo(() => {
+    const last = getLastQuizSession()
+    if (!last || last.completed) return null
+    const src = last.source || last.config?.source || last.questionSource
+    return src === 'validated-qbank' ? last : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportsVersion, sessionVersion])
+
+  const progressLedger = getQBankProgressLedger()
+
+  // reportsVersion isn't read in the body, but filterReportedQuestions reads live
+  // localStorage state — bumping this dep forces recomputation when a report is filed.
   const inventory = useMemo(
-    () => reportsVersion >= 0 ? getBrowsableQuestionBank() : [],
-    [reportsVersion],
+    () => dedupeQuestionList(filterReportedQuestions(catalog.questions)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [catalog.questions, reportsVersion],
   )
+
+  // Search-independent view of every question ever seen, for selection/resume
+  // membership checks — must not shrink just because the current search narrowed
+  // what useQBankCatalog fetched from the server.
+  const knownInventory = useMemo(
+    () => dedupeQuestionList(filterReportedQuestions([...knownQuestions.values()])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [knownQuestions, reportsVersion],
+  )
+  const knownInventoryIds = useMemo(
+    () => new Set(knownInventory.map(question => String(question.id))),
+    [knownInventory],
+  )
+
+  const { attemptsByQuestion, activeSessionIds } = useMemo(
+    () => buildProgressMaps(sessions, activeQBankSession, progressLedger),
+    [sessions, activeQBankSession, progressLedger],
+  )
+
+  const progressCounts = useMemo(
+    () => computeProgressCounts(inventory, attemptsByQuestion, activeSessionIds),
+    [inventory, attemptsByQuestion, activeSessionIds],
+  )
+
   const subjects = useMemo(() => uniqueSorted(inventory.map(question => question.subject)), [inventory])
   const systems = useMemo(
     () => uniqueSorted(inventory.map(question => question.system).filter(value => value !== 'Multisystem')),
@@ -54,6 +157,10 @@ export default function QBankPage({ onStartSelected }) {
       if (subject !== 'All Subjects' && question.subject !== subject) return false
       if (system !== 'All Systems' && question.system !== system) return false
       if (difficulty !== 'All Difficulties' && question.difficulty !== difficulty) return false
+      if (statusFilter !== 'All') {
+        const state = getProgressState(question.id, attemptsByQuestion, activeSessionIds)
+        if (state !== statusFilter) return false
+      }
       if (!needle) return true
       return [
         question.stem,
@@ -65,7 +172,7 @@ export default function QBankPage({ onStartSelected }) {
         question.questionAngle,
       ].some(value => String(value || '').toLowerCase().includes(needle))
     })
-  }, [inventory, search, subject, system, difficulty])
+  }, [inventory, search, subject, system, difficulty, statusFilter, attemptsByQuestion, activeSessionIds])
 
   useEffect(() => {
     if (!preview) return undefined
@@ -82,13 +189,20 @@ export default function QBankPage({ onStartSelected }) {
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const selectedQuestions = inventory.filter(question => selectedIds.has(String(question.id)))
+  const selectedQuestions = knownInventory.filter(question => selectedIds.has(String(question.id)))
   const inventoryIds = useMemo(() => new Set(inventory.map(question => String(question.id))), [inventory])
   const selectionCount = selectedQuestions.length
 
+  // Needs-review questions for retry: from the full inventory, capped at 40
+  const needsReviewQuestions = useMemo(() => {
+    return inventory
+      .filter(q => getProgressState(q.id, attemptsByQuestion, activeSessionIds) === 'needs-review')
+      .slice(0, MAX_SELECTION)
+  }, [inventory, attemptsByQuestion, activeSessionIds])
+
   const toggleQuestion = id => {
     setSelectedIds(current => {
-      const next = new Set([...current].filter(selectedId => inventoryIds.has(selectedId)))
+      const next = new Set([...current].filter(selectedId => knownInventoryIds.has(selectedId)))
       if (next.has(id)) next.delete(id)
       else if (next.size < MAX_SELECTION) next.add(id)
       return next
@@ -97,7 +211,7 @@ export default function QBankPage({ onStartSelected }) {
 
   const selectFiltered = () => {
     setSelectedIds(current => {
-      const next = new Set([...current].filter(selectedId => inventoryIds.has(selectedId)))
+      const next = new Set([...current].filter(selectedId => knownInventoryIds.has(selectedId)))
       for (const question of filtered) {
         if (next.size >= MAX_SELECTION) break
         next.add(String(question.id))
@@ -124,6 +238,103 @@ export default function QBankPage({ onStartSelected }) {
       event.preventDefault()
       first.focus()
     }
+  }
+
+  const handleResume = async () => {
+    if (!activeQBankSession || starting || catalog.loading) return
+
+    // Backend-driven sessions must never be validated against local search/catalog state
+    // (it may be stale, narrowed by a search, or simply not yet fetched this page load).
+    // Hand the raw saved session to onStartSelected/handleQBankStart, which re-resolves
+    // every id against POST /api/qbank/sessions atomically before touching any UI state.
+    if (activeQBankSession.backendDriven) {
+      setStartError(null)
+      setStarting(true)
+      try {
+        await onStartSelected({
+          mode: activeQBankSession.mode || 'practice',
+          questions: activeQBankSession.questions,
+          resumeSession: activeQBankSession,
+        })
+      } catch (err) {
+        setStartError(err?.message || 'Could not resume this session. Please try again.')
+      } finally {
+        setStarting(false)
+      }
+      return
+    }
+
+    // Local sessions: unchanged — validate against the accumulated local catalog cache.
+    const safeIds = new Set(knownInventory.map(q => String(q.id)))
+    const resumeQuestions = (activeQBankSession.questions || [])
+      .filter(q => safeIds.has(String(q.id)))
+    if (resumeQuestions.length === 0) return
+
+    const resumedIds = new Set(resumeQuestions.map(q => String(q.id)))
+    const answers = Object.fromEntries(
+      Object.entries(activeQBankSession.answers || {}).filter(([id]) => resumedIds.has(String(id))),
+    )
+    const previousCurrentId = activeQBankSession.questions?.[activeQBankSession.currentIndex]?.id
+    const resumedIndex = resumeQuestions.findIndex(q => String(q.id) === String(previousCurrentId || ''))
+    const resumeSession = {
+      ...activeQBankSession,
+      questions: resumeQuestions,
+      answers,
+      currentIndex: resumedIndex >= 0 ? resumedIndex : 0,
+      completed: false,
+    }
+
+    setStartError(null)
+    setStarting(true)
+    try {
+      await onStartSelected({
+        mode: resumeSession.mode || 'practice',
+        questions: resumeQuestions,
+        resumeSession,
+      })
+    } catch (err) {
+      setStartError(err?.message || 'Could not resume this session. Please try again.')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const handleDiscardSession = () => {
+    if (!window.confirm('Discard this unfinished QBank session? Your saved answers will be removed.')) return
+    clearLastQuizSession()
+    setSessionVersion(version => version + 1)
+  }
+
+  // Backend-driven results are answer-stripped; onStartSelected must resolve full
+  // bodies via POST /api/qbank/sessions before a session can be built from them.
+  // The backend only re-checks source/bank_status at that point, not this browser's
+  // question reports, so re-apply the report filter here to catch a question reported
+  // since the catalog was loaded (matches the local path's launch-time re-validation).
+  const startSession = async questions => {
+    setStartError(null)
+    const safeQuestions = filterReportedQuestions(questions)
+    if (safeQuestions.length !== questions.length) {
+      setStartError('One or more selected questions were just reported and are no longer available. Please refresh your selection.')
+      return
+    }
+    setStarting(true)
+    try {
+      await onStartSelected({ mode, questions: safeQuestions, backendDriven: catalog.source === 'backend' })
+    } catch (err) {
+      setStartError(err?.message || 'Could not start this session. Please try again.')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const handleRetryNeedsReview = () => {
+    if (needsReviewQuestions.length === 0 || starting) return
+    startSession(needsReviewQuestions)
+  }
+
+  const changeStatusFilter = value => {
+    setStatusFilter(value)
+    setPage(1)
   }
 
   return (
@@ -159,6 +370,45 @@ export default function QBankPage({ onStartSelected }) {
           <FilterSelect label="Difficulty" value={difficulty} onChange={value => { setDifficulty(value); setPage(1) }} options={['All Difficulties', ...difficulties]} />
         </section>
 
+        <nav className="qbk-progress-strip" aria-label="Filter by progress">
+          {STATUS_FILTERS.map(f => (
+            <button
+              key={f.id}
+              type="button"
+              className={`qbk-progress-chip qbk-chip-${f.id}${statusFilter === f.id ? ' active' : ''}`}
+              aria-pressed={statusFilter === f.id}
+              onClick={() => changeStatusFilter(f.id)}
+            >
+              {f.label}
+              <span className="qbk-chip-count">
+                {f.id === 'All' ? progressCounts.all : (progressCounts[f.id] ?? 0)}
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        {catalog.error && catalog.source === 'fallback' && (
+          <div className="qbk-catalog-error" role="alert">
+            Couldn't load the latest questions from the server — showing the locally bundled set instead.
+          </div>
+        )}
+
+        {activeQBankSession && (
+          <div className="qbk-resume-banner" role="status">
+            <span>
+              You have an active session with{' '}
+              <strong>{activeQBankSession.questions?.length ?? 0}</strong> question
+              {(activeQBankSession.questions?.length ?? 0) !== 1 ? 's' : ''} in progress.
+            </span>
+            <button type="button" className="qbk-resume-btn" onClick={handleResume} disabled={starting || catalog.loading}>
+              {starting ? 'Resuming…' : 'Resume session'}
+            </button>
+            <button type="button" className="qbk-text-btn" onClick={handleDiscardSession} disabled={starting}>
+              Discard
+            </button>
+          </div>
+        )}
+
         <div className="qbk-list-header">
           <div data-testid="qbk-match-count">
             <strong>{filtered.length}</strong> matching question{filtered.length !== 1 ? 's' : ''}
@@ -170,10 +420,17 @@ export default function QBankPage({ onStartSelected }) {
             <button type="button" className="qbk-text-btn" onClick={() => setSelectedIds(new Set())} disabled={selectionCount === 0}>
               Clear selection
             </button>
+            {needsReviewQuestions.length > 0 && (
+              <button type="button" className="qbk-text-btn qbk-retry-btn" onClick={handleRetryNeedsReview} disabled={starting}>
+                Retry needs-review ({needsReviewQuestions.length})
+              </button>
+            )}
           </div>
         </div>
 
-        {visible.length === 0 ? (
+        {catalog.loading ? (
+          <div className="qbk-loading" role="status">Loading validated questions…</div>
+        ) : visible.length === 0 ? (
           <div className="qbk-empty">
             <strong>No questions match these filters.</strong>
             <span>Try a broader subject, system, difficulty, or search term.</span>
@@ -185,6 +442,8 @@ export default function QBankPage({ onStartSelected }) {
               const selected = selectedIds.has(id) && inventoryIds.has(id)
               const disabled = !selected && selectionCount >= MAX_SELECTION
               const absoluteNumber = (page - 1) * PAGE_SIZE + index + 1
+              const state = getProgressState(question.id, attemptsByQuestion, activeSessionIds)
+              const summary = getAttemptSummary(question.id, attemptsByQuestion)
               return (
                 <article key={id} className={`qbk-row${selected ? ' selected' : ''}`}>
                   <label className="qbk-select">
@@ -204,6 +463,14 @@ export default function QBankPage({ onStartSelected }) {
                       {question.system && question.system !== question.subject && <span>{question.system}</span>}
                       {question.difficulty && <span className="qbk-difficulty">{question.difficulty}</span>}
                       <span className="qbk-validated">Validated</span>
+                      {state !== 'unseen' && (
+                        <span className={`qbk-status qbk-status-${state}`}>{STATE_LABEL[state]}</span>
+                      )}
+                      {summary.count > 0 && (
+                        <span className="qbk-attempt-meta">
+                          {summary.count}× · {formatDate(summary.lastAttemptedAt)}
+                        </span>
+                      )}
                     </div>
                     <strong className="qbk-concept">{questionTopic(question)}</strong>
                     <p className="qbk-stem-preview">{question.stem}</p>
@@ -247,11 +514,14 @@ export default function QBankPage({ onStartSelected }) {
         <button
           type="button"
           className="qbk-start-btn"
-          disabled={selectedQuestions.length === 0}
-          onClick={() => onStartSelected({ mode, questions: selectedQuestions })}
+          disabled={selectedQuestions.length === 0 || starting}
+          onClick={() => startSession(selectedQuestions)}
         >
-          Start Selected Questions
+          {starting ? 'Starting…' : 'Start Selected Questions'}
         </button>
+        {startError && (
+          <p className="qbk-start-error" role="alert">{startError}</p>
+        )}
       </div>
 
       {preview && (

@@ -444,11 +444,33 @@ describe('email delivery', () => {
 });
 
 describe('config production guards', () => {
+  it('throws if DATABASE_URL is not set in production', async () => {
+    const saved = {
+      NODE_ENV: process.env.NODE_ENV,
+      JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
+    };
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = '';
+      vi.resetModules();
+      await expect(import('../config.js')).rejects.toThrow('DATABASE_URL must be set in production');
+    } finally {
+      for (const [key, val] of Object.entries(saved)) {
+        if (val === undefined) delete process.env[key];
+        else process.env[key] = val;
+      }
+      vi.resetModules();
+    }
+  });
+
   it('throws if validated generated reuse is explicitly enabled in production', async () => {
     const saved = { ...process.env };
     try {
       process.env.NODE_ENV = 'production';
       process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
       process.env.SMTP_HOST = 'smtp.medica.com';
       process.env.EMAIL_FROM = 'noreply@medica.com';
@@ -468,12 +490,14 @@ describe('config production guards', () => {
     const saved = {
       NODE_ENV: process.env.NODE_ENV,
       JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
       ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
       AUTH_DEV_TOKENS_ENABLED: process.env.AUTH_DEV_TOKENS_ENABLED,
     };
     try {
       process.env.NODE_ENV = 'production';
       process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
       process.env.AUTH_DEV_TOKENS_ENABLED = 'true';
       vi.resetModules();
@@ -493,6 +517,7 @@ describe('config production guards', () => {
     const saved = {
       NODE_ENV: process.env.NODE_ENV,
       JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
       ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
       AUTH_DEV_TOKENS_ENABLED: process.env.AUTH_DEV_TOKENS_ENABLED,
       SMTP_HOST: process.env.SMTP_HOST,
@@ -502,6 +527,7 @@ describe('config production guards', () => {
     try {
       process.env.NODE_ENV = 'production';
       process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
       delete process.env.AUTH_DEV_TOKENS_ENABLED;
       delete process.env.SMTP_HOST;
@@ -716,6 +742,7 @@ describe('Production same-site config guard', () => {
     const saved = {
       NODE_ENV: process.env.NODE_ENV,
       JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
       ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
       APP_BASE_URL: process.env.APP_BASE_URL,
       SMTP_HOST: process.env.SMTP_HOST,
@@ -725,6 +752,7 @@ describe('Production same-site config guard', () => {
     try {
       process.env.NODE_ENV = 'production';
       process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.otherdomain.com';
       process.env.APP_BASE_URL = 'https://api.medica.com';
       process.env.SMTP_HOST = 'smtp.medica.com';
@@ -745,6 +773,7 @@ describe('Production same-site config guard', () => {
     const saved = {
       NODE_ENV: process.env.NODE_ENV,
       JWT_SECRET: process.env.JWT_SECRET,
+      DATABASE_URL: process.env.DATABASE_URL,
       ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
       APP_BASE_URL: process.env.APP_BASE_URL,
       SMTP_HOST: process.env.SMTP_HOST,
@@ -754,6 +783,7 @@ describe('Production same-site config guard', () => {
     try {
       process.env.NODE_ENV = 'production';
       process.env.JWT_SECRET = 'a-secure-non-default-secret-for-testing-only';
+      process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
       process.env.APP_BASE_URL = 'https://api.medica.com';
       process.env.SMTP_HOST = 'smtp.medica.com';

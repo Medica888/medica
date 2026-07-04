@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App, { shouldEnterLocalFallback, shouldUseValidatedLocalFallback } from './App.jsx'
 import { useSessionHistory } from './hooks/useSessionHistory'
 import { generateAIQuestions } from './lib/ai/generateAIQuestions'
+import { saveSession as persistSession } from './lib/dataProvider'
 
 vi.mock('./hooks/useSessionHistory', () => ({
   useSessionHistory: vi.fn(() => ({
@@ -60,9 +61,79 @@ vi.mock('./components/qbank/QBankPage', () => ({
       >
         Start QBank Selection
       </button>
+      <button
+        type="button"
+        onClick={() => onStartSelected({ mode: 'practice', questions: makeQuestions('qbank'), backendDriven: true })}
+      >
+        Start Backend QBank Selection
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const questions = makeQuestions('resume')
+          onStartSelected({
+            mode: 'practice',
+            questions,
+            resumeSession: {
+              id: 'saved-qbank-session',
+              clientSessionId: '00000000-0000-4000-8000-000000000099',
+              mode: 'practice',
+              config: { mode: 'practice', source: 'validated-qbank' },
+              questions,
+              answers: { [questions[0].id]: 'B' },
+              currentIndex: 0,
+              source: 'validated-qbank',
+            },
+          })
+        }}
+      >
+        Resume QBank Selection
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onStartSelected({
+            mode: 'practice',
+            questions: BACKEND_RESUME_SESSION.questions,
+            resumeSession: BACKEND_RESUME_SESSION,
+          }).catch(() => {})
+        }}
+      >
+        Resume Backend QBank Selection
+      </button>
     </div>
   ),
 }))
+
+const BACKEND_RESUME_SESSION = {
+  id: 'saved-backend-qbank-session',
+  clientSessionId: '00000000-0000-4000-8000-000000000098',
+  mode: 'practice',
+  config: { mode: 'practice', source: 'validated-qbank' },
+  questions: [{
+    id: 'backend-q1',
+    subject: 'Cardiology',
+    system: 'Cardiovascular',
+    difficulty: 'Balanced',
+    stem: 'Stale saved stem for backend-q1',
+    options: [
+      { letter: 'A', text: 'Shuffled Option A' },
+      { letter: 'B', text: 'Shuffled Option B' },
+    ],
+    correct: 'B',
+    optionExplanations: { A: 'exp A', B: 'exp B' },
+  }],
+  answers: { 'backend-q1': 'B' },
+  currentIndex: 0,
+  secondsLeft: 42,
+  marked: { 'backend-q1': true },
+  confidences: { 'backend-q1': 'Confident' },
+  notes: { 'backend-q1': 'my note' },
+  highlights: { 'backend-q1': [{ start: 0, end: 3, color: 'yellow' }] },
+  source: 'validated-qbank',
+  backendDriven: true,
+  catalogSource: 'backend',
+}
 
 vi.mock('./components/loading/ExamLoadingScreen', () => ({
   default: ({ session, onComplete }) => (
@@ -87,6 +158,21 @@ vi.mock('./components/practice/PracticeInterface', () => ({
   default: ({ session, onComplete }) => (
     <div>
       <div>Practice Session Mock</div>
+      <div data-testid="practice-session-state">
+        {session.id}:{session.currentIndex}:{session.answers?.[session.questions[0].id] || 'empty'}
+      </div>
+      <div data-testid="practice-session-full">
+        {JSON.stringify({
+          answers: session.answers,
+          currentIndex: session.currentIndex,
+          secondsLeft: session.secondsLeft,
+          marked: session.marked,
+          confidences: session.confidences,
+          notes: session.notes,
+          highlights: session.highlights,
+          question0: session.questions[0],
+        })}
+      </div>
       <button type="button" onClick={() => onComplete(makeResults(), withAnswer(session))}>Finish Practice Mock</button>
     </div>
   ),
@@ -165,7 +251,7 @@ vi.mock('./lib/storage', () => ({
 }))
 
 vi.mock('./lib/dataProvider', () => ({
-  saveSession: vi.fn(() => Promise.resolve()),
+  saveSession: vi.fn(() => Promise.resolve({ backendSynced: false, syncState: 'local-only' })),
 }))
 
 vi.mock('./lib/apiClient', () => ({
@@ -179,6 +265,11 @@ vi.mock('./lib/apiClient', () => ({
   auth: {
     me: vi.fn(() => Promise.reject(new Error('no session'))),
     logout: vi.fn(() => Promise.resolve(null)),
+  },
+  qbank: {
+    createSession: vi.fn(ids => Promise.resolve({
+      questions: ids.map(id => ({ id, body: { ...makeQuestions('qbank')[0], id } })),
+    })),
   },
 }))
 
@@ -203,6 +294,17 @@ vi.mock('./lib/mockQuestions', () => ({
     id: 'fallback-session', mode: config.mode, config,
     questions: makeQuestions(config.mode), answers: {}, currentIndex: 0,
     startedAt: new Date().toISOString(),
+  })),
+  createSessionFromResolvedQuestions: vi.fn((config, resolvedQuestions) => ({
+    id: 'qbank-backend-session',
+    clientSessionId: '00000000-0000-4000-8000-000000000002',
+    mode: config.mode,
+    config,
+    questions: resolvedQuestions,
+    answers: {},
+    currentIndex: 0,
+    startedAt: new Date().toISOString(),
+    source: 'validated-qbank',
   })),
 }))
 
@@ -275,6 +377,152 @@ describe('App quiz phase routing', () => {
     expect(await screen.findByText('Practice Session Mock')).toBeInTheDocument()
     expect(screen.queryByText(/Loading Mock/)).not.toBeInTheDocument()
     expect(generateAIQuestions).not.toHaveBeenCalled()
+  })
+
+  it('resolves full question bodies via the backend before starting a backend-driven QBank session', async () => {
+    const { qbank } = await import('./lib/apiClient')
+    const { createSessionFromResolvedQuestions } = await import('./lib/mockQuestions')
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Backend QBank Selection' }))
+
+    expect(await screen.findByText('Practice Session Mock')).toBeInTheDocument()
+    expect(qbank.createSession).toHaveBeenCalledWith(['qbank-q1'])
+    expect(createSessionFromResolvedQuestions).toHaveBeenCalledOnce()
+    expect(createSessionFromResolvedQuestions.mock.calls[0][1]).toEqual([{ ...makeQuestions('qbank')[0], id: 'qbank-q1' }])
+  })
+
+  it('resumes a saved QBank session without resetting answers or position', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume QBank Selection' }))
+
+    expect(await screen.findByText('Practice Session Mock')).toBeInTheDocument()
+    expect(screen.getByTestId('practice-session-state')).toHaveTextContent('saved-qbank-session:0:B')
+    expect(generateAIQuestions).not.toHaveBeenCalled()
+  })
+
+  describe('backend-driven QBank resume safety', () => {
+    it('re-resolves every saved question id via POST /api/qbank/sessions on resume', async () => {
+      const { qbank } = await import('./lib/apiClient')
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume Backend QBank Selection' }))
+
+      await screen.findByText('Practice Session Mock')
+      expect(qbank.createSession).toHaveBeenCalledWith(['backend-q1'])
+    })
+
+    it('resumes with the entire saved question object exactly unchanged, and preserves all session state', async () => {
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume Backend QBank Selection' }))
+
+      await screen.findByText('Practice Session Mock')
+      const state = JSON.parse(screen.getByTestId('practice-session-full').textContent)
+
+      // Progress state survives untouched.
+      expect(state.answers).toEqual({ 'backend-q1': 'B' })
+      expect(state.currentIndex).toBe(0)
+      expect(state.secondsLeft).toBe(42)
+      expect(state.marked).toEqual({ 'backend-q1': true })
+      expect(state.confidences).toEqual({ 'backend-q1': 'Confident' })
+      expect(state.notes).toEqual({ 'backend-q1': 'my note' })
+      expect(state.highlights).toEqual({ 'backend-q1': [{ start: 0, end: 3, color: 'yellow' }] })
+
+      // The resumed question is byte-for-byte the saved question — createSession's
+      // response was used only to prove availability, never to rebuild content.
+      expect(state.question0).toEqual(BACKEND_RESUME_SESSION.questions[0])
+    })
+
+    it('never produces a hybrid fresh/old question, even when the resolved body differs entirely from the saved one', async () => {
+      const { qbank } = await import('./lib/apiClient')
+      // The resolved body is deliberately a completely different question shape —
+      // if any of it leaked into the resumed question, this test would catch it.
+      qbank.createSession.mockResolvedValueOnce({
+        questions: [{
+          id: 'backend-q1',
+          body: {
+            id: 'backend-q1',
+            subject: 'Completely Different Subject',
+            system: 'Completely Different System',
+            difficulty: 'Hard',
+            stem: 'HYBRID-CONTENT-SHOULD-NOT-APPEAR',
+            options: [
+              { letter: 'A', text: 'Fresh Option One' },
+              { letter: 'B', text: 'Fresh Option Two' },
+              { letter: 'C', text: 'Fresh Option Three' },
+            ],
+            correct: 'C',
+            explanation: 'HYBRID-EXPLANATION-SHOULD-NOT-APPEAR',
+          },
+        }],
+      })
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume Backend QBank Selection' }))
+
+      await screen.findByText('Practice Session Mock')
+      const state = JSON.parse(screen.getByTestId('practice-session-full').textContent)
+
+      expect(state.question0).toEqual(BACKEND_RESUME_SESSION.questions[0])
+      expect(JSON.stringify(state.question0)).not.toMatch(/HYBRID/)
+      expect(qbank.createSession).toHaveBeenCalledWith(['backend-q1'])
+    })
+
+    it('fails atomically with no partial resume when the backend rejects (e.g. cross-user quarantine)', async () => {
+      const { qbank } = await import('./lib/apiClient')
+      qbank.createSession.mockRejectedValueOnce(
+        Object.assign(new Error('One or more selected questions are no longer available.'), { status: 409 }),
+      )
+
+      render(<App />)
+      fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume Backend QBank Selection' }))
+
+      await waitFor(() => expect(qbank.createSession).toHaveBeenCalledWith(['backend-q1']))
+      // No session was started — no partial resume, still on the QBank page.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(screen.queryByText('Practice Session Mock')).not.toBeInTheDocument()
+      expect(screen.getByText('QBank Mock')).toBeInTheDocument()
+    })
+  })
+
+  it('refreshes session history after a completed QBank practice session is persisted', async () => {
+    const refresh = vi.fn()
+    vi.mocked(useSessionHistory).mockReturnValue({
+      sessions: [], loading: false, error: null, source: 'localStorage', refresh,
+    })
+    vi.mocked(persistSession).mockResolvedValue({ backendSynced: false, syncState: 'local-only' })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'QBank' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start QBank Selection' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Finish Practice Mock' }))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+  })
+
+  it.each([
+    ['exam', 'Start Exam Flow', 'Submit Exam Mock'],
+    ['practice', 'Start Practice Flow', 'Finish Practice Mock'],
+    ['coach', 'Start Coach Flow', 'Finish Coach Mock'],
+  ])('refreshes session history after %s completion', async (_mode, startLabel, finishLabel) => {
+    const refresh = vi.fn()
+    vi.mocked(useSessionHistory).mockReturnValue({
+      sessions: [], loading: false, error: null, source: 'localStorage', refresh,
+    })
+    vi.mocked(persistSession).mockResolvedValue({ backendSynced: false, syncState: 'local-only' })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
+    fireEvent.click(await screen.findByRole('button', { name: startLabel }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+    fireEvent.click(await screen.findByRole('button', { name: finishLabel }))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
   })
 
   it('opens the working quiz builder in Coach mode from AI Coach navigation', async () => {

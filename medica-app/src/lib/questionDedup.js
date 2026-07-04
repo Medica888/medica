@@ -109,3 +109,29 @@ export function filterUnseenQuestions(questions, seenState) {
 }
 
 export const EMPTY_SEEN_STATE = { seenIds: new Set(), seenBaseIds: new Set(), seenFingerprints: new Set() }
+
+/**
+ * Removes duplicate questions by id, base id, stem, and fingerprint (first occurrence wins).
+ * Shared by the local bundle (mockQuestions.js), the authored-question export script, and any
+ * other consumer that needs the bundle's identity-dedup invariant applied to a question array.
+ * @param {object[]} questions
+ * @returns {object[]}
+ */
+export function dedupeQuestionList(questions) {
+  const seenIds = new Set()
+  const seenBaseIds = new Set()
+  const seenStems = new Set()
+  const seenFingerprints = new Set()
+  return questions.filter(question => {
+    const id = String(question?.id || '')
+    const baseId = getBaseQuestionId(id)
+    const stem = normalizeQuestionStem(question?.stem)
+    const fingerprint = getQuestionFingerprint(question)
+    if (!id || seenIds.has(id) || seenBaseIds.has(baseId) || seenStems.has(stem) || seenFingerprints.has(fingerprint)) return false
+    seenIds.add(id)
+    seenBaseIds.add(baseId)
+    seenStems.add(stem)
+    seenFingerprints.add(fingerprint)
+    return true
+  })
+}

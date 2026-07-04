@@ -27,7 +27,9 @@ import {
   getFlashcards,
   saveFlashcards as _storageSaveFlashcards,
   clearFlashcards as _storageFlashcards,
-} from './storage.js';
+  markLastQuizSessionCompleted,
+} from './storage.js'
+import { classifyAnswer } from './qbankProgress.js';
 
 const USE_BACKEND = import.meta.env.VITE_USE_BACKEND === 'true';
 
@@ -40,15 +42,26 @@ const USE_BACKEND = import.meta.env.VITE_USE_BACKEND === 'true';
  * Written to localStorage first; backend post is best-effort.
  */
 export async function saveSession(results, sessionWithAnswers) {
-  const questionIds = (sessionWithAnswers?.questions || []).map(q => q.id);
-  const mode = results.mode ?? sessionWithAnswers?.mode ?? 'practice';
-  saveCompletedSession({ ...results, mode, questionIds });
+  const questions  = sessionWithAnswers?.questions || []
+  const answers    = sessionWithAnswers?.answers   ?? {}
+  const questionIds = questions.map(q => q.id)
+  const mode = results.mode ?? sessionWithAnswers?.mode ?? 'practice'
+  const completedAt = results.completedAt ?? new Date().toISOString()
+  const sessionId   = sessionWithAnswers?.clientSessionId ?? sessionWithAnswers?.id ?? ''
+
+  const questionAttempts = questions.map(q => ({
+    questionId: q.id,
+    result: classifyAnswer(normalizeAnswerLetter(answers[q.id]), getQuestionCorrectLetter(q)),
+    mode,
+    sessionId,
+    completedAt,
+  }))
+
+  saveCompletedSession({ ...results, completedAt, mode, questionIds, questionAttempts })
+  markLastQuizSessionCompleted(sessionId, completedAt)
 
   if (!USE_BACKEND) return { backendSynced: false, syncState: 'local-only' };
   if (!api.isAuthenticated?.()) return { backendSynced: false, syncState: 'local-only' };
-
-  const questions = sessionWithAnswers?.questions ?? [];
-  const answers   = sessionWithAnswers?.answers   ?? {};
 
   const mapQuestion = (q) => {
     const normalized = normalizeQuestionTaxonomyFields(q);

@@ -25,6 +25,11 @@ export function setAuthenticated(val) {
   setAuthSession(val ? 'authenticated' : 'anonymous', val ? _currentUserId : '');
 }
 export function isAuthenticated() { return _authStatus === 'authenticated'; }
+// Backend-driven QBank requires both the feature flag and an authenticated session —
+// anonymous/local-only users keep browsing the bundled question bank.
+export function isQBankBackendEnabled() {
+  return import.meta.env.VITE_USE_BACKEND === 'true' && isAuthenticated();
+}
 export function getAuthStatus() { return _authStatus; }
 export function setCurrentUserId(id) {
   _currentUserId = id == null ? '' : String(id);
@@ -245,6 +250,21 @@ export const governance = {
     request('GET', '/api/generated-question-bank/metrics'),
   updateStatus: (id, status) =>
     request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/status`, { status }),
+};
+
+// QBank (backend-driven catalog)
+export const qbank = {
+  catalog: ({ page = 1, limit = 100, subject, system, difficulty, search } = {}) => {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+    if (subject) params.set('subject', subject);
+    if (system) params.set('system', system);
+    if (difficulty) params.set('difficulty', difficulty);
+    if (search) params.set('search', search);
+    return request('GET', `/api/qbank/catalog?${params}`);
+  },
+  createSession: (ids) => request('POST', '/api/qbank/sessions', { ids }),
 };
 
 // Taxonomy Candidates (admin)

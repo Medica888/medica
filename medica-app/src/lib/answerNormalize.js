@@ -37,9 +37,22 @@ export function normalizeOptions(options) {
 }
 
 /**
+ * Picks the first "present" value — null/undefined/'' all count as absent — so a
+ * legitimate falsy value like 0 (option A by numeric index) isn't skipped by `||`.
+ */
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+/**
  * Normalizes a question's correct answer field.
- * Prefer canonical `correct`; fall back to `correctAnswer` for older payloads.
+ * Prefer canonical `correct`; fall back to `correctAnswer`, then `correct_answer`.
  */
 export function getQuestionCorrectLetter(question) {
-  return normalizeAnswerLetter(question?.correct || question?.correctAnswer)
+  return normalizeAnswerLetter(
+    firstPresent(question?.correct, question?.correctAnswer, question?.correct_answer),
+  )
 }

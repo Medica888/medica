@@ -48,6 +48,24 @@ const REQUIRED_CHECKS: SchemaCheck[] = [
     sql: `SELECT 1 FROM information_schema.tables
           WHERE table_schema = 'public' AND table_name = 'user_concept_mastery'`,
   },
+  // ── Migration 1749000000001 (auth-account-safety) ──────────────────────────
+  {
+    name: 'auth_tokens table (migration auth-account-safety)',
+    sql: `SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'auth_tokens'`,
+  },
+  // ── Migration 1749200000001 (clinician-reviews) ───────────────────────────
+  {
+    name: 'clinician_reviews table (migration clinician-reviews)',
+    sql: `SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'clinician_reviews'`,
+  },
+  // ── Migration 1749500000001 (operational-reliability-schema) ─────────────
+  {
+    name: 'user_ai_usage table (migration operational-reliability-schema)',
+    sql: `SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'user_ai_usage'`,
+  },
 ];
 
 /**

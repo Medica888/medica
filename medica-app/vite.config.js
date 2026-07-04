@@ -7,8 +7,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiBase = env.VITE_BACKEND_URL || 'http://localhost:4000'
 
-  console.log('apiBase', apiBase);
-
   return {
     plugins: [react(), tailwindcss()],
     server: {

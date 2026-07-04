@@ -94,6 +94,13 @@ if (config.nodeEnv === 'production') {
     );
   }
 
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      '[config] DATABASE_URL must be set in production. ' +
+        'Running without it enables in-memory mode — all data is lost on restart.',
+    );
+  }
+
   const DEV_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
   if (config.allowedOrigins.every((o) => DEV_ORIGINS.includes(o))) {
     throw new Error(

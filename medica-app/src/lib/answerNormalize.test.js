@@ -31,4 +31,28 @@ describe('answerNormalize', () => {
   it('falls back to legacy correctAnswer when correct is missing', () => {
     expect(getQuestionCorrectLetter({ correctAnswer: 'D' })).toBe('D')
   })
+
+  it('supports backend correct_answer when app aliases are missing', () => {
+    expect(getQuestionCorrectLetter({ correct_answer: 'b' })).toBe('B')
+  })
+
+  it('treats correct: 0 as option A instead of falling through as missing', () => {
+    expect(getQuestionCorrectLetter({ correct: 0 })).toBe('A')
+  })
+
+  it('treats correct: 1 as option B', () => {
+    expect(getQuestionCorrectLetter({ correct: 1 })).toBe('B')
+  })
+
+  it('falls back past an empty-string correct to the next alias', () => {
+    expect(getQuestionCorrectLetter({ correct: '', correctAnswer: 'D' })).toBe('D')
+  })
+
+  it('falls back past an empty-string correct and correctAnswer to correct_answer', () => {
+    expect(getQuestionCorrectLetter({ correct: '', correctAnswer: '', correct_answer: 'C' })).toBe('C')
+  })
+
+  it('lets canonical correct: 0 override a conflicting correctAnswer alias', () => {
+    expect(getQuestionCorrectLetter({ correct: 0, correctAnswer: 'D' })).toBe('A')
+  })
 })

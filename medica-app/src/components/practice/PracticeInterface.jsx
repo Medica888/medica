@@ -19,12 +19,15 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const normalizedQuestions = initialSession.questions.map(normalizeQuestion)
   const [session] = useState({ ...initialSession, questions: normalizedQuestions })
 
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [answers, setAnswers]           = useState({})
-  const [revealed, setRevealed]         = useState({})
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    const saved = Number(initialSession.currentIndex) || 0
+    return Math.max(0, Math.min(saved, Math.max(normalizedQuestions.length - 1, 0)))
+  })
+  const [answers, setAnswers]           = useState(() => ({ ...(initialSession.answers || {}) }))
+  const [revealed, setRevealed]         = useState(() => ({ ...(initialSession.revealed || {}) }))
   const [openDrawer, setOpenDrawer]     = useState(null)
-  const [notes, setNotes]               = useState({})
-  const [highlights, setHighlights]     = useState({})
+  const [notes, setNotes]               = useState(() => ({ ...(initialSession.notes || {}) }))
+  const [highlights, setHighlights]     = useState(() => ({ ...(initialSession.highlights || {}) }))
   const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
 
   const questions  = session.questions
@@ -35,8 +38,8 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const isLastQ    = currentIndex === totalQ - 1
 
   useEffect(() => {
-    saveQuizSession({ ...session, answers, currentIndex })
-  }, [answers, currentIndex, session])
+    saveQuizSession({ ...session, answers, currentIndex, revealed, notes, highlights })
+  }, [answers, currentIndex, revealed, notes, highlights, session])
 
   const handleAnswer = (letter) => {
     if (revealed[question.id]) return
@@ -57,7 +60,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   }
 
   const handleFinish = () => {
-    const sessionWithAnswers = { ...session, answers, highlights }
+    const sessionWithAnswers = { ...session, answers, currentIndex, revealed, notes, highlights }
     const results = calculatePracticeResults(sessionWithAnswers)
     onComplete(results, sessionWithAnswers)
   }

@@ -268,6 +268,38 @@
 
 .qbk-empty strong { color: var(--t1); font-size: 14px; }
 
+.qbk-loading {
+  max-width: 1280px;
+  min-height: 220px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.qbk-catalog-error {
+  max-width: 1280px;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--status-warn) 40%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-warn) 8%, transparent);
+  color: var(--status-warn);
+  font-size: 12px;
+}
+
+.qbk-start-error {
+  margin: 8px 0 0;
+  color: var(--status-critical);
+  font-size: 11.5px;
+  text-align: center;
+}
+
 .qbk-pagination {
   max-width: 1280px;
   margin: 14px auto 0;
@@ -427,3 +459,133 @@
 
 .qbk-preview-option p { margin: 2px 0 0; color: var(--t2); font-size: 12.5px; line-height: 1.5; }
 .qbk-preview-note { margin: 16px 0 0; color: var(--t3); font-size: 11px; }
+
+/* ── Progress filter strip ──────────────────────────────────────────────── */
+
+.qbk-progress-strip {
+  max-width: 1280px;
+  margin: 12px auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qbk-progress-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--t2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+
+.qbk-progress-chip:hover { border-color: var(--blue); color: var(--blue); }
+
+.qbk-progress-chip.active {
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.qbk-chip-count {
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Active chip count inherits parent colour */
+.qbk-progress-chip.active .qbk-chip-count {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+}
+
+/* ── Status badges (per-row) ────────────────────────────────────────────── */
+
+.qbk-status {
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.qbk-status-in-progress {
+  color: var(--status-warn);
+  border-color: color-mix(in srgb, var(--status-warn) 35%, var(--border)) !important;
+}
+
+.qbk-status-needs-review {
+  color: var(--status-critical);
+  border-color: color-mix(in srgb, var(--status-critical) 35%, var(--border)) !important;
+}
+
+.qbk-status-correct {
+  color: var(--status-stable);
+  border-color: color-mix(in srgb, var(--status-stable) 35%, var(--border)) !important;
+}
+
+.qbk-status-repeated-correct {
+  color: var(--status-stable);
+  border-color: color-mix(in srgb, var(--status-stable) 35%, var(--border)) !important;
+  font-weight: 700;
+}
+
+.qbk-attempt-meta {
+  color: var(--t3) !important;
+  font-size: 10.5px !important;
+}
+
+/* ── Resume session banner ──────────────────────────────────────────────── */
+
+.qbk-resume-banner {
+  max-width: 1280px;
+  margin: 12px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--status-warn) 40%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-warn) 6%, var(--card));
+  color: var(--t2);
+  font-size: 12.5px;
+}
+
+.qbk-resume-banner strong { color: var(--t1); }
+
+.qbk-resume-btn {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border: 1px solid var(--status-warn);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--status-warn);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.qbk-resume-btn:hover {
+  background: color-mix(in srgb, var(--status-warn) 10%, transparent);
+}
+
+/* ── Retry needs-review button ──────────────────────────────────────────── */
+
+.qbk-retry-btn {
+  color: var(--status-critical) !important;
+  border-color: color-mix(in srgb, var(--status-critical) 40%, var(--border)) !important;
+}
+
+.qbk-retry-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical) 7%, transparent) !important;
+  border-color: var(--status-critical) !important;
+  color: var(--status-critical) !important;
+}

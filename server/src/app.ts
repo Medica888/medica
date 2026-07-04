@@ -15,6 +15,7 @@ import flashcardsRouter from './routes/flashcards.js';
 import aiRouter from './routes/ai.js';
 import masteryRouter from './routes/mastery.js';
 import questionReportsRouter from './routes/questionReports.js';
+import qbankRouter from './routes/qbank.js';
 import readyRouter from './routes/ready.js';
 import { initializeAiLimiters } from './middleware/rateLimiter.js';
 
@@ -49,6 +50,7 @@ export function createApp(): express.Application {
   app.use('/api/flashcards', flashcardsRouter);
   app.use('/api/mastery', masteryRouter);
   app.use('/api/question-reports', questionReportsRouter);
+  app.use('/api/qbank', qbankRouter);
   app.use('/api', aiRouter);
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

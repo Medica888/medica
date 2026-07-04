@@ -5,7 +5,7 @@
   normalizeSystemLabel,
 } from './usmleTaxonomy.js'
 import { validateClinicalCard } from './flashcardValidator.js'
-import { getQuestionFingerprint } from './questionDedup.js'
+import { getBaseQuestionId, getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { getCurrentUserId, questionReports as questionReportsApi } from './apiClient.js'
 import { getAnonymousStorageKey, getScopedStorageKey } from './storageScope.js'
@@ -75,6 +75,21 @@ export function clearLastQuizSession() {
   try {
     localStorage.removeItem(scopedKey(SESSION_KEY))
   } catch { /* ignore */ }
+}
+
+export function markLastQuizSessionCompleted(sessionId, completedAt = new Date().toISOString()) {
+  if (typeof window === 'undefined' || !sessionId) return false
+  try {
+    const raw = localStorage.getItem(scopedKey(SESSION_KEY))
+    if (!raw) return false
+    const session = JSON.parse(raw)
+    const savedIds = [session.id, session.clientSessionId].filter(Boolean).map(String)
+    if (!savedIds.includes(String(sessionId))) return false
+    localStorage.setItem(scopedKey(SESSION_KEY), JSON.stringify({ ...session, completed: true, completedAt }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 
@@ -628,9 +643,72 @@ export function clearWeakSpotRepair() {
 
 const SESSION_HISTORY_KEY = 'medica_session_history'
 const SESSION_HISTORY_MAX = 50
+const QBANK_PROGRESS_KEY = 'medica_qbank_progress'
+const QBANK_PROGRESS_MAX_QUESTIONS = 2000
+const QBANK_PROGRESS_RECENT_SESSIONS = 20
+
+export function getQBankProgressLedger() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(scopedKey(QBANK_PROGRESS_KEY))
+    const entries = raw ? JSON.parse(raw) : []
+    return Array.isArray(entries) ? entries : []
+  } catch {
+    return []
+  }
+}
+
+function updateQBankProgressLedger(record) {
+  if (typeof window === 'undefined' || !Array.isArray(record?.questionAttempts)) return
+  try {
+    const byQuestion = new Map(
+      getQBankProgressLedger().map(entry => [String(entry.questionId || ''), entry]),
+    )
+
+    for (const attempt of record.questionAttempts) {
+      const questionId = getBaseQuestionId(String(attempt?.questionId || ''))
+      if (!questionId) continue
+
+      const sessionId = String(attempt.sessionId || record.id || record.completedAt || '')
+      const previous = byQuestion.get(questionId) || {}
+      const recentSessionIds = Array.isArray(previous.recentSessionIds)
+        ? previous.recentSessionIds.map(String)
+        : []
+      if (sessionId && recentSessionIds.includes(sessionId)) continue
+
+      const result = ['correct', 'incorrect', 'unanswered', 'needs-review'].includes(attempt.result)
+        ? attempt.result
+        : 'needs-review'
+      const completedAt = String(attempt.completedAt || record.completedAt || '')
+      const isLatest = !previous.latestCompletedAt || completedAt >= previous.latestCompletedAt
+
+      byQuestion.set(questionId, {
+        questionId,
+        attemptCount: Math.max(0, Number(previous.attemptCount) || 0) + 1,
+        correctSessionCount: Math.min(
+          2,
+          Math.max(0, Number(previous.correctSessionCount) || 0) + (result === 'correct' ? 1 : 0),
+        ),
+        latestResult: isLatest ? result : (previous.latestResult || 'needs-review'),
+        latestCompletedAt: isLatest ? completedAt : (previous.latestCompletedAt || ''),
+        latestMode: isLatest ? (attempt.mode || record.mode || '') : (previous.latestMode || ''),
+        latestSessionId: isLatest ? sessionId : (previous.latestSessionId || ''),
+        recentSessionIds: sessionId
+          ? [sessionId, ...recentSessionIds.filter(id => id !== sessionId)].slice(0, QBANK_PROGRESS_RECENT_SESSIONS)
+          : recentSessionIds,
+      })
+    }
+
+    const entries = [...byQuestion.values()]
+      .sort((a, b) => String(b.latestCompletedAt || '').localeCompare(String(a.latestCompletedAt || '')))
+      .slice(0, QBANK_PROGRESS_MAX_QUESTIONS)
+    localStorage.setItem(scopedKey(QBANK_PROGRESS_KEY), JSON.stringify(entries))
+  } catch { /* quota or privacy mode */ }
+}
 
 export function saveCompletedSession(record) {
   if (typeof window === 'undefined') return
+  updateQBankProgressLedger(record)
   try {
     const history = getSessionHistory()
     const deduped = history.filter(s => s.completedAt !== record.completedAt)
@@ -653,6 +731,7 @@ export function clearSessionHistory() {
   if (typeof window === 'undefined') return
   try {
     localStorage.removeItem(scopedKey(SESSION_HISTORY_KEY))
+    localStorage.removeItem(scopedKey(QBANK_PROGRESS_KEY))
   } catch { /* ignore */ }
 }
 
@@ -675,6 +754,7 @@ const OBJECT_MIGRATION_ENTRIES = [
   { source: PRACTICE_RESULTS_KEY, target: PRACTICE_RESULTS_KEY },
   { source: COACH_RESULTS_KEY, target: COACH_RESULTS_KEY },
   { source: WEAK_SPOT_REPAIR_KEY, target: WEAK_SPOT_REPAIR_KEY },
+  { source: QBANK_PROGRESS_KEY, target: QBANK_PROGRESS_KEY },
 ]
 
 function readStorageValue(key) {
