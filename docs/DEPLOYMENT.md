@@ -1,5 +1,7 @@
 # Medica — Production Deployment Guide
 
+For the Render staging environment at `medica.education`, follow [RENDER_STAGING.md](./RENDER_STAGING.md).
+
 ## Prerequisites
 
 - Node.js 24+

@@ -1,0 +1,106 @@
+services:
+  - type: web
+    runtime: static
+    name: medica-staging-web
+    branch: main
+    rootDir: medica-app
+    buildCommand: npm ci --include=dev && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: checksPass
+    domains:
+      - staging.medica.education
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.1
+      - key: VITE_BACKEND_URL
+        value: https://api-staging.medica.education
+      - key: VITE_USE_BACKEND
+        value: "true"
+      - key: VITE_USE_BACKEND_API
+        value: "true"
+      - key: VITE_ALLOW_MOCK_FALLBACK
+        value: "false"
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    runtime: node
+    name: medica-staging-api
+    branch: main
+    rootDir: server
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build
+    preDeployCommand: npm run db:bootstrap && npm run db:seed-authored
+    startCommand: npm start
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/ready
+    maxShutdownDelaySeconds: 30
+    domains:
+      - api-staging.medica.education
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.1
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: medica-staging-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://staging.medica.education
+      - key: APP_BASE_URL
+        value: https://staging.medica.education
+      - key: TRUST_PROXY
+        value: "1"
+      - key: AUTH_DEV_TOKENS_ENABLED
+        value: "false"
+      - key: ALLOW_VALIDATED_REUSE
+        value: "false"
+      - key: REQUIRE_APPROVAL_FOR_PRODUCTION
+        value: "true"
+      - key: AI_REQUEST_BUDGET_PER_DAY
+        value: "20"
+      - key: AI_TOKEN_BUDGET_PER_DAY
+        value: "1000000"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+databases:
+  - name: medica-staging-db
+    region: frankfurt
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    databaseName: medica_staging
+    user: medica_staging
+    ipAllowList: []
