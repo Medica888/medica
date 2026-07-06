@@ -3,7 +3,9 @@ import { useMasteryAdaptivePreview } from '../../hooks/useMastery'
 import { useAuthState } from '../../hooks/useAuthState'
 import {
   DEFAULT_CONFIG,
-  STANDARDIZED_40Q_BLOCK,
+  STANDARDIZED_STEP1_BLOCK,
+  isStandardized40QuestionBlock,
+  normalizeDifficultyForMode,
   normalizeQuizConfigForGeneration,
 } from '../../lib/quizTypes'
 import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
@@ -21,13 +23,13 @@ import LivePreview from '../layout/LivePreview'
 
 const LOCKED_CONFIG = {
   mode:          'exam',
-  questionCount: 40,
-  subject:       'All',
-  system:        'All',
+  questionCount: 20,
+  subject:       'All Subjects',
+  system:        'All Systems',
   topic:         '',
   clinicalFocus: '',
   difficulty:    'Balanced',
-  blockType:     STANDARDIZED_40Q_BLOCK,
+  blockType:     STANDARDIZED_STEP1_BLOCK,
 }
 
 /** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null, initialMode?: 'exam'|'practice'|'coach'|null }} props */
@@ -36,17 +38,19 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
   const [config, setConfig] = useState(() => {
     const saved = getLastQuizConfig()
     const restored = saved ? { ...DEFAULT_CONFIG, ...saved } : { ...DEFAULT_CONFIG }
-    const normalized = {
+    const normalized = normalizeQuizConfigForGeneration({
       ...restored,
       system: restored.system === 'Multisystem' ? 'All Systems' : restored.system,
-    }
-    return initialMode ? { ...normalized, mode: initialMode } : normalized
+    })
+    return initialMode
+      ? { ...normalized, mode: initialMode, difficulty: normalizeDifficultyForMode(normalized.difficulty, initialMode) }
+      : normalized
   })
   const [saved, setSaved]               = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError]               = useState(generationError)
 
-  const isStandardized = config.blockType === STANDARDIZED_40Q_BLOCK
+  const isStandardized = isStandardized40QuestionBlock(config)
   const localAvailability = isStandardized ? null : getLocalQuestionAvailability(config)
   const showAvailabilityWarning = Boolean(localAvailability?.requiresBackend)
 
@@ -59,9 +63,20 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
     if (isStandardized) return
     setConfig(c => {
       const next = { ...c, [key]: val }
+      if (key === 'mode') {
+        next.difficulty = normalizeDifficultyForMode(c.difficulty, val)
+      }
       // coachSpecificTopic removed — topic field is now shared across all modes
       return next
     })
+    setSaved(false)
+    setError(null)
+  }
+
+  const setSessionFormat = (format) => {
+    setConfig(current => format === 'current-step1'
+      ? { ...current, ...LOCKED_CONFIG }
+      : { ...DEFAULT_CONFIG, mode: current.mode || 'exam', difficulty: normalizeDifficultyForMode(current.difficulty, current.mode || 'exam') })
     setSaved(false)
     setError(null)
   }
@@ -117,7 +132,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
           </div>
           <h1 className="qb-title">Generate Your Personalized Step&nbsp;1 Assessment</h1>
           <p className="qb-subtitle">
-            Create a clinically focused quiz for Exam, Practice, or Coach Mode.
+            Choose how you want to study, what content to test, and how hard the questions should be.
           </p>
         </div>
 
@@ -127,8 +142,30 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
           {/* Left: form card */}
           <div className="qb-card">
 
-            <div className="qb-card-sec-hdr">Quiz Mode</div>
+            <div className="qb-card-sec-hdr">How do you want to study?</div>
             <ModeSelector value={config.mode} onChange={v => update('mode', v)} />
+
+            <div className="qb-card-sec-hdr">Session Format</div>
+            <div className="qb-format-options" role="group" aria-label="Session format">
+              <button
+                type="button"
+                className={`qb-format-option${!isStandardized ? ' active' : ''}`}
+                aria-pressed={!isStandardized}
+                onClick={() => setSessionFormat('custom')}
+              >
+                <span className="qb-format-title">Custom Set</span>
+                <span className="qb-format-desc">Choose mode, content, count, and difficulty.</span>
+              </button>
+              <button
+                type="button"
+                className={`qb-format-option${isStandardized ? ' active' : ''}`}
+                aria-pressed={isStandardized}
+                onClick={() => setSessionFormat('current-step1')}
+              >
+                <span className="qb-format-title">Current Step 1 Block</span>
+                <span className="qb-format-desc">20 questions, 30 minutes, blueprint-balanced.</span>
+              </button>
+            </div>
 
             {isStandardized ? (
               <div className="qb-locked-panel" role="note">
@@ -137,16 +174,17 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                   <path d="M5 6V4.5a2 2 0 0 1 4 0V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                 </svg>
                 <div>
-                  <div className="qb-locked-title">Standardized 40-Question Block</div>
+                  <div className="qb-locked-title">Current Step 1 Block</div>
                   <div className="qb-locked-desc">
-                    Subjects, systems, topics, difficulty, and question count are locked for fair comparison.
+                    Uses the current 20-question format and a representative Step 1 content blueprint.
                   </div>
                   <div className="qb-locked-pills">
                     <span className="qb-locked-pill">Exam Mode</span>
-                    <span className="qb-locked-pill">40 Questions</span>
+                    <span className="qb-locked-pill">20 Questions</span>
+                    <span className="qb-locked-pill">30 Minutes</span>
                     <span className="qb-locked-pill">All Subjects</span>
                     <span className="qb-locked-pill">All Systems</span>
-                    <span className="qb-locked-pill">Standardized Difficulty</span>
+                    <span className="qb-locked-pill">Blueprint-balanced</span>
                   </div>
                 </div>
               </div>
@@ -165,6 +203,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                 />
                 <DifficultySelector
                   value={config.difficulty}
+                  mode={config.mode}
                   onChange={v => update('difficulty', v)}
                 />
                 {showAvailabilityWarning && (

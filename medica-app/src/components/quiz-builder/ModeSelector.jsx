@@ -25,8 +25,9 @@ export default function ModeSelector({ value, onChange }) {
 
   return (
     <div className="qb-field">
-      <div className="qb-field-lbl">Mode</div>
-      <div className="qb-modes" role="group" aria-label="Quiz mode">
+      <div className="qb-field-lbl">Study Mode</div>
+      <div className="qb-mode-hint-top">Choose the learning experience first. Difficulty only controls how hard the questions are.</div>
+      <div className="qb-modes" role="group" aria-label="Study mode">
         {MODES.map(m => (
           <button
             key={m.id}
@@ -47,7 +48,7 @@ export default function ModeSelector({ value, onChange }) {
             <path d="M6.5 4.5v.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             <path d="M6.5 6.2v2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
-          Coach Mode includes deep explanations, weak spot diagnosis, notes, references, and flashcards.
+          Coach Mode adds deep explanations, weak-spot diagnosis, notes, references, and flashcards.
         </div>
       ) : (
         selected && <div className="qb-mode-hint">{selected.desc}</div>

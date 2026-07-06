@@ -2,14 +2,14 @@ import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } 
 import { generate, isAuthenticated } from '../apiClient.js'
 import { getQuestionCorrectLetter } from '../answerNormalize.js'
 import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
-import { normalizeQuizConfigForGeneration } from '../quizTypes.js'
+import { isStandardized40QuestionBlock, normalizeQuizConfigForGeneration } from '../quizTypes.js'
 import {
   appendTrustedGeneratedQuestions,
   filterReportedQuestions,
   getTrustedGeneratedQuestionsForConfig,
   purgeStaleQuestionsFromTrusted,
 } from '../storage.js'
-import { getBankQuestionsForConfig } from '../mockQuestions.js'
+import { getBankQuestionsForConfig, selectStandardizedStep1Questions } from '../mockQuestions.js'
 
 /**
  * Calls the server-side AI question generation endpoint.
@@ -46,7 +46,9 @@ export async function generateAIQuestions(config, seenState = null) {
     bankCandidates = _getBankCandidates(normalizedConfig, seenState)
 
     if (bankCandidates.length >= normalizedConfig.questionCount) {
-      const questions = bankCandidates.slice(0, normalizedConfig.questionCount)
+      const questions = isStandardized40QuestionBlock(normalizedConfig)
+        ? selectStandardizedStep1Questions(bankCandidates, normalizedConfig.questionCount)
+        : bankCandidates.slice(0, normalizedConfig.questionCount)
       attachGenerationTelemetry(questions, {
         source:       'validated-local-bank',
         bankUsed:     questions.length,
@@ -99,7 +101,10 @@ export async function generateAIQuestions(config, seenState = null) {
 
     // ── Step 3: combine bank + AI, dedup, enforce count ──────────────────────
     const combined = _dedupQuestions([...bankCandidates, ...enrichedValid]).unique
-    const checked  = _checkCount(combined, normalizedConfig)
+    const selected = isStandardized40QuestionBlock(normalizedConfig)
+      ? selectStandardizedStep1Questions(combined, normalizedConfig.questionCount)
+      : combined
+    const checked  = _checkCount(selected, normalizedConfig)
 
     const source = bankCandidates.length > 0 ? 'bank-plus-ai' : 'live-ai'
     attachGenerationTelemetry(checked, {
@@ -120,8 +125,9 @@ export async function generateAIQuestions(config, seenState = null) {
     }
     if (err?.code === 'AUTH_REQUIRED_FOR_LIVE_AI') throw err
     // AI failed but bank has partial coverage: use what we have for non-40Q configs
-    const is40QBlock = normalizedConfig.questionCount === 40 && normalizedConfig.mode === 'exam'
-    if (bankCandidates.length > 0 && !is40QBlock) {
+    const isStrictBlock = isStandardized40QuestionBlock(normalizedConfig)
+      || (normalizedConfig.questionCount === 40 && normalizedConfig.mode === 'exam')
+    if (bankCandidates.length > 0 && !isStrictBlock) {
       console.warn(`[generateAIQuestions] AI failed (${err?.code ?? err?.message}), falling back to ${bankCandidates.length} bank question(s)`)
       const checked = _checkCount(bankCandidates, normalizedConfig)
       attachGenerationTelemetry(checked, {
@@ -157,7 +163,7 @@ export function getGenerationTimeoutMessage(config) {
   if (!isHardMedicalReviewGeneration(config)) {
     return 'Question generation timed out. Please try again.'
   }
-  return 'Hard-mode generation is taking longer than expected. These questions are medically reviewed, so a full 40-question block can take several minutes. Try fewer questions, or use the local NBME/UWorld bank while live generation is busy.'
+  return 'Challenge generation is taking longer than expected. These questions are medically reviewed, so a full block can take several minutes. Try fewer questions, or use the validated local Challenge bank while live generation is busy.'
 }
 
 export function formatGenerationErrorMessage(err, config) {
@@ -174,7 +180,7 @@ export function formatGenerationErrorMessage(err, config) {
     return getGenerationTimeoutMessage(config)
   }
   if (err?.code === 'AI_INSUFFICIENT_COUNT' && isHardMedicalReviewGeneration(config)) {
-    return `Hard-mode generation returned ${err.returned ?? 'fewer than requested'} medically approved questions out of ${err.requested ?? config.questionCount}. Try fewer questions or use the local NBME/UWorld bank while live generation is busy.`
+    return `Challenge generation returned ${err.returned ?? 'fewer than requested'} medically approved questions out of ${err.requested ?? config.questionCount}. Try fewer questions or use the validated local Challenge bank while live generation is busy.`
   }
   return `Question generation failed: ${err?.message || 'Unknown error'}`
 }
@@ -455,6 +461,12 @@ function _checkCount(questions, config) {
     )
   }
   if (questions.length < config.questionCount) {
+    if (isStandardized40QuestionBlock(config)) {
+      throw Object.assign(
+        new Error(`Current USMLE Step 1 block requires exactly ${config.questionCount} questions - generation returned ${questions.length}`),
+        { code: 'AI_INSUFFICIENT_COUNT', returned: questions.length, requested: config.questionCount },
+      )
+    }
     const is40QBlock = config.questionCount === 40 && config.mode === 'exam'
     if (is40QBlock) {
       throw Object.assign(

@@ -27,7 +27,7 @@ import {
   getTrustedGeneratedQuestions,
   saveQuestionReport,
 } from '../storage.js'
-import { STANDARDIZED_40Q_BLOCK } from '../quizTypes.js'
+import { STANDARDIZED_40Q_BLOCK, STANDARDIZED_STEP1_BLOCK } from '../quizTypes.js'
 import { setAuthSession } from '../apiClient.js'
 
 const makeQuestion = (i, overrides = {}) => ({
@@ -92,7 +92,7 @@ describe('generateAIQuestions - timeout policy', () => {
 
   it('formats a friendly hard-mode timeout message', () => {
     const msg = getGenerationTimeoutMessage({ mode: 'exam', difficulty: 'UWorld Challenge', questionCount: 40 })
-    expect(msg).toContain('Hard-mode generation')
+    expect(msg).toContain('Challenge generation')
     expect(msg).toContain('medically reviewed')
   })
 
@@ -276,6 +276,24 @@ describe('generateAIQuestions - 40Q Block enforcement', () => {
     vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(35) } }]))
     const result = await generateAIQuestions(config40Practice)
     expect(result).toHaveLength(35)
+  })
+})
+
+describe('generateAIQuestions - current standardized block enforcement', () => {
+  it('rejects a partial current-format block instead of silently starting it', async () => {
+    const config = {
+      questionCount: 20,
+      mode: 'exam',
+      difficulty: 'Balanced',
+      blockType: STANDARDIZED_STEP1_BLOCK,
+    }
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(15) } }]))
+
+    await expect(generateAIQuestions(config)).rejects.toMatchObject({
+      code: 'AI_INSUFFICIENT_COUNT',
+      returned: 15,
+      requested: 20,
+    })
   })
 })
 
@@ -635,24 +653,25 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('standardized 40Q uses Balanced difficulty for bank-first selection', async () => {
+  it('migrates the legacy standardized preset to the current 20Q bank-first block', async () => {
     const config = {
       questionCount: 40,
       mode: 'exam',
       difficulty: 'standardized',
       blockType: STANDARDIZED_40Q_BLOCK,
     }
-    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(40))
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(20))
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
 
     const result = await generateAIQuestions(config)
 
-    expect(result).toHaveLength(40)
+    expect(result).toHaveLength(20)
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(getBankQuestionsForConfig).toHaveBeenCalledWith(
       expect.objectContaining({
-        blockType: STANDARDIZED_40Q_BLOCK,
+        blockType: STANDARDIZED_STEP1_BLOCK,
+        questionCount: 20,
         difficulty: 'Balanced',
       }),
       null,

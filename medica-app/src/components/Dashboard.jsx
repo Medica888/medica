@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { buildAnalyticsData } from '../lib/analyticsEngine'
 import { getLastQuizSession, getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
-import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS } from '../lib/quizTypes'
+import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
 import { useSessionHistory } from '../hooks/useSessionHistory'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ export default function Dashboard({ onNavigate }) {
                   {MODE_LABELS[ns.mode] || ns.mode}
                 </span>
                 {ns.difficulty && (
-                  <span className="db-diff-pill">{ns.difficulty}</span>
+                  <span className="db-diff-pill">{getDifficultyDisplayLabel(ns.difficulty)}</span>
                 )}
                 <span className="db-diff-pill">{ns.questionCount || 10} question{(ns.questionCount || 10) !== 1 ? 's' : ''}</span>
               </div>

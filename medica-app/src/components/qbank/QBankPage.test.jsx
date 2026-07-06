@@ -87,8 +87,16 @@ describe('QBankPage', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Subject' }), { target: { value: 'Pathology' } })
     fireEvent.change(screen.getByRole('combobox', { name: 'System' }), { target: { value: 'Respiratory' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Difficulty' }), { target: { value: 'NBME Difficult' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Difficulty' }), { target: { value: 'Challenge' } })
     expect(screen.getByTestId('qbk-match-count')).toHaveTextContent('1 matching question')
+  })
+
+  it('shows public difficulty labels instead of internal bank labels', () => {
+    render(<QBankPage onStartSelected={vi.fn()} />)
+
+    expect(screen.getByRole('combobox', { name: 'Difficulty' })).toHaveTextContent('Challenge')
+    expect(screen.queryByText('NBME Difficult')).not.toBeInTheDocument()
+    expect(screen.queryByText('UWorld Challenge')).not.toBeInTheDocument()
   })
 
   it('does not expose Multisystem as a separate filter choice', () => {
@@ -109,18 +117,18 @@ describe('QBankPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Select question 1: ACE inhibitor cough' })).toBeChecked()
   })
 
-  it('starts exactly the selected questions in the chosen mode', () => {
+  it('starts exactly the selected questions in the chosen mode', async () => {
     const onStartSelected = vi.fn()
     render(<QBankPage onStartSelected={onStartSelected} />)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select question 1: ACE inhibitor cough' }))
     fireEvent.click(screen.getByRole('button', { name: 'Coach' }))
     fireEvent.click(screen.getByRole('button', { name: 'Start Selected Questions' }))
 
-    expect(onStartSelected).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onStartSelected).toHaveBeenCalledTimes(1))
     expect(onStartSelected).toHaveBeenCalledWith({ mode: 'coach', questions: [BASE_BANK[0]], backendDriven: false })
   })
 
-  it('enforces the 40-question selection limit', () => {
+  it('enforces the 40-question selection limit', async () => {
     const largeBank = Array.from({ length: 45 }, (_, index) => makeQuestion(`large-${index + 1}`))
     vi.mocked(getBrowsableQuestionBank).mockReturnValue(largeBank)
     const onStartSelected = vi.fn()
@@ -129,6 +137,7 @@ describe('QBankPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select filtered (up to 40)' }))
     expect(screen.getByText('40', { selector: '.qbk-selection-count strong' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Start Selected Questions' }))
+    await waitFor(() => expect(onStartSelected).toHaveBeenCalledOnce())
     expect(onStartSelected.mock.calls[0][0].questions).toHaveLength(40)
   })
 
@@ -281,7 +290,7 @@ describe('QBankPage — resume active session', () => {
     expect(screen.queryByRole('button', { name: /resume session/i })).not.toBeInTheDocument()
   })
 
-  it('resumes with saved answers and position while skipping stale questions', () => {
+  it('resumes with saved answers and position while skipping stale questions', async () => {
     // q1 and q99 (not in inventory) are in the active session — only q1 should be resumed
     vi.mocked(getLastQuizSession).mockReturnValue({
       source: 'validated-qbank',
@@ -295,7 +304,7 @@ describe('QBankPage — resume active session', () => {
     render(<QBankPage onStartSelected={onStartSelected} />)
     fireEvent.click(screen.getByRole('button', { name: /resume session/i }))
 
-    expect(onStartSelected).toHaveBeenCalledOnce()
+    await waitFor(() => expect(onStartSelected).toHaveBeenCalledOnce())
     const call = onStartSelected.mock.calls[0][0]
     expect(call.mode).toBe('exam')
     expect(call.questions).toHaveLength(1)
@@ -305,7 +314,7 @@ describe('QBankPage — resume active session', () => {
     expect(call.resumeSession.questions[0].options).toEqual(BASE_BANK[0].options)
   })
 
-  it('remaps the saved current position after an earlier stale question is removed', () => {
+  it('remaps the saved current position after an earlier stale question is removed', async () => {
     vi.mocked(getLastQuizSession).mockReturnValue({
       source: 'validated-qbank',
       mode: 'practice',
@@ -318,6 +327,7 @@ describe('QBankPage — resume active session', () => {
     render(<QBankPage onStartSelected={onStartSelected} />)
     fireEvent.click(screen.getByRole('button', { name: /resume session/i }))
 
+    await waitFor(() => expect(onStartSelected).toHaveBeenCalledOnce())
     const resumed = onStartSelected.mock.calls[0][0].resumeSession
     expect(resumed.questions.map(q => q.id)).toEqual(['q2', 'q3'])
     expect(resumed.currentIndex).toBe(0)

@@ -103,6 +103,10 @@
 .qb-field-coach { background: rgba(107,63,189,.03); border-left: 2px solid rgba(107,63,189,.2); }
 
 /* Mode selector - segmented control */
+.qb-mode-hint-top {
+  font-size: 10.5px; color: var(--t4);
+  margin-bottom: 10px; line-height: 1.5;
+}
 .qb-modes {
   display: flex; background: var(--bg); border-radius: 11px;
   padding: 3px; gap: 2px; border: 1.5px solid var(--border);
@@ -285,6 +289,56 @@
 /* -----------------------------------------------------------------
    QUIZ BUILDER - LOCKED / STANDARDIZED PANEL
    ----------------------------------------------------------------- */
+
+.qb-format-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 28px 12px;
+}
+.qb-format-option {
+  min-height: 82px;
+  padding: 12px 13px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--t2);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  transition: border-color .15s, background .15s, box-shadow .15s, color .15s;
+}
+.qb-format-option:hover:not(.active) {
+  border-color: rgba(23,105,200,.28);
+  background: rgba(23,105,200,.035);
+}
+.qb-format-option.active {
+  border-color: var(--blue);
+  background: rgba(23,105,200,.07);
+  box-shadow: 0 0 0 3px rgba(23,105,200,.08);
+}
+.qb-format-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--t1);
+}
+.qb-format-desc {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--t3);
+}
+.qb-format-option.active .qb-format-title { color: var(--blue); }
+.dark .qb-format-option {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.12);
+}
+.dark .qb-format-option.active {
+  background: rgba(23,105,200,.12);
+  border-color: rgba(23,105,200,.52);
+}
 
 .qb-locked-panel {
   display: flex;

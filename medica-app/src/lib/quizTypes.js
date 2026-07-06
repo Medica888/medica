@@ -71,19 +71,67 @@ export const DIFFICULTIES = [
   { id: 'UWorld Challenge', desc: 'Dense reasoning with difficult distractors.' },
 ]
 
+export const PUBLIC_DIFFICULTIES = [
+  {
+    id: 'Foundation',
+    label: 'Foundation',
+    desc: 'Easier questions that build the core concept before heavy traps.',
+  },
+  {
+    id: 'Balanced',
+    label: 'Balanced',
+    desc: 'Standard Step 1 practice for daily blocks.',
+  },
+  {
+    id: 'Challenge',
+    label: 'Challenge',
+    desc: 'Harder board-level reasoning. Exam mode stays concise; Practice and Coach add deeper teaching.',
+  },
+]
+
+export function getPublicDifficultyId(difficulty) {
+  if (difficulty === 'More Easy') return 'Foundation'
+  if (difficulty === 'More Hard' || difficulty === 'NBME Difficult' || difficulty === 'UWorld Challenge') return 'Challenge'
+  return 'Balanced'
+}
+
+export function getDifficultyDisplayLabel(difficulty) {
+  return getPublicDifficultyId(difficulty)
+}
+
+export function resolveDifficultyForMode(publicDifficulty, mode = 'exam') {
+  if (publicDifficulty === 'Foundation') return 'More Easy'
+  if (publicDifficulty === 'Challenge') return mode === 'exam' ? 'NBME Difficult' : 'UWorld Challenge'
+  return 'Balanced'
+}
+
+export function normalizeDifficultyForMode(difficulty, mode = 'exam') {
+  return resolveDifficultyForMode(getPublicDifficultyId(difficulty), mode)
+}
+
 export const QUESTION_COUNTS = [3, 5, 10, 20, 40]
 
+export const STANDARDIZED_STEP1_BLOCK = 'standardized-step1-block-2026'
+// Retained so saved sessions/configurations from the former 40-question preset
+// migrate cleanly to the current USMLE delivery format.
 export const STANDARDIZED_40Q_BLOCK = 'standardized-40-question-block'
 
 export function isStandardized40QuestionBlock(config) {
-  return config?.blockType === STANDARDIZED_40Q_BLOCK
+  return [STANDARDIZED_STEP1_BLOCK, STANDARDIZED_40Q_BLOCK].includes(config?.blockType)
 }
 
 export function normalizeQuizConfigForGeneration(config) {
   if (!isStandardized40QuestionBlock(config)) return config
   return {
     ...config,
+    mode: 'exam',
+    questionCount: 20,
+    subject: 'All Subjects',
+    system: 'All Systems',
+    topic: '',
+    clinicalFocus: '',
     difficulty: 'Balanced',
+    blockType: STANDARDIZED_STEP1_BLOCK,
   }
 }
 
@@ -91,17 +139,17 @@ export const MODES = [
   {
     id: 'exam',
     label: 'Exam',
-    desc: 'Timed test block. No explanations until submission.',
+    desc: 'Timed block with answers and explanations held until the end.',
   },
   {
     id: 'practice',
     label: 'Practice',
-    desc: 'No time limit. Immediate simple explanations.',
+    desc: 'Question-by-question learning with immediate feedback after each answer.',
   },
   {
     id: 'coach',
     label: 'Coach',
-    desc: 'No time limit. Deep teaching, weak spot repair, notes, references, and flashcards.',
+    desc: 'Guided tutor mode with deeper teaching, weak-spot repair, notes, and flashcards.',
   },
 ]
 
@@ -114,7 +162,7 @@ export const MODE_FEATURES = {
   ],
   practice: [
     'No time limit',
-    'Immediate simple feedback',
+    'Immediate feedback',
     'High-yield pearls',
     'End summary',
   ],

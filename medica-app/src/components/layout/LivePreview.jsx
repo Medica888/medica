@@ -1,4 +1,4 @@
-import { MODE_FEATURES, getSystemLabel } from '../../lib/quizTypes'
+import { MODE_FEATURES, getDifficultyDisplayLabel, getSystemLabel, isStandardized40QuestionBlock } from '../../lib/quizTypes'
 
 const MODE_NOTES = {
   exam:     (n) => `This ${n}-question timed block simulates board-style USMLE testing conditions.`,
@@ -10,10 +10,12 @@ const MODE_NOTES = {
 export default function LivePreview({ config }) {
   const { mode, subject, system, topic, questionCount, difficulty } = config
   const timed    = mode === 'exam'
+  const standardized = isStandardized40QuestionBlock(config)
   const features = MODE_FEATURES[mode] || []
 
   const modeLabel = { exam: 'Exam', practice: 'Practice', coach: 'Coach' }[mode]
-  const timeLabel = timed ? `${questionCount} min` : 'No time limit'
+  const timeLabel = standardized ? '30 min' : (timed ? `${questionCount} min` : 'No time limit')
+  const formatLabel = standardized ? 'Current Step 1 Block' : 'Custom Set'
   const noteText  = (MODE_NOTES[mode] ?? MODE_NOTES.exam)(questionCount)
 
   return (
@@ -28,12 +30,13 @@ export default function LivePreview({ config }) {
         <div className={`lp-mode-badge ${mode}`}>{modeLabel} Mode</div>
 
         <div className="lp-rows">
+          <Row label="Format" value={formatLabel} />
           <Row label="Subject"    value={subject || 'All Subjects'} />
           <Row label="System"     value={getSystemLabel(system) || 'All Systems'} />
           <Row label="Topic" value={topic || 'Auto-selected (high-yield)'} />
           <Row label="Questions"  value={`${questionCount} questions`} />
           <Row label="Time"       value={timeLabel} />
-          <Row label="Difficulty" value={difficulty} />
+          <Row label="Difficulty" value={getDifficultyDisplayLabel(difficulty)} />
         </div>
 
         <div className="lp-divider" />

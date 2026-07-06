@@ -1,4 +1,5 @@
 import HighlightedText from '../session/HighlightedText'
+import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
 
 /**
  * @param {{
@@ -26,7 +27,7 @@ export default function PracticeReviewCard({ question, userAnswer, questionNumbe
         <div className="prv-card-tags">
           {question.subject   && <span className="prv-tag">{question.subject}</span>}
           {question.system    && <span className="prv-tag">{question.system}</span>}
-          {question.difficulty && <span className="prv-tag diff">{question.difficulty}</span>}
+          {question.difficulty && <span className="prv-tag diff">{getDifficultyDisplayLabel(question.difficulty)}</span>}
         </div>
         <span className={`prv-result-badge${isCorrect ? ' correct' : ' wrong'}`}>
           {isCorrect ? 'Correct' : 'Incorrect'}

@@ -14,6 +14,7 @@ import {
   getAttemptSummary,
 } from '../../lib/qbankProgress'
 import { useQBankCatalog } from '../../hooks/useQBankCatalog'
+import { PUBLIC_DIFFICULTIES, getDifficultyDisplayLabel, getPublicDifficultyId } from '../../lib/quizTypes'
 
 const PAGE_SIZE = 20
 const MAX_SELECTION = 40
@@ -149,14 +150,19 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
     () => uniqueSorted(inventory.map(question => question.system).filter(value => value !== 'Multisystem')),
     [inventory],
   )
-  const difficulties = useMemo(() => uniqueSorted(inventory.map(question => question.difficulty)), [inventory])
+  const difficulties = useMemo(() => {
+    const available = new Set(inventory.map(question => getPublicDifficultyId(question.difficulty)))
+    return PUBLIC_DIFFICULTIES
+      .filter(option => available.has(option.id))
+      .map(option => option.label)
+  }, [inventory])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return inventory.filter(question => {
       if (subject !== 'All Subjects' && question.subject !== subject) return false
       if (system !== 'All Systems' && question.system !== system) return false
-      if (difficulty !== 'All Difficulties' && question.difficulty !== difficulty) return false
+      if (difficulty !== 'All Difficulties' && getDifficultyDisplayLabel(question.difficulty) !== difficulty) return false
       if (statusFilter !== 'All') {
         const state = getProgressState(question.id, attemptsByQuestion, activeSessionIds)
         if (state !== statusFilter) return false
@@ -461,7 +467,7 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
                       <span>Q{absoluteNumber}</span>
                       {question.subject && <span>{question.subject}</span>}
                       {question.system && question.system !== question.subject && <span>{question.system}</span>}
-                      {question.difficulty && <span className="qbk-difficulty">{question.difficulty}</span>}
+                      {question.difficulty && <span className="qbk-difficulty">{getDifficultyDisplayLabel(question.difficulty)}</span>}
                       <span className="qbk-validated">Validated</span>
                       {state !== 'unseen' && (
                         <span className={`qbk-status qbk-status-${state}`}>{STATE_LABEL[state]}</span>
@@ -537,7 +543,7 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
             <div className="qbk-row-meta">
               {preview.subject && <span>{preview.subject}</span>}
               {preview.system && preview.system !== preview.subject && <span>{preview.system}</span>}
-              {preview.difficulty && <span className="qbk-difficulty">{preview.difficulty}</span>}
+              {preview.difficulty && <span className="qbk-difficulty">{getDifficultyDisplayLabel(preview.difficulty)}</span>}
               <span className="qbk-validated">Validated</span>
             </div>
             <p className="qbk-preview-stem">{preview.stem}</p>

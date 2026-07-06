@@ -577,13 +577,13 @@ function _prescribeStudy(weaknesses, overview) {
     if (overview.overallAccuracy >= 75) {
       items.push({
         priority: 2, label: 'Next Step', area: 'Difficulty',
-        action: 'Strong overall performance. Push to NBME Difficult or UWorld Challenge level questions.',
+        action: 'Strong overall performance. Push to Challenge-level questions.',
         topic: 'Difficulty Level',
         priorityScore: 68,
         usmleImportance: {
           disciplineWeight: 1.0, systemWeight: 1.0,
           reason: 'Increasing question difficulty is the key lever for high scorers to maximize exam performance.',
-          testedAs: 'Hard-level NBME-style vignettes across all disciplines.',
+          testedAs: 'Hard-level clinical vignettes across all disciplines.',
           medicaRationale: 'Challenge yourself with harder questions to maximize exam readiness.',
         },
       })

@@ -5,6 +5,7 @@ import {
 } from '../../lib/examReviewHelpers'
 import HighlightedText from '../session/HighlightedText'
 import QuestionReportControl from '../session/QuestionReportControl'
+import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
 
 /**
  * @param {{
@@ -62,7 +63,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
           {question.subject    && <span className="erv-tag">{question.subject}</span>}
           {question.system     && <span className="erv-tag">{question.system}</span>}
           {question.topic      && <span className="erv-tag">{question.topic}</span>}
-          {question.difficulty && <span className="erv-tag diff">{question.difficulty}</span>}
+          {question.difficulty && <span className="erv-tag diff">{getDifficultyDisplayLabel(question.difficulty)}</span>}
         </div>
 
         <span className={`erv-result-badge ${isCorrect ? 'correct' : isWrong ? 'wrong' : 'skipped'}`}>

@@ -5,6 +5,7 @@ import HighlightedText from '../session/HighlightedText'
 import QuizUtilityBar from '../session/QuizUtilityBar'
 import QuizHighlightToolbar from '../session/QuizHighlightToolbar'
 import QuestionReportControl from '../session/QuestionReportControl'
+import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
 
 /**
  * @param {{
@@ -45,7 +46,7 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
           <span className="pi-q-num">Q{questionNumber}</span>
           {question.subject && <span className="pi-q-tag">{question.subject}</span>}
           {question.system  && <span className="pi-q-tag">{question.system}</span>}
-          {question.difficulty && <span className="pi-q-tag diff">{question.difficulty}</span>}
+          {question.difficulty && <span className="pi-q-tag diff">{getDifficultyDisplayLabel(question.difficulty)}</span>}
         </div>
         {onToggle && <QuizUtilityBar openDrawer={openDrawer} onToggle={onToggle} hasNotes={hasNotes} />}
       </div>

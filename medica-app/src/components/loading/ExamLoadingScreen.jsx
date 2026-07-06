@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { getGenerationTimeoutMs, isHardMedicalReviewGeneration } from '../../lib/ai/generateAIQuestions'
+import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
 
 const STAGES = [
   'Analyzing your configuration',
   'Selecting clinical vignettes',
   'Calibrating difficulty level',
-  'Applying NBME question format',
+  'Applying exam-style question format',
   'Assessment ready',
 ]
 
@@ -101,7 +102,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
           <div className="els-error-title">Unable to prepare exam block</div>
           <div className="els-error-msg">
             {isHardMode
-              ? 'Hard-mode generation is taking longer than expected. These questions are medically reviewed, so a full block can take several minutes.'
+              ? 'Challenge generation is taking longer than expected. These questions are medically reviewed, so a full block can take several minutes.'
               : 'Something went wrong while generating your quiz session. Please try again or return to the builder.'}
           </div>
           <div className="els-error-actions">
@@ -145,7 +146,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
 
         <div className="els-heading">Preparing Your Assessment</div>
         <div className="els-sub">
-          {config.questionCount} questions · {config.difficulty} · {config.system}
+          {config.questionCount} questions · {getDifficultyDisplayLabel(config.difficulty)} · {config.system}
         </div>
 
         {/* Stage list */}
@@ -179,7 +180,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
         {waitingForSession && (
           <div className="els-finalizing" aria-live="polite">
             {isHardMode
-              ? 'Building validated hard-mode questions. This can take several minutes.'
+              ? 'Building validated Challenge questions. This can take several minutes.'
               : 'Finalizing assessment&hellip;'}
           </div>
         )}
@@ -195,7 +196,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
         </div>
 
         <div className="els-footer">
-          USMLE Step 1 · NBME-style · Clinical Vignettes
+          USMLE Step 1 · Exam-style · Clinical Vignettes
           {source && (
             <span className="els-source-tag" style={{ marginLeft: 8, opacity: 0.5, fontSize: '0.85em' }}>
               · {source === 'ai' ? 'Live AI' : 'Validated Local Bank'}

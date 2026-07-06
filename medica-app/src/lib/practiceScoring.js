@@ -155,7 +155,7 @@ function _recommendation(weakAreas, score, subjectBreakdown, systemBreakdown) {
     return `Next session target: ${top.name} — ${top.percentage}% accuracy signals a retrieval gap. Targeted repetition in this area has the highest readiness return.`
   }
   if (score >= 80) {
-    return 'Strong session. Advance to NBME Difficult or UWorld Challenge to maintain upward trajectory.'
+    return 'Strong session. Advance to Challenge difficulty to maintain upward trajectory.'
   }
   if (score >= 65) {
     const lowestSystem = [...systemBreakdown].sort((a, b) => a.percentage - b.percentage)[0]
