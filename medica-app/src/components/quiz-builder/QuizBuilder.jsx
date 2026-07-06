@@ -9,7 +9,7 @@ import {
 import { saveLastQuizConfig, getLastQuizConfig } from '../../lib/storage'
 import { buildTopicMetadata } from '../../lib/topicIntelligence'
 import { normalizeGenerationConfig } from '../../lib/generationScope'
-import { getDifficultyAvailability } from '../../lib/mockQuestions'
+import { getLocalQuestionAvailability } from '../../lib/mockQuestions'
 import ModeSelector from './ModeSelector'
 import SubjectSelector from './SubjectSelector'
 import SystemSelector from './SystemSelector'
@@ -47,8 +47,8 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
   const [error, setError]               = useState(generationError)
 
   const isStandardized = config.blockType === STANDARDIZED_40Q_BLOCK
-  const difficultyAvailability = isStandardized ? null : getDifficultyAvailability(config)
-  const showDifficultyWarning = Boolean(difficultyAvailability?.requiresBackend)
+  const localAvailability = isStandardized ? null : getLocalQuestionAvailability(config)
+  const showAvailabilityWarning = Boolean(localAvailability?.requiresBackend)
 
   // Adaptive preview — shown only when backend+auth, non-standardized, global scope
   const isGlobalScope = !config.topic && !config.clinicalFocus
@@ -167,11 +167,15 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                   value={config.difficulty}
                   onChange={v => update('difficulty', v)}
                 />
-                {showDifficultyWarning && (
+                {showAvailabilityWarning && (
                   <div className="qb-difficulty-warning" role="note">
-                    <div className="qb-difficulty-warning-title">Backend AI required for this difficulty</div>
+                    <div className="qb-difficulty-warning-title">
+                      {authState.isAuthenticated
+                        ? 'Live generation will complete this selection'
+                        : 'Sign in or broaden this selection'}
+                    </div>
                     <div className="qb-difficulty-warning-copy">
-                      Local fallback has {difficultyAvailability.available}/{difficultyAvailability.target} target {config.difficulty} question{difficultyAvailability.available === 1 ? '' : 's'}; {config.questionCount} requested.
+                      The validated local bank has {localAvailability.available} matching question{localAvailability.available === 1 ? '' : 's'}; {config.questionCount} requested.
                     </div>
                   </div>
                 )}

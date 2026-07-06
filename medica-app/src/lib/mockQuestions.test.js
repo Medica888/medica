@@ -163,6 +163,74 @@ describe('createQuizSession — 40Q block behavior', () => {
   })
 })
 
+describe('local bank scope availability', () => {
+  it('never broadens a thin subject selection to unrelated subjects', () => {
+    const counts = new Map()
+    for (const question of ACTIVE_QUESTION_BANK) {
+      counts.set(question.subject, (counts.get(question.subject) ?? 0) + 1)
+    }
+    const [subject, count] = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]
+    const config = {
+      ...baseConfig,
+      subject,
+      system: 'All Systems',
+      questionCount: count + 1,
+    }
+
+    const pool = getBankQuestionsForConfig(config)
+    const availability = getDifficultyAvailability(config)
+
+    expect(pool).toHaveLength(count)
+    expect(pool.every(question => question.subject === subject)).toBe(true)
+    expect(availability.available).toBe(count)
+    expect(availability.requiresBackend).toBe(true)
+  })
+
+  it('never broadens a thin system selection to unrelated systems', () => {
+    const counts = new Map()
+    for (const question of ACTIVE_QUESTION_BANK) {
+      counts.set(question.system, (counts.get(question.system) ?? 0) + 1)
+    }
+    const [system, count] = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]
+    const config = {
+      ...baseConfig,
+      subject: 'All Subjects',
+      system,
+      questionCount: count + 1,
+    }
+
+    const pool = getBankQuestionsForConfig(config)
+    const availability = getDifficultyAvailability(config)
+
+    expect(pool).toHaveLength(count)
+    expect(pool.every(question => question.system === system)).toBe(true)
+    expect(availability.available).toBe(count)
+    expect(availability.requiresBackend).toBe(true)
+  })
+
+  it('does not substitute another difficulty when an exact hard-mode scope is thin', () => {
+    const hardQuestions = ACTIVE_QUESTION_BANK.filter(question => question.difficulty === 'UWorld Challenge')
+    const counts = new Map()
+    for (const question of hardQuestions) {
+      counts.set(question.subject, (counts.get(question.subject) ?? 0) + 1)
+    }
+    const [subject, count] = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]
+    const config = {
+      ...baseConfig,
+      subject,
+      system: 'All Systems',
+      difficulty: 'UWorld Challenge',
+      questionCount: count + 1,
+    }
+
+    const pool = getBankQuestionsForConfig(config)
+
+    expect(pool).toHaveLength(count)
+    expect(pool.every(question => question.subject === subject)).toBe(true)
+    expect(pool.every(question => question.difficulty === 'UWorld Challenge')).toBe(true)
+  })
+})
+
 // ─── Test 5: cross-session exclusion ──────────────────────────────────────────
 
 describe('createQuizSession — test 5: excludes previously seen questions', () => {
@@ -794,6 +862,50 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     expect(
       failures,
       `High-yield pairs below 8Q: ${failures.map(p => `${p.subject}+${p.system}(${p.count})`).join(', ')}`,
+    ).toHaveLength(0)
+  })
+
+  it('high-yield depth batches keep the three former gap pairs at 10+ active questions', () => {
+    const pairs = [
+      ['Microbiology', 'Infectious Disease'],
+      ['Physiology', 'Respiratory'],
+      ['Pathology', 'Neurology'],
+    ]
+    const failures = pairs
+      .map(([subject, system]) => ({
+        subject,
+        system,
+        count: ACTIVE_QUESTION_BANK.filter(
+          question => question.subject === subject && question.system === system,
+        ).length,
+      }))
+      .filter(pair => pair.count < 10)
+
+    expect(
+      failures,
+      `Improved high-yield pairs below 10Q: ${failures.map(pair => `${pair.subject}+${pair.system}(${pair.count})`).join(', ')}`,
+    ).toHaveLength(0)
+  })
+
+  it('coverage batches protect Human Development, male reproductive, prevention, and prognosis floors', () => {
+    const floors = [
+      ['Pregnancy content', 10, question => question.usmleContentArea === 'Pregnancy, Childbirth, & the Puerperium'],
+      ['Human Development content', 6, question => question.usmleContentArea === 'Human Development'],
+      ['Male reproductive content', 5, question => question.usmleContentArea === 'Male and Transgender Reproductive System'],
+      ['Prevention task', 5, question => question.physicianTask === 'Patient Care: Health Maintenance and Disease Prevention'],
+      ['Prognosis task', 6, question => question.physicianTask === 'Patient Care: Prognosis and Outcome'],
+    ]
+    const failures = floors
+      .map(([label, minimum, matches]) => ({
+        label,
+        minimum,
+        count: ACTIVE_QUESTION_BANK.filter(matches).length,
+      }))
+      .filter(row => row.count < row.minimum)
+
+    expect(
+      failures,
+      `Coverage floors missed: ${failures.map(row => `${row.label}(${row.count}/${row.minimum})`).join(', ')}`,
     ).toHaveLength(0)
   })
 

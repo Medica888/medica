@@ -15,7 +15,6 @@ import {
   isEmptySelection,
   isSpecificScope,
   isQuestionInScope,
-  detectDuplicateQuestions,
   applyExpandedScopeMetadata,
 } from './generationScope.js'
 import { applyTopicMetadataToQuestion } from './topicIntelligence.js'
@@ -230,12 +229,10 @@ export function getQuestionBankDifficultyStats() {
 
 export function getAvailableQuestionCountForConfig(config) {
   const normalizedConfig = normalizeQuizConfigForGeneration(config)
-  const difficulty = normalizedConfig?.difficulty || 'Balanced'
-  if (!difficulty || difficulty === 'Balanced') return ACTIVE_QUESTION_BANK.length
-  return ACTIVE_QUESTION_BANK.filter(q => q.difficulty === difficulty).length
+  return getBankQuestionsForConfig(normalizedConfig).length
 }
 
-export function getDifficultyAvailability(config) {
+export function getLocalQuestionAvailability(config) {
   const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const requested = Number(config?.questionCount || 0)
   const difficulty = normalizedConfig?.difficulty || 'Balanced'
@@ -248,9 +245,12 @@ export function getDifficultyAvailability(config) {
     target,
     enoughForLocalFallback: available >= requested,
     meetsProductTarget: available >= target,
-    requiresBackend: difficulty !== 'Balanced' && available < requested,
+    requiresBackend: available < requested,
   }
 }
+
+// Backward-compatible alias for callers that only need difficulty coverage.
+export const getDifficultyAvailability = getLocalQuestionAvailability
 
 /**
  * Returns the filtered, scope-matched, seen-excluded, deduped question pool for
@@ -336,19 +336,19 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
       expandedScopeTo = 'none'
     }
   } else if (scope.scopeType === 'system') {
-    const filtered = bank.filter(q => normalizeSystemLabel(q.system) === normalizeSystemLabel(scope.scopeText))
-    if (filtered.length >= 2) pool = filtered
+    pool = bank.filter(q => normalizeSystemLabel(q.system) === normalizeSystemLabel(scope.scopeText))
   } else if (scope.scopeType === 'subject') {
-    const filtered = bank.filter(q => normalizeSubjectLabel(q.subject) === normalizeSubjectLabel(scope.scopeText))
-    if (filtered.length >= 2) pool = filtered
+    pool = bank.filter(q => normalizeSubjectLabel(q.subject) === normalizeSubjectLabel(scope.scopeText))
   }
 
   if (normalizedConfig.difficulty && normalizedConfig.difficulty !== 'Balanced') {
-    const diffPool = pool.filter(q => q.difficulty === normalizedConfig.difficulty)
-    if (diffPool.length >= 2) pool = diffPool
+    pool = pool.filter(q => q.difficulty === normalizedConfig.difficulty)
   }
 
-  pool = detectDuplicateQuestions(pool)
+  // Multiple independent questions may legitimately test the same concept or
+  // question angle. Identity deduplication removes actual repeated questions
+  // without collapsing deliberate concept reinforcement.
+  pool = dedupeQuestionList(pool)
 
   if (expandedScope) {
     pool = pool.map(q => applyExpandedScopeMetadata(q, scope))
