@@ -7,7 +7,7 @@
 import { validateClinicalCard } from './flashcardValidator.js'
 import { getBaseQuestionId, getQuestionFingerprint } from './questionDedup.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
-import { getCurrentUserId, isBackendEnabled, questionReports as questionReportsApi } from './apiClient.js'
+import { getCurrentUserId, isBackendEnabled } from './apiClient.js'
 import { getAnonymousStorageKey, getScopedStorageKey } from './storageScope.js'
 import { enqueueQuestionReportSync, drainSessionSyncOutbox } from './sessionSyncOutbox.js'
 import { computeSRS } from './srsScheduler.js'
@@ -146,10 +146,8 @@ export function saveQuestionReport(question, reason, context = {}) {
     const updated = [report, ...reports.filter(r => r.id !== report.id)].slice(0, 250)
     localStorage.setItem(scopedKey(QUESTION_REPORTS_KEY), JSON.stringify(updated))
     window.dispatchEvent(new CustomEvent(QUESTION_REPORTS_UPDATED_EVENT))
-    // Best-effort backend sync — outbox for authenticated users, fire-and-forget for anonymous.
-    // Question reports are ordinary backend synchronization (public endpoint, optionalAuth
-    // server-side) — gated on VITE_USE_BACKEND, same flag as sessions/flashcards in
-    // dataProvider.js. VITE_USE_BACKEND_API is reserved for live AI generation only.
+    // Shared report governance accepts authenticated signals only. Anonymous reports remain
+    // local so an unauthenticated browser cannot influence global quarantine decisions.
     if (isBackendEnabled()) {
       const userId = getCurrentUserId()
       const backendPayload = {
@@ -177,8 +175,6 @@ export function saveQuestionReport(question, reason, context = {}) {
             // queued === null means outbox is at per-type capacity; report saved locally only.
           })
           .catch(() => {})
-      } else {
-        questionReportsApi.create(backendPayload).catch(err => console.error('[storage] report sync failed:', err))
       }
     }
     return report

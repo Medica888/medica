@@ -496,6 +496,31 @@ describe('saveQuestionReport — outbox sync', () => {
     expect(getQuestionReports()[0].questionId).toBe('q-net-fail')
   })
 
+  it('keeps the local report when the backend later rejects it as ineligible (403)', async () => {
+    const eligibilityUser = `${TEST_USER}-eligibility`
+    vi.mocked(apiClient.getCurrentUserId).mockReturnValue(eligibilityUser)
+    // Mock at the apiClient boundary — saveQuestionReport triggers its own fire-and-forget
+    // auto-drain (via enqueueQuestionReportSync().then(drainSessionSyncOutbox)) using the
+    // real questionReports.create, so we wait for that to settle rather than racing it with
+    // a separately-mocked manual drain.
+    const ineligible = Object.assign(new Error('not eligible'), {
+      status: 403,
+      code: 'REPORTER_NOT_ELIGIBLE',
+    })
+    vi.spyOn(apiClient.questionReports, 'create').mockRejectedValue(ineligible)
+
+    saveQuestionReport(q('q-ineligible'), 'wrong_answer', { mode: 'practice' })
+    expect(getQuestionReports()).toHaveLength(1)
+
+    // The eligibility rejection is local-only (not a synchronization failure) and is
+    // cleared from the retry queue — but the local report itself is never lost.
+    await vi.waitFor(() => {
+      expect(getSessionSyncOutbox(eligibilityUser)).toHaveLength(0)
+    })
+    expect(getQuestionReports()).toHaveLength(1)
+    expect(getQuestionReports()[0].questionId).toBe('q-ineligible')
+  })
+
   it('enqueues a question-report outbox entry when user is authenticated', () => {
     saveQuestionReport(q('q-post'), 'wrong_answer', { mode: 'practice' })
 
@@ -541,14 +566,13 @@ describe('saveQuestionReport — outbox sync', () => {
     expect(getQuestionReports()).toHaveLength(1)
   })
 
-  it('anonymous reports follow the intended backend behavior: direct fire-and-forget create, not the outbox', () => {
+  it('keeps anonymous reports local and never sends them to shared governance', () => {
     vi.spyOn(apiClient, 'getCurrentUserId').mockReturnValue('')
     const createSpy = vi.spyOn(apiClient.questionReports, 'create').mockResolvedValue({ id: 'r1' })
 
     saveQuestionReport(q('q-anon'), 'wrong_answer', { mode: 'practice' })
 
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(createSpy.mock.calls[0][0].questionId).toBe('q-anon')
+    expect(createSpy).not.toHaveBeenCalled()
     expect(getSessionSyncOutbox('')).toHaveLength(0)
     expect(getQuestionReports()).toHaveLength(1)
   })

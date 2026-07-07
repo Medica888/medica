@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
+import { randomUUID } from 'crypto';
 import { createApp } from '../app.js';
-import { createInMemoryRepositories, setRepositories } from '../repositories/index.js';
+import { createInMemoryRepositories, getRepositories, setRepositories } from '../repositories/index.js';
 import { QuestionReportService, REPORT_REASON_REVALIDATION_MAP } from '../services/QuestionReportService.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
+import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.js';
+import { isEligibleQuestionReporter } from './questionReports.js';
 
 const app = createApp();
+let registrationCounter = 0;
 
 const VALID_REPORT = {
   fingerprint:      'fp_abc123',
@@ -26,108 +30,245 @@ const VALID_REPORT = {
   stemPreview:      'A 22-year-old man presents with sudden dyspnea after trauma...',
 };
 
-async function registerAndGetToken(): Promise<string> {
+async function registerAndGetToken(options: { verified?: boolean; accountAgeHours?: number } = {}): Promise<string> {
+  const { verified = true, accountAgeHours = 25 } = options;
   const res = await request(app).post('/api/auth/register').send({
-    email: `reporter_${Date.now()}@example.com`,
+    email: `reporter_${Date.now()}_${registrationCounter++}@example.com`,
     name: 'Reporter',
     password: 'password123',
   });
+  const users = getRepositories().users as InMemoryUsersRepository;
+  if (verified) await users.setEmailVerified(res.body.user.id);
+  users._setCreatedAt(res.body.user.id, new Date(Date.now() - accountAgeHours * 60 * 60 * 1000));
   return res.body.token as string;
 }
 
+/** Registers a user and adds them to ADMIN_USER_IDS so they pass requireAdmin. */
+async function registerAdminAndGetToken(): Promise<string> {
+  const res = await request(app).post('/api/auth/register').send({
+    email: `admin_${Date.now()}_${registrationCounter++}@example.com`,
+    name: 'Admin',
+    password: 'password123',
+  });
+  const userId = res.body.user.id as string;
+  const existing = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+  process.env.ADMIN_USER_IDS = [...existing, userId].join(',');
+  return res.body.token as string;
+}
+
+async function postReport(payload: Record<string, unknown>) {
+  const token = await registerAndGetToken();
+  return request(app)
+    .post('/api/question-reports')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ clientReportId: randomUUID(), ...payload });
+}
+
 beforeEach(() => {
+  registrationCounter = 0;
   setRepositories(createInMemoryRepositories());
+  delete process.env.ADMIN_USER_IDS;
 });
 
 // ── POST /api/question-reports ─────────────────────────────────────────────────
 
 describe('POST /api/question-reports', () => {
   it('accepts a complete valid report and returns 201 with id', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send(VALID_REPORT);
+    const res = await postReport(VALID_REPORT);
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('string');
     expect(res.body.id.length).toBeGreaterThan(0);
   });
 
   it('accepts a minimal report (fingerprint + reason only)', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_minimal', reason: 'bad_explanation' });
+    const res = await postReport({ fingerprint: 'fp_minimal', reason: 'bad_explanation' });
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('string');
   });
 
   it('accepts all four valid reasons', async () => {
     for (const reason of ['wrong_answer', 'bad_explanation', 'off_topic', 'ambiguous_or_insufficient_clues']) {
-      const res = await request(app)
-        .post('/api/question-reports')
-        .send({ fingerprint: 'fp_reason_test', reason });
+      const res = await postReport({ fingerprint: 'fp_reason_test', reason });
       expect(res.status).toBe(201);
     }
   });
 
   it('rejects an invalid reason with 400', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_bad', reason: 'spam' });
+    const res = await postReport({ fingerprint: 'fp_bad', reason: 'spam' });
     expect(res.status).toBe(400);
   });
 
   it('rejects missing fingerprint with 400', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ reason: 'wrong_answer' });
+    const res = await postReport({ reason: 'wrong_answer' });
     expect(res.status).toBe(400);
   });
 
   it('rejects empty fingerprint with 400', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: '', reason: 'wrong_answer' });
+    const res = await postReport({ fingerprint: '', reason: 'wrong_answer' });
     expect(res.status).toBe(400);
   });
 
   it('rejects fingerprint exceeding 300 chars with 400', async () => {
     // Max is 300 to accommodate bank question fingerprints (stem 120 + "||" + concept).
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'x'.repeat(301), reason: 'wrong_answer' });
+    const res = await postReport({ fingerprint: 'x'.repeat(301), reason: 'wrong_answer' });
     expect(res.status).toBe(400);
   });
 
   it('rejects stemPreview exceeding 500 chars with 400', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_x', reason: 'wrong_answer', stemPreview: 'A'.repeat(501) });
+    const res = await postReport({ fingerprint: 'fp_x', reason: 'wrong_answer', stemPreview: 'A'.repeat(501) });
     expect(res.status).toBe(400);
   });
 
   it('rejects invalid source value with 400', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_x', reason: 'wrong_answer', source: 'unknown_source' });
+    const res = await postReport({ fingerprint: 'fp_x', reason: 'wrong_answer', source: 'unknown_source' });
     expect(res.status).toBe(400);
   });
 
-  it('stores report as anonymous when no auth token is provided', async () => {
+  it('rejects shared report submission when no auth token is provided', async () => {
     const repos = createInMemoryRepositories();
     setRepositories(repos);
-    await request(app)
+    const res = await request(app)
       .post('/api/question-reports')
-      .send({ fingerprint: 'fp_anon', reason: 'off_topic' });
+      .send({ clientReportId: randomUUID(), fingerprint: 'fp_anon', reason: 'off_topic' });
+    const all = (repos.questionReports as any)._all();
+    expect(res.status).toBe(401);
+    expect(all).toHaveLength(0);
+  });
+
+  it('requires clientReportId for idempotent shared governance', async () => {
+    const token = await registerAndGetToken();
+    const res = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ fingerprint: 'fp_no_client_id', reason: 'off_topic' });
+    expect(res.status).toBe(400);
+  });
+
+  it('replaying the same clientReportId is idempotent — no duplicate row, same id returned', async () => {
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+    const payload = { clientReportId, fingerprint: 'fp_replay', reason: 'wrong_answer' };
+
+    const first = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+    const second = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
     const all = (repos.questionReports as any)._all();
     expect(all).toHaveLength(1);
-    expect(all[0].user_id).toBeNull();
+  });
+
+  it('replaying the same clientReportId with a different fingerprint returns 409 IDEMPOTENCY_CONFLICT', async () => {
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+
+    const first = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_original', reason: 'wrong_answer' });
+    const second = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_different', reason: 'wrong_answer' });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('IDEMPOTENCY_CONFLICT');
+    const all = (repos.questionReports as any)._all();
+    expect(all).toHaveLength(1);
+    expect(all[0].fingerprint).toBe('fp_original');
+  });
+
+  it('replaying the same clientReportId with a different reason returns 409 IDEMPOTENCY_CONFLICT', async () => {
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+
+    const first = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_reason_conflict', reason: 'wrong_answer' });
+    const second = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_reason_conflict', reason: 'off_topic' });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('IDEMPOTENCY_CONFLICT');
+    const all = (repos.questionReports as any)._all();
+    expect(all).toHaveLength(1);
+    expect(all[0].reason).toBe('wrong_answer');
+  });
+
+  it('concurrent identical-payload replays never create more than one report', async () => {
+    const repos = createInMemoryRepositories();
+    setRepositories(repos);
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+    const payload = { clientReportId, fingerprint: 'fp_concurrent_replay', reason: 'wrong_answer' };
+
+    const results = await Promise.all([
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+    ]);
+
+    for (const res of results) expect(res.status).toBe(201);
+    const ids = new Set(results.map(r => r.body.id));
+    expect(ids.size).toBe(1);
+    const all = (repos.questionReports as any)._all();
+    expect(all).toHaveLength(1);
+  });
+
+  it('rejects an unverified reporter with a stable eligibility error', async () => {
+    const token = await registerAndGetToken({ verified: false, accountAgeHours: 48 });
+    const res = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId: randomUUID(), fingerprint: 'fp_unverified', reason: 'off_topic' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('REPORTER_NOT_ELIGIBLE');
+  });
+
+  it('rejects a newly created verified account below the minimum age', async () => {
+    const token = await registerAndGetToken({ verified: true, accountAgeHours: 1 });
+    const res = await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId: randomUUID(), fingerprint: 'fp_too_new', reason: 'off_topic' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('REPORTER_NOT_ELIGIBLE');
+  });
+
+  it('allows a verified account when a zero-hour policy is explicitly configured', () => {
+    const now = Date.now();
+    expect(isEligibleQuestionReporter({
+      id: 'verified-user',
+      email: 'verified@example.com',
+      name: 'Verified',
+      email_verified: true,
+      email_verified_at: new Date(now),
+      created_at: new Date(now),
+    }, now, 0)).toBe(true);
   });
 
   it('maps camelCase request fields to snake_case repository fields', async () => {
     const repos = createInMemoryRepositories();
     setRepositories(repos);
-    await request(app)
-      .post('/api/question-reports')
-      .send({
+    await postReport({
         fingerprint:      'fp_map',
         reason:           'off_topic',
         requestedSubject: 'Physiology',
@@ -151,9 +292,7 @@ describe('POST /api/question-reports', () => {
   it('normalizes taxonomy aliases before storing a report', async () => {
     const repos = createInMemoryRepositories();
     setRepositories(repos);
-    await request(app)
-      .post('/api/question-reports')
-      .send({
+    await postReport({
         fingerprint: 'fp_taxonomy',
         reason: 'off_topic',
         difficulty: 'NBME',
@@ -170,20 +309,105 @@ describe('POST /api/question-reports', () => {
   });
 });
 
-// ── GET /api/question-reports/summary ─────────────────────────────────────────
+// ── Issue 6: idempotent replays must not retrigger clinician review ───────────
+// Repository create() exposes insert-vs-replay; the route only fires the
+// clinician-review trigger when a report was newly inserted.
 
-describe('GET /api/question-reports/summary — requires auth', () => {
-  it('returns 401 without auth token', async () => {
+describe('POST /api/question-reports — clinician review trigger gating', () => {
+  it('an identical replay does not create a second clinician review', async () => {
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+    const payload = { clientReportId, fingerprint: 'fp_no_retrigger', reason: 'wrong_answer' };
+
+    await request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload).expect(201);
+    await new Promise(r => setImmediate(r));
+    await request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload).expect(201);
+    await new Promise(r => setImmediate(r));
+
+    const queue = await getRepositories().clinicianReviews.findQueue({});
+    const forFingerprint = queue.filter(r => r.report_fingerprint === 'fp_no_retrigger');
+    expect(forFingerprint).toHaveLength(1);
+  });
+
+  it('concurrent identical replays do not create more than one clinician review', async () => {
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+    const payload = { clientReportId, fingerprint: 'fp_concurrent_no_retrigger', reason: 'wrong_answer' };
+
+    await Promise.all([
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+      request(app).post('/api/question-reports').set('Authorization', `Bearer ${token}`).send(payload),
+    ]);
+    await new Promise(r => setImmediate(r));
+
+    const queue = await getRepositories().clinicianReviews.findQueue({});
+    const forFingerprint = queue.filter(r => r.report_fingerprint === 'fp_concurrent_no_retrigger');
+    expect(forFingerprint).toHaveLength(1);
+  });
+
+  it('a payload-mismatch replay (409) does not create a clinician review for the rejected payload', async () => {
+    const token = await registerAndGetToken();
+    const clientReportId = randomUUID();
+
+    await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_conflict_no_review', reason: 'bad_explanation' })
+      .expect(201);
+    await new Promise(r => setImmediate(r));
+    // Same key, different fingerprint+reason — rejected as a conflict
+    await request(app)
+      .post('/api/question-reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientReportId, fingerprint: 'fp_conflict_no_review_2', reason: 'wrong_answer' })
+      .expect(409);
+    await new Promise(r => setImmediate(r));
+
+    // No review should exist for either fingerprint: the original reason
+    // (bad_explanation) doesn't trigger a review, and the rejected replay's
+    // (wrong_answer) reason must not either since it was never persisted.
+    const queue = await getRepositories().clinicianReviews.findQueue({});
+    expect(queue.filter(r => r.report_fingerprint === 'fp_conflict_no_review')).toHaveLength(0);
+    expect(queue.filter(r => r.report_fingerprint === 'fp_conflict_no_review_2')).toHaveLength(0);
+  });
+});
+
+// ── GET /api/question-reports/summary ─────────────────────────────────────────
+// Admin-only: fingerprints expose normalized stem/concept text and global
+// moderation status, so this must not be readable by ordinary authenticated users.
+
+describe('GET /api/question-reports/summary — admin only', () => {
+  it('returns 401 without auth token (anonymous)', async () => {
     const res = await request(app).get('/api/question-reports/summary');
     expect(res.status).toBe(401);
   });
 
-  it('returns summary with correct shape when authenticated', async () => {
+  it('returns 403 for an authenticated non-admin user', async () => {
     const token = await registerAndGetToken();
+    const res = await request(app)
+      .get('/api/question-reports/summary')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('fails closed when ADMIN_USER_IDS is empty, even for a real user', async () => {
+    const token = await registerAndGetToken();
+    delete process.env.ADMIN_USER_IDS;
+    const res = await request(app)
+      .get('/api/question-reports/summary')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns summary with correct shape for a configured admin', async () => {
+    const token = await registerAdminAndGetToken();
     // Seed a few reports
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp1', reason: 'wrong_answer' });
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp1', reason: 'wrong_answer' });
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp2', reason: 'bad_explanation' });
+    await postReport({ fingerprint: 'fp1', reason: 'wrong_answer' });
+    await postReport({ fingerprint: 'fp1', reason: 'wrong_answer' });
+    await postReport({ fingerprint: 'fp2', reason: 'bad_explanation' });
 
     const res = await request(app)
       .get('/api/question-reports/summary')
@@ -198,12 +422,12 @@ describe('GET /api/question-reports/summary — requires auth', () => {
   });
 
   it('topFingerprints sorted by totalReports desc', async () => {
-    const token = await registerAndGetToken();
+    const token = await registerAdminAndGetToken();
     // fp_heavy: 3 reports, fp_light: 1 report
     for (let i = 0; i < 3; i++) {
-      await request(app).post('/api/question-reports').send({ fingerprint: 'fp_heavy', reason: 'off_topic' });
+      await postReport({ fingerprint: 'fp_heavy', reason: 'off_topic' });
     }
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp_light', reason: 'wrong_answer' });
+    await postReport({ fingerprint: 'fp_light', reason: 'wrong_answer' });
 
     const res = await request(app)
       .get('/api/question-reports/summary')
@@ -215,10 +439,10 @@ describe('GET /api/question-reports/summary — requires auth', () => {
   });
 
   it('limit param is respected (default 20)', async () => {
-    const token = await registerAndGetToken();
+    const token = await registerAdminAndGetToken();
     // Seed 5 distinct fingerprints
     for (let i = 0; i < 5; i++) {
-      await request(app).post('/api/question-reports').send({ fingerprint: `fp${i}`, reason: 'wrong_answer' });
+      await postReport({ fingerprint: `fp${i}`, reason: 'wrong_answer' });
     }
     const res = await request(app)
       .get('/api/question-reports/summary?limit=3')
@@ -227,8 +451,8 @@ describe('GET /api/question-reports/summary — requires auth', () => {
   });
 
   it('topFingerprints entries have the expected flat fields', async () => {
-    const token = await registerAndGetToken();
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp_shape', reason: 'wrong_answer' });
+    const token = await registerAdminAndGetToken();
+    await postReport({ fingerprint: 'fp_shape', reason: 'wrong_answer' });
 
     const res = await request(app)
       .get('/api/question-reports/summary')
@@ -247,15 +471,35 @@ describe('GET /api/question-reports/summary — requires auth', () => {
 });
 
 // ── GET /api/question-reports/fingerprints/:fingerprint ──────────────────────
+// Admin-only — same rationale as /summary above.
 
-describe('GET /api/question-reports/fingerprints/:fingerprint — requires auth', () => {
-  it('returns 401 without auth token', async () => {
+describe('GET /api/question-reports/fingerprints/:fingerprint — admin only', () => {
+  it('returns 401 without auth token (anonymous)', async () => {
     const res = await request(app).get('/api/question-reports/fingerprints/fp_test');
     expect(res.status).toBe(401);
   });
 
-  it('returns zero/clear for unknown fingerprint', async () => {
+  it('returns 403 for an authenticated non-admin user', async () => {
     const token = await registerAndGetToken();
+    const res = await request(app)
+      .get('/api/question-reports/fingerprints/fp_test')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('fails closed when ADMIN_USER_IDS is empty, even for a real user', async () => {
+    const token = await registerAndGetToken();
+    delete process.env.ADMIN_USER_IDS;
+    const res = await request(app)
+      .get('/api/question-reports/fingerprints/fp_test')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns zero/clear for unknown fingerprint (configured admin)', async () => {
+    const token = await registerAdminAndGetToken();
     const res = await request(app)
       .get('/api/question-reports/fingerprints/fp_unknown')
       .set('Authorization', `Bearer ${token}`);
@@ -267,8 +511,8 @@ describe('GET /api/question-reports/fingerprints/:fingerprint — requires auth'
   });
 
   it('report has the expected shape', async () => {
-    const token = await registerAndGetToken();
-    await request(app).post('/api/question-reports').send({ fingerprint: 'fp_shape', reason: 'wrong_answer' });
+    const token = await registerAdminAndGetToken();
+    await postReport({ fingerprint: 'fp_shape', reason: 'wrong_answer' });
     const res = await request(app)
       .get('/api/question-reports/fingerprints/fp_shape')
       .set('Authorization', `Bearer ${token}`);
@@ -286,7 +530,7 @@ describe('GET /api/question-reports/fingerprints/:fingerprint — requires auth'
   });
 
   it('rejects fingerprint longer than 500 chars with 400', async () => {
-    const token = await registerAndGetToken();
+    const token = await registerAdminAndGetToken();
     const res = await request(app)
       .get(`/api/question-reports/fingerprints/${'x'.repeat(501)}`)
       .set('Authorization', `Bearer ${token}`);
@@ -299,9 +543,14 @@ describe('GET /api/question-reports/fingerprints/:fingerprint — requires auth'
 describe('QuestionReportService — quarantine thresholds', () => {
   let repo: InMemoryQuestionReportsRepository;
   let service: QuestionReportService;
+  let reportUserCounter = 0;
 
-  const makeReport = (fp: string, reason: 'wrong_answer' | 'bad_explanation' | 'off_topic', userId?: string) => ({
-    user_id:            userId ?? null,
+  const makeReport = (
+    fp: string,
+    reason: 'wrong_answer' | 'bad_explanation' | 'off_topic',
+    userId: string | null = `report-user-${++reportUserCounter}`,
+  ) => ({
+    user_id:            userId,
     question_id:        null,
     fingerprint:        fp,
     reason,
@@ -321,6 +570,7 @@ describe('QuestionReportService — quarantine thresholds', () => {
   } as const);
 
   beforeEach(() => {
+    reportUserCounter = 0;
     repo    = new InMemoryQuestionReportsRepository();
     service = new QuestionReportService(repo);
   });
@@ -379,8 +629,8 @@ describe('QuestionReportService — quarantine thresholds', () => {
 
   it('uniqueUsers excludes anonymous (null) user_ids', async () => {
     // 2 anonymous + 2 unique authenticated users
-    await repo.create(makeReport('fp7', 'wrong_answer'));           // null
-    await repo.create(makeReport('fp7', 'wrong_answer'));           // null
+    await repo.create(makeReport('fp7', 'wrong_answer', null));
+    await repo.create(makeReport('fp7', 'wrong_answer', null));
     await repo.create(makeReport('fp7', 'wrong_answer', 'user-a'));
     await repo.create(makeReport('fp7', 'wrong_answer', 'user-b'));
     const r = await service.getFingerprintReport('fp7');
@@ -439,29 +689,46 @@ describe('QuestionReportService — quarantine thresholds', () => {
     expect(quarantined.has('fp_c')).toBe(true);
     expect(quarantined.has('fp_b')).toBe(false);
   });
+
+  it('does not quarantine when one user repeats the same critical report', async () => {
+    await repo.create(makeReport('fp_repeat', 'wrong_answer', 'same-user'));
+    await repo.create(makeReport('fp_repeat', 'wrong_answer', 'same-user'));
+    await repo.create(makeReport('fp_repeat', 'wrong_answer', 'same-user'));
+
+    const report = await service.getFingerprintReport('fp_repeat');
+    const quarantined = await service.getQuarantinedFingerprints();
+    expect(report.quarantineStatus).not.toBe('quarantined');
+    expect(quarantined.has('fp_repeat')).toBe(false);
+  });
+
+  it('does not let legacy anonymous reports influence global quarantine', async () => {
+    for (let i = 0; i < 6; i++) {
+      await repo.create(makeReport('fp_anonymous', 'wrong_answer', null));
+    }
+
+    const report = await service.getFingerprintReport('fp_anonymous');
+    const quarantined = await service.getQuarantinedFingerprints();
+    expect(report.uniqueUsers).toBe(0);
+    expect(report.quarantineStatus).not.toBe('quarantined');
+    expect(quarantined.has('fp_anonymous')).toBe(false);
+  });
 });
 
 // ── Phase 6.1: ambiguous_or_insufficient_clues reason ────────────────────────
 
 describe('POST /api/question-reports — ambiguous_or_insufficient_clues', () => {
   it('accepts ambiguous_or_insufficient_clues reason and returns 201', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_ambiguous', reason: 'ambiguous_or_insufficient_clues' });
+    const res = await postReport({ fingerprint: 'fp_ambiguous', reason: 'ambiguous_or_insufficient_clues' });
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('string');
   });
 
   it('stores the reason correctly in the repository', async () => {
-    await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_store_test', reason: 'ambiguous_or_insufficient_clues' });
+    await postReport({ fingerprint: 'fp_store_test', reason: 'ambiguous_or_insufficient_clues' });
     const repos = createInMemoryRepositories();
     setRepositories(repos);
     // Fresh repo is empty — just verify the route round-trips without error
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_store2', reason: 'ambiguous_or_insufficient_clues' });
+    const res = await postReport({ fingerprint: 'fp_store2', reason: 'ambiguous_or_insufficient_clues' });
     expect(res.status).toBe(201);
   });
 });
@@ -469,8 +736,13 @@ describe('POST /api/question-reports — ambiguous_or_insufficient_clues', () =>
 describe('QuestionReportService — ambiguous_or_insufficient_clues thresholds', () => {
   let repo: InMemoryQuestionReportsRepository;
   let service: QuestionReportService;
+  let reportUserCounter = 0;
 
-  function makeReport(fp: string, reason: string, userId: string | null = null) {
+  function makeReport(
+    fp: string,
+    reason: string,
+    userId: string | null = `ambiguous-user-${++reportUserCounter}`,
+  ) {
     return {
       user_id: userId, question_id: null, fingerprint: fp, reason: reason as any,
       source: null, mode: null, difficulty: null, requested_subject: null,
@@ -481,6 +753,7 @@ describe('QuestionReportService — ambiguous_or_insufficient_clues thresholds',
   }
 
   beforeEach(() => {
+    reportUserCounter = 0;
     repo = new InMemoryQuestionReportsRepository();
     service = new QuestionReportService(repo);
   });
@@ -601,17 +874,13 @@ describe('REPORT_REASON_REVALIDATION_MAP', () => {
 
 describe('POST /api/question-reports — duplicate and technical_issue reasons', () => {
   it('accepts duplicate reason and returns 201', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_dup', reason: 'duplicate' });
+    const res = await postReport({ fingerprint: 'fp_dup', reason: 'duplicate' });
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('string');
   });
 
   it('accepts technical_issue reason and returns 201', async () => {
-    const res = await request(app)
-      .post('/api/question-reports')
-      .send({ fingerprint: 'fp_tech', reason: 'technical_issue' });
+    const res = await postReport({ fingerprint: 'fp_tech', reason: 'technical_issue' });
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('string');
   });
@@ -620,10 +889,11 @@ describe('POST /api/question-reports — duplicate and technical_issue reasons',
 describe('QuestionReportService — duplicate and technical_issue thresholds', () => {
   let repo: InMemoryQuestionReportsRepository;
   let service: QuestionReportService;
+  let reportUserCounter = 0;
 
   function makeReport(fp: string, reason: string) {
     return {
-      user_id: null, question_id: null, fingerprint: fp, reason: reason as any,
+      user_id: `duplicate-user-${++reportUserCounter}`, question_id: null, fingerprint: fp, reason: reason as any,
       source: null, mode: null, difficulty: null, requested_subject: null,
       requested_system: null, requested_topic: null, actual_subject: null,
       actual_system: null, actual_topic: null, tested_concept: null,
@@ -632,13 +902,18 @@ describe('QuestionReportService — duplicate and technical_issue thresholds', (
   }
 
   beforeEach(() => {
+    reportUserCounter = 0;
     repo = new InMemoryQuestionReportsRepository();
     service = new QuestionReportService(repo);
   });
 
-  it('duplicate >= 1 → quarantined immediately', async () => {
+  it('duplicate reports require two distinct users before quarantine', async () => {
     await repo.create(makeReport('fp_d1', 'duplicate'));
-    const r = await service.getFingerprintReport('fp_d1');
+    let r = await service.getFingerprintReport('fp_d1');
+    expect(r.quarantineStatus).not.toBe('quarantined');
+
+    await repo.create(makeReport('fp_d1', 'duplicate'));
+    r = await service.getFingerprintReport('fp_d1');
     expect(r.quarantineStatus).toBe('quarantined');
     expect(r.recommendedAction).toBe('quarantine');
     expect(r.primaryReason).toBe('duplicate');
@@ -652,7 +927,8 @@ describe('QuestionReportService — duplicate and technical_issue thresholds', (
     expect(r.primaryReason).toBe('technical_issue');
   });
 
-  it('getQuarantinedFingerprints includes fingerprints with duplicate >= 1', async () => {
+  it('getQuarantinedFingerprints requires two distinct duplicate reporters', async () => {
+    await repo.create(makeReport('fp_dup_q', 'duplicate'));
     await repo.create(makeReport('fp_dup_q', 'duplicate'));
     await repo.create(makeReport('fp_clean', 'bad_explanation'));
     const quarantined = await service.getQuarantinedFingerprints();

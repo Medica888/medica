@@ -17,12 +17,13 @@ import masteryRouter from './routes/mastery.js';
 import questionReportsRouter from './routes/questionReports.js';
 import qbankRouter from './routes/qbank.js';
 import readyRouter from './routes/ready.js';
-import { initializeAiLimiters } from './middleware/rateLimiter.js';
+import { initializeAiLimiters, initializeQuestionReportLimiter } from './middleware/rateLimiter.js';
 
 export function createApp(): express.Application {
   const app = express();
 
   initializeAiLimiters();
+  initializeQuestionReportLimiter();
 
   // Must be first: tells Express how many proxy hops to trust for correct
   // req.ip and rate-limit key derivation. Set TRUST_PROXY=1 behind one reverse proxy.

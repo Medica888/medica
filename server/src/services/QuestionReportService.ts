@@ -1,4 +1,5 @@
 import type { IQuestionReportsRepository } from '../repositories/interfaces.js';
+import { isQuarantined } from '../lib/quarantinePolicy.js';
 import type {
   FingerprintCountRow,
   QuestionFingerprintReport,
@@ -10,11 +11,10 @@ import type {
 } from '../types/index.js';
 
 // ── Threshold constants ───────────────────────────────────────────────────────
+// Quarantine thresholds live in lib/quarantinePolicy.ts (shared with both
+// repository implementations). Only the watch-tier thresholds are local to this
+// service, since they're display-only and not duplicated elsewhere.
 
-const QUARANTINE_WRONG_ANSWER_MIN  = 2;  // wrong_answer >= 2 → quarantined
-const QUARANTINE_OFF_TOPIC_MIN     = 3;  // off_topic >= 3    → quarantined
-const QUARANTINE_DUPLICATE_MIN     = 1;  // duplicate >= 1    → quarantined (any duplicate report quarantines immediately)
-const QUARANTINE_TOTAL_MIN         = 5;  // total >= 5        → quarantined
 const WATCH_BAD_EXPLANATION_MIN    = 3;  // bad_explanation >= 3 → watch + repair_explanation
 const WATCH_AMBIGUOUS_MIN          = 2;  // ambiguous >= 2    → watch + revalidate_clues
 const WATCH_TECHNICAL_ISSUE_MIN    = 1;  // technical_issue >= 1 → watch + review
@@ -73,13 +73,15 @@ function applyThresholds(fp: FingerprintCountRow): {
     ambiguous_or_insufficient_clues: ac,
     duplicate: du,
     technical_issue: ti,
-    total,
+    unique_users: uniqueUsers,
+    unique_wrong_answer_users: uniqueWrongAnswerUsers,
+    unique_off_topic_users: uniqueOffTopicUsers,
+    unique_duplicate_users: uniqueDuplicateUsers,
   } = fp;
 
   const primary = computePrimaryReason(wa, be, ot, ac, du, ti);
 
-  if (wa >= QUARANTINE_WRONG_ANSWER_MIN || ot >= QUARANTINE_OFF_TOPIC_MIN ||
-      du >= QUARANTINE_DUPLICATE_MIN    || total >= QUARANTINE_TOTAL_MIN) {
+  if (isQuarantined({ uniqueUsers, uniqueWrongAnswerUsers, uniqueOffTopicUsers, uniqueDuplicateUsers })) {
     return { status: 'quarantined', primary, action: 'quarantine' };
   }
   if (be >= WATCH_BAD_EXPLANATION_MIN) {
@@ -91,7 +93,7 @@ function applyThresholds(fp: FingerprintCountRow): {
   if (ti >= WATCH_TECHNICAL_ISSUE_MIN) {
     return { status: 'watch', primary: 'technical_issue', action: 'review' };
   }
-  if (total >= WATCH_TOTAL_MIN) {
+  if (uniqueUsers >= WATCH_TOTAL_MIN) {
     return { status: 'watch', primary, action: 'review' };
   }
   return { status: 'clear', primary: null, action: 'none' };

@@ -1,19 +1,24 @@
 import { randomUUID } from 'crypto';
 import type { QuestionReport, FingerprintCountRow } from '../../types/index.js';
 import type { IQuestionReportsRepository } from '../interfaces.js';
+import { isQuarantined } from '../../lib/quarantinePolicy.js';
 
 export class InMemoryQuestionReportsRepository implements IQuestionReportsRepository {
   private store = new Map<string, QuestionReport>();
 
-  async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport> {
+  async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<{ report: QuestionReport; inserted: boolean }> {
+    // Check-then-insert with no `await` in between — mirrors the PG version's
+    // single-round-trip atomicity so concurrent replays can't both insert.
     if (report.client_report_id) {
-      const existing = [...this.store.values()].find(r => r.client_report_id === report.client_report_id);
-      if (existing) return existing;
+      const existing = [...this.store.values()].find(r =>
+        r.user_id === report.user_id && r.client_report_id === report.client_report_id,
+      );
+      if (existing) return { report: existing, inserted: false };
     }
     const id = randomUUID();
     const record: QuestionReport = { id, ...report, created_at: new Date() };
     this.store.set(id, record);
-    return record;
+    return { report: record, inserted: true };
   }
 
   async getCountsByFingerprint(limit: number): Promise<{
@@ -48,6 +53,15 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
       const uniqueUsers = new Set(
         reps.filter(r => r.user_id !== null).map(r => r.user_id),
       ).size;
+      const uniqueWrongAnswerUsers = new Set(
+        reps.filter(r => r.user_id !== null && r.reason === 'wrong_answer').map(r => r.user_id),
+      ).size;
+      const uniqueOffTopicUsers = new Set(
+        reps.filter(r => r.user_id !== null && r.reason === 'off_topic').map(r => r.user_id),
+      ).size;
+      const uniqueDuplicateUsers = new Set(
+        reps.filter(r => r.user_id !== null && r.reason === 'duplicate').map(r => r.user_id),
+      ).size;
       rows.push({
         fingerprint:                    fp,
         total:                          reps.length,
@@ -58,6 +72,9 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
         duplicate:                      reps.filter(r => r.reason === 'duplicate').length,
         technical_issue:                reps.filter(r => r.reason === 'technical_issue').length,
         unique_users:                   uniqueUsers,
+        unique_wrong_answer_users:      uniqueWrongAnswerUsers,
+        unique_off_topic_users:         uniqueOffTopicUsers,
+        unique_duplicate_users:         uniqueDuplicateUsers,
       });
     }
 
@@ -89,11 +106,23 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
         duplicate:                      0,
         technical_issue:                0,
         unique_users:                   0,
+        unique_wrong_answer_users:      0,
+        unique_off_topic_users:         0,
+        unique_duplicate_users:         0,
       };
     }
 
     const uniqueUsers = new Set(
       reports.filter(r => r.user_id !== null).map(r => r.user_id),
+    ).size;
+    const uniqueWrongAnswerUsers = new Set(
+      reports.filter(r => r.user_id !== null && r.reason === 'wrong_answer').map(r => r.user_id),
+    ).size;
+    const uniqueOffTopicUsers = new Set(
+      reports.filter(r => r.user_id !== null && r.reason === 'off_topic').map(r => r.user_id),
+    ).size;
+    const uniqueDuplicateUsers = new Set(
+      reports.filter(r => r.user_id !== null && r.reason === 'duplicate').map(r => r.user_id),
     ).size;
 
     return {
@@ -106,24 +135,46 @@ export class InMemoryQuestionReportsRepository implements IQuestionReportsReposi
       duplicate:                      reports.filter(r => r.reason === 'duplicate').length,
       technical_issue:                reports.filter(r => r.reason === 'technical_issue').length,
       unique_users:                   uniqueUsers,
+      unique_wrong_answer_users:      uniqueWrongAnswerUsers,
+      unique_off_topic_users:         uniqueOffTopicUsers,
+      unique_duplicate_users:         uniqueDuplicateUsers,
     };
   }
 
   async getQuarantinedFingerprints(): Promise<Set<string>> {
-    const fmap = new Map<string, { wa: number; ot: number; du: number; total: number }>();
+    const fmap = new Map<string, {
+      users: Set<string>;
+      wrongAnswerUsers: Set<string>;
+      offTopicUsers: Set<string>;
+      duplicateUsers: Set<string>;
+    }>();
 
     for (const r of this.store.values()) {
-      if (!fmap.has(r.fingerprint)) fmap.set(r.fingerprint, { wa: 0, ot: 0, du: 0, total: 0 });
+      if (!r.user_id) continue;
+      if (!fmap.has(r.fingerprint)) {
+        fmap.set(r.fingerprint, {
+          users: new Set(),
+          wrongAnswerUsers: new Set(),
+          offTopicUsers: new Set(),
+          duplicateUsers: new Set(),
+        });
+      }
       const c = fmap.get(r.fingerprint)!;
-      c.total++;
-      if (r.reason === 'wrong_answer') c.wa++;
-      if (r.reason === 'off_topic')    c.ot++;
-      if (r.reason === 'duplicate')    c.du++;
+      c.users.add(r.user_id);
+      if (r.reason === 'wrong_answer') c.wrongAnswerUsers.add(r.user_id);
+      if (r.reason === 'off_topic')    c.offTopicUsers.add(r.user_id);
+      if (r.reason === 'duplicate')    c.duplicateUsers.add(r.user_id);
     }
 
     const quarantined = new Set<string>();
     for (const [fp, c] of fmap.entries()) {
-      if (c.wa >= 2 || c.ot >= 3 || c.du >= 1 || c.total >= 5) quarantined.add(fp);
+      const decision = isQuarantined({
+        uniqueUsers:             c.users.size,
+        uniqueWrongAnswerUsers:  c.wrongAnswerUsers.size,
+        uniqueOffTopicUsers:     c.offTopicUsers.size,
+        uniqueDuplicateUsers:    c.duplicateUsers.size,
+      });
+      if (decision) quarantined.add(fp);
     }
     return quarantined;
   }

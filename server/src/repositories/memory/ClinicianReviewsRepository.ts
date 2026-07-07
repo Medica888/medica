@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { IClinicianReviewsRepository } from '../interfaces.js';
+import type { ClinicianReviewCreateData, IClinicianReviewsRepository } from '../interfaces.js';
 import type {
   ClinicianReview,
   ClinicianReviewMetrics,
@@ -17,18 +17,29 @@ const PRIORITY_ORDER: Record<ClinicianReviewPriority, number> = {
 export class InMemoryClinicianReviewsRepository implements IClinicianReviewsRepository {
   private _reviews = new Map<string, ClinicianReview>();
 
-  async create(data: {
-    question_id:          string;
-    review_priority:      ClinicianReviewPriority;
-    review_reason:        string;
-    review_due_at:        Date;
-    review_status?:       ClinicianReviewStatus;
-    assigned_reviewer_id?: string | null;
-  }): Promise<ClinicianReview> {
+  private _findActiveByQuestionIdSync(questionId: string): ClinicianReview | null {
+    const active = [...this._reviews.values()]
+      .filter(r => r.question_id === questionId &&
+                   (r.review_status === 'pending' || r.review_status === 'in_review'))
+      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return active[0] ?? null;
+  }
+
+  private _findActiveByFingerprintSync(fingerprint: string): ClinicianReview | null {
+    const active = [...this._reviews.values()]
+      .filter(r => r.question_id == null &&
+                   r.report_fingerprint === fingerprint &&
+                   (r.review_status === 'pending' || r.review_status === 'in_review'))
+      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return active[0] ?? null;
+  }
+
+  private _createSync(data: ClinicianReviewCreateData): ClinicianReview {
     const now = new Date();
     const review: ClinicianReview = {
       id:                   randomUUID(),
       question_id:          data.question_id,
+      report_fingerprint:   data.report_fingerprint ?? null,
       review_priority:      data.review_priority,
       review_reason:        data.review_reason,
       review_due_at:        data.review_due_at,
@@ -44,12 +55,28 @@ export class InMemoryClinicianReviewsRepository implements IClinicianReviewsRepo
     return review;
   }
 
+  async create(data: ClinicianReviewCreateData): Promise<ClinicianReview> {
+    return this._createSync(data);
+  }
+
+  async createIfAbsent(data: ClinicianReviewCreateData): Promise<ClinicianReview | null> {
+    // The check and the insert both happen synchronously in this one function body —
+    // no `await` appears between them, so no interleaved call (e.g. concurrent
+    // Promise.all callers) can observe "no active review" between the two steps.
+    // This is the in-memory equivalent of the PG partial unique index's atomicity.
+    const existing = data.question_id != null
+      ? this._findActiveByQuestionIdSync(data.question_id)
+      : (data.report_fingerprint ? this._findActiveByFingerprintSync(data.report_fingerprint) : null);
+    if (existing) return null;
+    return this._createSync(data);
+  }
+
   async findLatestActiveByQuestionId(questionId: string): Promise<ClinicianReview | null> {
-    const active = [...this._reviews.values()]
-      .filter(r => r.question_id === questionId &&
-                   (r.review_status === 'pending' || r.review_status === 'in_review'))
-      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-    return active[0] ?? null;
+    return this._findActiveByQuestionIdSync(questionId);
+  }
+
+  async findLatestActiveByFingerprint(fingerprint: string): Promise<ClinicianReview | null> {
+    return this._findActiveByFingerprintSync(fingerprint);
   }
 
   async findQueue(params: {

@@ -117,6 +117,7 @@ async function _enqueue(operationType, payload, idempotencyKey, userId, error, n
 export function classifySessionSyncError(error) {
   const status = Number(error?.status || 0)
   if (status === 401) return 'paused'
+  if (status === 403 && error?.code === 'REPORTER_NOT_ELIGIBLE') return 'local-only'
   if (status === 408 || status === 425 || status === 429 || status >= 500 || status === 0) return 'retryable'
   if (status >= 400 && status < 500) return 'permanent'
   return 'retryable'
@@ -158,7 +159,7 @@ export async function enqueueFlashcardBatchSync(cards, idempotencyKey, userId, e
 
 export async function drainSessionSyncOutbox(userId, options = {}) {
   const normalizedUserId = String(userId || '').trim()
-  if (!normalizedUserId) return { synced: 0, pending: 0, failed: 0, paused: false }
+  if (!normalizedUserId) return { synced: 0, pending: 0, failed: 0, localOnly: 0, paused: false }
   if (activeDrains.has(normalizedUserId)) return activeDrains.get(normalizedUserId)
 
   const drain = (async () => {
@@ -173,6 +174,7 @@ export async function drainSessionSyncOutbox(userId, options = {}) {
     const online = options.online ?? (typeof navigator === 'undefined' || navigator.onLine !== false)
     const snapshot = readEntries(normalizedUserId, now)
     let synced = 0
+    let localOnly = 0
     let paused = false
     // Track per-entry mutations by idempotencyKey so we can merge with any entries
     // that were enqueued concurrently during the awaits below.
@@ -182,7 +184,7 @@ export async function drainSessionSyncOutbox(userId, options = {}) {
 
     if (!online) {
       const summary = getSessionSyncSummary(normalizedUserId, now)
-      return { synced, ...summary, paused }
+      return { synced, localOnly, ...summary, paused }
     }
 
     for (const current of snapshot) {
@@ -198,6 +200,11 @@ export async function drainSessionSyncOutbox(userId, options = {}) {
         synced += 1
       } catch (error) {
         const disposition = classifySessionSyncError(error)
+        if (disposition === 'local-only') {
+          toRemove.add(current.idempotencyKey)
+          localOnly += 1
+          continue
+        }
         const attemptCount = current.attemptCount + 1
         const nowFailed = disposition === 'permanent' || attemptCount >= MAX_ATTEMPTS
         if (nowFailed) newlyFailed += 1
@@ -231,7 +238,7 @@ export async function drainSessionSyncOutbox(userId, options = {}) {
     const summary = getSessionSyncSummary(normalizedUserId, now)
     // `failed` reflects entries that transitioned to failed in this pass (not the total failed count),
     // so callers show the 'failed' toast only when a new failure occurred in this drain.
-    return { synced, pending: summary.pending, failed: newlyFailed, total: summary.total, paused }
+    return { synced, pending: summary.pending, failed: newlyFailed, localOnly, total: summary.total, paused }
   })().finally(() => activeDrains.delete(normalizedUserId))
 
   activeDrains.set(normalizedUserId, drain)

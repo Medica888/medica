@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { IClinicianReviewsRepository } from '../interfaces.js';
+import type { ClinicianReviewCreateData, IClinicianReviewsRepository } from '../interfaces.js';
 import type {
   ClinicianReview,
   ClinicianReviewMetrics,
@@ -10,6 +10,7 @@ import type {
 const REVIEW_COLS = `
   id,
   question_id,
+  report_fingerprint,
   review_priority,
   review_reason,
   review_due_at,
@@ -25,7 +26,8 @@ const REVIEW_COLS = `
 function mapRow(row: Record<string, unknown>): ClinicianReview {
   return {
     id:                   String(row['id']),
-    question_id:          String(row['question_id']),
+    question_id:          row['question_id'] != null ? String(row['question_id']) : null,
+    report_fingerprint:   row['report_fingerprint'] != null ? String(row['report_fingerprint']) : null,
     review_priority:      row['review_priority'] as ClinicianReviewPriority,
     review_reason:        String(row['review_reason']),
     review_due_at:        new Date(row['review_due_at'] as string),
@@ -42,21 +44,15 @@ function mapRow(row: Record<string, unknown>): ClinicianReview {
 export class PgClinicianReviewsRepository implements IClinicianReviewsRepository {
   constructor(private pool: Pool) {}
 
-  async create(data: {
-    question_id:          string;
-    review_priority:      ClinicianReviewPriority;
-    review_reason:        string;
-    review_due_at:        Date;
-    review_status?:       ClinicianReviewStatus;
-    assigned_reviewer_id?: string | null;
-  }): Promise<ClinicianReview> {
+  async create(data: ClinicianReviewCreateData): Promise<ClinicianReview> {
     const res = await this.pool.query<Record<string, unknown>>(
       `INSERT INTO clinician_reviews
-         (question_id, review_priority, review_reason, review_due_at, review_status, assigned_reviewer_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (question_id, report_fingerprint, review_priority, review_reason, review_due_at, review_status, assigned_reviewer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${REVIEW_COLS}`,
       [
         data.question_id,
+        data.report_fingerprint ?? null,
         data.review_priority,
         data.review_reason,
         data.review_due_at,
@@ -65,6 +61,32 @@ export class PgClinicianReviewsRepository implements IClinicianReviewsRepository
       ],
     );
     return mapRow(res.rows[0]);
+  }
+
+  async createIfAbsent(data: ClinicianReviewCreateData): Promise<ClinicianReview | null> {
+    // Atomic insert-or-conflict: the partial unique indexes (migration
+    // 1749800000002) make this a single round trip with no race window between
+    // "check if active" and "create" — two concurrent callers can never both win.
+    const onConflict = data.question_id != null
+      ? `ON CONFLICT (question_id) WHERE review_status IN ('pending', 'in_review') AND question_id IS NOT NULL DO NOTHING`
+      : `ON CONFLICT (report_fingerprint) WHERE review_status IN ('pending', 'in_review') AND question_id IS NULL AND report_fingerprint IS NOT NULL DO NOTHING`;
+    const res = await this.pool.query<Record<string, unknown>>(
+      `INSERT INTO clinician_reviews
+         (question_id, report_fingerprint, review_priority, review_reason, review_due_at, review_status, assigned_reviewer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ${onConflict}
+       RETURNING ${REVIEW_COLS}`,
+      [
+        data.question_id,
+        data.report_fingerprint ?? null,
+        data.review_priority,
+        data.review_reason,
+        data.review_due_at,
+        data.review_status ?? 'pending',
+        data.assigned_reviewer_id ?? null,
+      ],
+    );
+    return res.rows[0] ? mapRow(res.rows[0]) : null;
   }
 
   async findLatestActiveByQuestionId(questionId: string): Promise<ClinicianReview | null> {
@@ -76,6 +98,20 @@ export class PgClinicianReviewsRepository implements IClinicianReviewsRepository
        ORDER BY created_at DESC
        LIMIT 1`,
       [questionId],
+    );
+    return res.rows[0] ? mapRow(res.rows[0]) : null;
+  }
+
+  async findLatestActiveByFingerprint(fingerprint: string): Promise<ClinicianReview | null> {
+    const res = await this.pool.query<Record<string, unknown>>(
+      `SELECT ${REVIEW_COLS}
+       FROM clinician_reviews
+       WHERE report_fingerprint = $1
+         AND question_id IS NULL
+         AND review_status IN ('pending', 'in_review')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [fingerprint],
     );
     return res.rows[0] ? mapRow(res.rows[0]) : null;
   }

@@ -2,14 +2,20 @@ import { randomUUID } from 'crypto';
 import type { Pool } from 'pg';
 import type { QuestionReport, FingerprintCountRow } from '../../types/index.js';
 import type { IQuestionReportsRepository } from '../interfaces.js';
+import { QUARANTINE_THRESHOLDS } from '../../lib/quarantinePolicy.js';
 
 export class PgQuestionReportsRepository implements IQuestionReportsRepository {
   constructor(private pool: Pool) {}
 
-  async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport> {
+  async create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<{ report: QuestionReport; inserted: boolean }> {
     const id = randomUUID();
     const clientReportId = report.client_report_id ?? null;
-    const res = await this.pool.query<QuestionReport>(
+    // `xmax = 0` is true only for a tuple created by the INSERT branch of this
+    // statement — the ON CONFLICT DO UPDATE branch always produces a tuple with a
+    // non-zero xmax, even though the SET clause is a same-value no-op. This lets a
+    // single round trip distinguish "brand new report" from "idempotent replay"
+    // without a separate SELECT (which would itself race with a concurrent insert).
+    const res = await this.pool.query<Record<string, unknown>>(
       `INSERT INTO question_reports
          (id, user_id, question_id, fingerprint, reason, source, mode, difficulty,
           requested_subject, requested_system, requested_topic,
@@ -18,7 +24,7 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        ON CONFLICT (user_id, client_report_id) WHERE client_report_id IS NOT NULL
        DO UPDATE SET client_report_id = EXCLUDED.client_report_id
-       RETURNING *`,
+       RETURNING *, (xmax = 0) AS inserted`,
       [
         id,
         report.user_id,
@@ -41,7 +47,10 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         clientReportId,
       ],
     );
-    return res.rows[0]!;
+    const row = res.rows[0]!;
+    const inserted = row['inserted'] === true;
+    const { inserted: _inserted, ...rest } = row;
+    return { report: rest as unknown as QuestionReport, inserted };
   }
 
   async getCountsByFingerprint(limit: number): Promise<{
@@ -59,7 +68,13 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       off_topic: string; ambiguous_or_insufficient_clues: string;
       duplicate: string; technical_issue: string;
     };
-    type FpRow = GlobalRow & { fingerprint: string; unique_users: string };
+    type FpRow = GlobalRow & {
+      fingerprint: string;
+      unique_users: string;
+      unique_wrong_answer_users: string;
+      unique_off_topic_users: string;
+      unique_duplicate_users: string;
+    };
 
     const [totals, fps] = await Promise.all([
       this.pool.query<GlobalRow>(`
@@ -83,7 +98,10 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
           COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')            AS ambiguous_or_insufficient_clues,
           COUNT(*) FILTER (WHERE reason = 'duplicate')                                  AS duplicate,
           COUNT(*) FILTER (WHERE reason = 'technical_issue')                            AS technical_issue,
-          COUNT(DISTINCT user_id)                                                        AS unique_users
+          COUNT(DISTINCT user_id)                                                        AS unique_users,
+          COUNT(DISTINCT user_id) FILTER (WHERE reason = 'wrong_answer')                AS unique_wrong_answer_users,
+          COUNT(DISTINCT user_id) FILTER (WHERE reason = 'off_topic')                   AS unique_off_topic_users,
+          COUNT(DISTINCT user_id) FILTER (WHERE reason = 'duplicate')                   AS unique_duplicate_users
         FROM question_reports
         GROUP BY fingerprint
         ORDER BY total DESC, fingerprint ASC
@@ -115,6 +133,9 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         duplicate:                      parseInt(r.duplicate, 10),
         technical_issue:                parseInt(r.technical_issue, 10),
         unique_users:                   parseInt(r.unique_users, 10),
+        unique_wrong_answer_users:      parseInt(r.unique_wrong_answer_users, 10),
+        unique_off_topic_users:         parseInt(r.unique_off_topic_users, 10),
+        unique_duplicate_users:         parseInt(r.unique_duplicate_users, 10),
       })),
     };
   }
@@ -124,6 +145,8 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       total: string; wrong_answer: string; bad_explanation: string;
       off_topic: string; ambiguous_or_insufficient_clues: string;
       duplicate: string; technical_issue: string; unique_users: string;
+      unique_wrong_answer_users: string; unique_off_topic_users: string;
+      unique_duplicate_users: string;
     };
     const res = await this.pool.query<Row>(`
       SELECT
@@ -134,7 +157,10 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
         COUNT(*) FILTER (WHERE reason = 'ambiguous_or_insufficient_clues')          AS ambiguous_or_insufficient_clues,
         COUNT(*) FILTER (WHERE reason = 'duplicate')                                AS duplicate,
         COUNT(*) FILTER (WHERE reason = 'technical_issue')                          AS technical_issue,
-        COUNT(DISTINCT user_id)                                                      AS unique_users
+        COUNT(DISTINCT user_id)                                                      AS unique_users,
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'wrong_answer')              AS unique_wrong_answer_users,
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'off_topic')                 AS unique_off_topic_users,
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'duplicate')                 AS unique_duplicate_users
       FROM question_reports
       WHERE fingerprint = $1
     `, [fingerprint]);
@@ -150,20 +176,31 @@ export class PgQuestionReportsRepository implements IQuestionReportsRepository {
       duplicate:                      parseInt(r.duplicate, 10),
       technical_issue:                parseInt(r.technical_issue, 10),
       unique_users:                   parseInt(r.unique_users, 10),
+      unique_wrong_answer_users:      parseInt(r.unique_wrong_answer_users, 10),
+      unique_off_topic_users:         parseInt(r.unique_off_topic_users, 10),
+      unique_duplicate_users:         parseInt(r.unique_duplicate_users, 10),
     };
   }
 
   async getQuarantinedFingerprints(): Promise<Set<string>> {
+    // Thresholds are parameterized from the shared policy module (lib/quarantinePolicy.ts)
+    // rather than hardcoded here, so this can never silently drift from the service/memory
+    // repo's decision for the same data.
     const res = await this.pool.query<{ fingerprint: string }>(`
       SELECT fingerprint
       FROM question_reports
       GROUP BY fingerprint
       HAVING
-        COUNT(*) FILTER (WHERE reason = 'wrong_answer') >= 2 OR
-        COUNT(*) FILTER (WHERE reason = 'off_topic')    >= 3 OR
-        COUNT(*) FILTER (WHERE reason = 'duplicate')    >= 1 OR
-        COUNT(*)                                        >= 5
-    `);
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'wrong_answer') >= $1 OR
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'off_topic')    >= $2 OR
+        COUNT(DISTINCT user_id) FILTER (WHERE reason = 'duplicate')    >= $3 OR
+        COUNT(DISTINCT user_id)                                        >= $4
+    `, [
+      QUARANTINE_THRESHOLDS.wrongAnswerMin,
+      QUARANTINE_THRESHOLDS.offTopicMin,
+      QUARANTINE_THRESHOLDS.duplicateMin,
+      QUARANTINE_THRESHOLDS.totalMin,
+    ]);
     return new Set(res.rows.map(r => r.fingerprint));
   }
 }

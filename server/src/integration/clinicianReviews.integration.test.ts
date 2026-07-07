@@ -173,6 +173,124 @@ function runClinicianReviewsContractSuite(label: string, setup: () => Promise<IC
       const metrics = await repo.getMetrics();
       expect(metrics.average_age_days).toBeNull();
     });
+
+    // ─── Issue 3: identifier contract (question_id vs report_fingerprint) ────────
+
+    it('create accepts a null question_id paired with a report_fingerprint', async () => {
+      const review = await repo.create(makeReviewData('medium', 7 * 24 * 3600_000, {
+        question_id:        null,
+        report_fingerprint: 'fp-no-bank-question',
+      }));
+      expect(review.question_id).toBeNull();
+      expect(review.report_fingerprint).toBe('fp-no-bank-question');
+    });
+
+    it('findLatestActiveByFingerprint returns the created review when question_id is null', async () => {
+      const created = await repo.create(makeReviewData('high', 7 * 24 * 3600_000, {
+        question_id:        null,
+        report_fingerprint: 'fp-lookup',
+      }));
+      const found = await repo.findLatestActiveByFingerprint('fp-lookup');
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(created.id);
+    });
+
+    it('findLatestActiveByFingerprint returns null for unknown fingerprint', async () => {
+      expect(await repo.findLatestActiveByFingerprint('no-such-fp')).toBeNull();
+    });
+
+    it('findLatestActiveByFingerprint ignores a row that also has a question_id', async () => {
+      // A review that HAS a resolvable question_id is identified by question_id,
+      // not by fingerprint — report_fingerprint on such a row is aggregation-only.
+      await repo.create(makeReviewData('high', 7 * 24 * 3600_000, {
+        question_id:        `q-${randomUUID()}`,
+        report_fingerprint: 'fp-shared',
+      }));
+      expect(await repo.findLatestActiveByFingerprint('fp-shared')).toBeNull();
+    });
+
+    // ─── Issue 4: atomic createIfAbsent ──────────────────────────────────────────
+
+    it('createIfAbsent creates a review when none is active for the question_id', async () => {
+      const data = makeReviewData('medium');
+      const created = await repo.createIfAbsent(data);
+      expect(created).not.toBeNull();
+      expect(created!.question_id).toBe(data.question_id);
+    });
+
+    it('createIfAbsent returns null when an active review already exists for the question_id', async () => {
+      const data = makeReviewData('medium');
+      const first = await repo.createIfAbsent(data);
+      expect(first).not.toBeNull();
+      const second = await repo.createIfAbsent({ ...data, review_reason: 'second trigger' });
+      expect(second).toBeNull();
+      // Only one review exists for this question_id
+      const active = await repo.findLatestActiveByQuestionId(data.question_id!);
+      expect(active!.id).toBe(first!.id);
+    });
+
+    it('createIfAbsent creates a review when none is active for the report_fingerprint (no question_id)', async () => {
+      const data = makeReviewData('medium', 7 * 24 * 3600_000, {
+        question_id:        null,
+        report_fingerprint: 'fp-absent',
+      });
+      const created = await repo.createIfAbsent(data);
+      expect(created).not.toBeNull();
+      expect(created!.report_fingerprint).toBe('fp-absent');
+    });
+
+    it('createIfAbsent returns null when an active review already exists for the report_fingerprint', async () => {
+      const data = makeReviewData('medium', 7 * 24 * 3600_000, {
+        question_id:        null,
+        report_fingerprint: 'fp-dup',
+      });
+      const first = await repo.createIfAbsent(data);
+      expect(first).not.toBeNull();
+      const second = await repo.createIfAbsent({ ...data, review_reason: 'second trigger' });
+      expect(second).toBeNull();
+    });
+
+    it('createIfAbsent allows a new review once the prior active one is completed', async () => {
+      const data = makeReviewData('medium');
+      const first = await repo.createIfAbsent(data);
+      await repo.update(first!.id, { review_status: 'approved', reviewed_at: new Date() });
+      const second = await repo.createIfAbsent({ ...data, review_reason: 'follow-up' });
+      expect(second).not.toBeNull();
+      expect(second!.id).not.toBe(first!.id);
+    });
+
+    it('concurrent createIfAbsent calls for the same question_id create exactly one active review', async () => {
+      const data = makeReviewData('critical');
+      const results = await Promise.all([
+        repo.createIfAbsent(data),
+        repo.createIfAbsent({ ...data, review_reason: 'concurrent-2' }),
+        repo.createIfAbsent({ ...data, review_reason: 'concurrent-3' }),
+      ]);
+      const created = results.filter(r => r !== null);
+      expect(created).toHaveLength(1);
+
+      const queue = await repo.findQueue({});
+      const forThisQuestion = queue.filter(r => r.question_id === data.question_id);
+      expect(forThisQuestion).toHaveLength(1);
+    });
+
+    it('concurrent createIfAbsent calls for the same report_fingerprint create exactly one active review', async () => {
+      const data = makeReviewData('critical', 7 * 24 * 3600_000, {
+        question_id:        null,
+        report_fingerprint: 'fp-concurrent',
+      });
+      const results = await Promise.all([
+        repo.createIfAbsent(data),
+        repo.createIfAbsent({ ...data, review_reason: 'concurrent-2' }),
+        repo.createIfAbsent({ ...data, review_reason: 'concurrent-3' }),
+      ]);
+      const created = results.filter(r => r !== null);
+      expect(created).toHaveLength(1);
+
+      const queue = await repo.findQueue({});
+      const forThisFingerprint = queue.filter(r => r.report_fingerprint === 'fp-concurrent');
+      expect(forThisFingerprint).toHaveLength(1);
+    });
   });
 }
 

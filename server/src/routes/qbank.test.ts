@@ -30,25 +30,27 @@ async function seedAuthored(externalId: string, overrides: Record<string, unknow
 }
 
 async function reportAsQuarantined(fingerprint: string) {
-  await repos.questionReports.create({
-    user_id: null,
-    question_id: null,
-    fingerprint,
-    reason: 'duplicate',
-    source: null,
-    mode: null,
-    difficulty: null,
-    requested_subject: null,
-    requested_system: null,
-    requested_topic: null,
-    actual_subject: null,
-    actual_system: null,
-    actual_topic: null,
-    tested_concept: null,
-    usmle_content_area: null,
-    physician_task: null,
-    stem_preview: null,
-  });
+  for (const userId of ['reporter-a', 'reporter-b']) {
+    await repos.questionReports.create({
+      user_id: userId,
+      question_id: null,
+      fingerprint,
+      reason: 'duplicate',
+      source: null,
+      mode: null,
+      difficulty: null,
+      requested_subject: null,
+      requested_system: null,
+      requested_topic: null,
+      actual_subject: null,
+      actual_system: null,
+      actual_topic: null,
+      tested_concept: null,
+      usmle_content_area: null,
+      physician_task: null,
+      stem_preview: null,
+    });
+  }
 }
 
 beforeEach(() => {

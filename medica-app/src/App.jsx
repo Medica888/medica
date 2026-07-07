@@ -182,6 +182,7 @@ export default function App() {
       const result = await drainSessionSyncOutbox(authUser.id)
       if (result.failed > 0) showSyncStatus('failed')
       else if (result.pending > 0 || result.paused) showSyncStatus('pending')
+      else if (result.localOnly > 0) showSyncStatus('local-only')
       else if (result.synced > 0) showSyncStatus('synced')
       scheduleNextDrain()
     }

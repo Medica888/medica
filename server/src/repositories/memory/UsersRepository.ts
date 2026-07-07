@@ -91,4 +91,10 @@ export class InMemoryUsersRepository implements IUsersRepository {
       created_at: new Date(),
     });
   }
+
+  /** Test helper — update account age without exposing a production repository method. */
+  _setCreatedAt(id: string, createdAt: Date): void {
+    const user = this.store.get(id);
+    if (user) user.created_at = createdAt;
+  }
 }

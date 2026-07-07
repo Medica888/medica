@@ -10,7 +10,9 @@ const isTest = process.env.NODE_ENV === 'test';
 // This preserves the project invariant: npm test works without Docker/Redis.
 let redisIpStore: Store | undefined;
 let redisUserStore: Store | undefined;
+let redisQuestionReportStore: Store | undefined;
 let redisClient: { quit(): Promise<unknown>; disconnect(): void } | null = null;
+let questionReportLimiterImpl: RequestHandler | null = null;
 
 export async function initRedisStore(): Promise<void> {
   const url = process.env.REDIS_URL;
@@ -32,11 +34,16 @@ export async function initRedisStore(): Promise<void> {
       sendCommand: (...args: string[]) => (client as any).sendCommand(args),
       prefix: 'rl:user:',
     });
+    redisQuestionReportStore = new RedisStore({
+      sendCommand: (...args: string[]) => (client as any).sendCommand(args),
+      prefix: 'rl:question-report:',
+    });
     logger.info('[redis] rate-limit store connected', { url: url.replace(/:[^:@]*@/, ':***@') });
   } catch (err) {
     redisClient = null;
     redisIpStore = undefined;
     redisUserStore = undefined;
+    redisQuestionReportStore = undefined;
     logger.warn('[rateLimiter] Redis unavailable, using in-memory store', { error: (err as Error).message });
   }
 }
@@ -46,6 +53,8 @@ export async function closeRedisStore(): Promise<void> {
   redisClient = null;
   redisIpStore = undefined;
   redisUserStore = undefined;
+  redisQuestionReportStore = undefined;
+  questionReportLimiterImpl = null;
   if (!client) return;
   try {
     await client.quit();
@@ -82,6 +91,33 @@ export const passwordResetLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many password reset requests, please try again in an hour' },
 });
+
+const questionReportLimiterOptions: Parameters<typeof rateLimit>[0] = {
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  skip: () => isTest,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req: Request) =>
+    (req as Request & { userId?: string }).userId ||
+    ipKeyGenerator(req.ip ?? '') ||
+    'unknown',
+  message: { error: 'Too many question reports. Please try again later.', code: 'RATE_LIMITED' },
+};
+
+export function createQuestionReportLimiter(
+  store: Store | undefined = redisQuestionReportStore,
+  overrides: Partial<Parameters<typeof rateLimit>[0]> = {},
+): RequestHandler {
+  return rateLimit({ store, ...questionReportLimiterOptions, ...overrides });
+}
+
+export function initializeQuestionReportLimiter(): void {
+  if (questionReportLimiterImpl) return;
+  questionReportLimiterImpl = createQuestionReportLimiter();
+}
+
+export const questionReportLimiter: RequestHandler = dispatchLimiter(() => questionReportLimiterImpl);
 
 // ── AI generation limiters (Redis-backed when REDIS_URL is set) ───────────────
 

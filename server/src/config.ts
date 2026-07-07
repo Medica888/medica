@@ -41,6 +41,15 @@ function parseDailyBudget(name: string, raw: string | undefined): number | null 
   return parseInt(trimmed, 10);
 }
 
+function parseNonNegativeInteger(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`[config] ${name} must be a non-negative integer, got: "${raw}"`);
+  }
+  return parseInt(trimmed, 10);
+}
+
 export interface GeneratedBankReusePolicy {
   approvedOnly: boolean;
   validatedFallbackAllowed: boolean;
@@ -84,6 +93,11 @@ export const config = {
   aiRequestBudgetPerDay: parseDailyBudget('AI_REQUEST_BUDGET_PER_DAY', process.env.AI_REQUEST_BUDGET_PER_DAY),
   /** null = unlimited. Env var: AI_TOKEN_BUDGET_PER_DAY */
   aiTokenBudgetPerDay: parseDailyBudget('AI_TOKEN_BUDGET_PER_DAY', process.env.AI_TOKEN_BUDGET_PER_DAY),
+  questionReportMinAccountAgeHours: parseNonNegativeInteger(
+    'QUESTION_REPORT_MIN_ACCOUNT_AGE_HOURS',
+    process.env.QUESTION_REPORT_MIN_ACCOUNT_AGE_HOURS,
+    24,
+  ),
 } as const;
 
 if (config.nodeEnv === 'production') {

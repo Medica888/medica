@@ -366,7 +366,14 @@ export interface IUserConceptMasteryRepository {
 }
 
 export interface IQuestionReportsRepository {
-  create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<QuestionReport>;
+  /**
+   * Creates a report, or returns the original record unchanged when
+   * `client_report_id` matches a prior report by the same user (idempotent
+   * replay). `inserted` is true only when a new row was actually created —
+   * callers must gate one-time side effects (e.g. clinician review triggers)
+   * on `inserted === true` so retried/replayed requests never repeat them.
+   */
+  create(report: Omit<QuestionReport, 'id' | 'created_at'>): Promise<{ report: QuestionReport; inserted: boolean }>;
 
   /**
    * Returns global totals plus per-fingerprint breakdown, sorted by total desc then fingerprint asc.
@@ -418,18 +425,37 @@ export interface IConceptReviewLogRepository {
   ): Promise<ConceptReviewEntry[]>;
 }
 
+export interface ClinicianReviewCreateData {
+  /** Bank question external ID, when one is resolvable. Null if not (see report_fingerprint). */
+  question_id:          string | null;
+  /** Content fingerprint — always set for report-triggered reviews, used for aggregation
+   *  and as the dedup key when question_id is null. */
+  report_fingerprint?:  string | null;
+  review_priority:      ClinicianReviewPriority;
+  review_reason:        string;
+  review_due_at:        Date;
+  review_status?:       ClinicianReviewStatus;
+  assigned_reviewer_id?: string | null;
+}
+
 export interface IClinicianReviewsRepository {
-  create(data: {
-    question_id:          string;
-    review_priority:      ClinicianReviewPriority;
-    review_reason:        string;
-    review_due_at:        Date;
-    review_status?:       ClinicianReviewStatus;
-    assigned_reviewer_id?: string | null;
-  }): Promise<ClinicianReview>;
+  create(data: ClinicianReviewCreateData): Promise<ClinicianReview>;
+
+  /**
+   * Atomically creates a new active review only if none currently exists for the
+   * same identity (question_id when present, else report_fingerprint). Returns null
+   * when an active review already exists — the caller should escalate that one
+   * instead of creating a duplicate. Prevents the race where two concurrent
+   * find-then-create calls both observe "no active review".
+   */
+  createIfAbsent(data: ClinicianReviewCreateData): Promise<ClinicianReview | null>;
 
   /** Returns the most recent pending/in_review record for a question, or null. */
   findLatestActiveByQuestionId(questionId: string): Promise<ClinicianReview | null>;
+
+  /** Returns the most recent pending/in_review record for a fingerprint, or null.
+   *  Used when no bank question external ID is resolvable for the report. */
+  findLatestActiveByFingerprint(fingerprint: string): Promise<ClinicianReview | null>;
 
   findQueue(params: {
     status?:   ClinicianReviewStatus;

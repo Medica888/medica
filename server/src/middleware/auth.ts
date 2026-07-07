@@ -2,10 +2,12 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { getRepositories } from '../repositories/index.js';
+import type { User } from '../types/index.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
   authSource?: 'cookie' | 'bearer';
+  authenticatedUser?: User;
 }
 
 // Try cookie first (preferred); if the cookie is invalid/expired, fall through to Bearer.
@@ -53,5 +55,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
   req.userId = userId;
   req.authSource = extracted.source;
+  const { password_hash: _passwordHash, deleted_at: _deletedAt, ...authenticatedUser } = raw;
+  req.authenticatedUser = authenticatedUser;
   next();
 }

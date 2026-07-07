@@ -64,9 +64,9 @@ describe('integration spine smoke test', () => {
     expect(res.rows[0].indexdef.toLowerCase()).toContain('lower(email)');
   });
 
-  it('all 29 migration rows recorded in pgmigrations', async () => {
+  it('all 31 migration rows recorded in pgmigrations', async () => {
     const res = await pool.query<{ count: string }>('SELECT COUNT(*) AS count FROM pgmigrations');
-    expect(parseInt(res.rows[0].count, 10)).toBe(29);
+    expect(parseInt(res.rows[0].count, 10)).toBe(31);
   });
 
   it('migrations were applied: clinician_reviews table exists', async () => {

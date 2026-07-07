@@ -14,9 +14,9 @@ async function seedAuthored(repo: InMemoryQuestionsRepository, externalId: strin
   });
 }
 
-function makeReportBase() {
+function makeReportBase(userId: string) {
   return {
-    user_id: null,
+    user_id: userId,
     question_id: null,
     reason: 'duplicate' as const,
     source: null,
@@ -33,6 +33,14 @@ function makeReportBase() {
     physician_task: null,
     stem_preview: null,
   };
+}
+
+async function quarantineFingerprint(
+  repo: InMemoryQuestionReportsRepository,
+  fingerprint: string,
+): Promise<void> {
+  await repo.create({ ...makeReportBase('reporter-a'), fingerprint });
+  await repo.create({ ...makeReportBase('reporter-b'), fingerprint });
 }
 
 describe('QuestionCatalogService', () => {
@@ -64,7 +72,7 @@ describe('QuestionCatalogService', () => {
       await seedAuthored(repo, 'q1', 'quarantined stem', 'quarantined concept');
       await seedAuthored(repo, 'q2', 'clean stem', 'clean concept');
       const fp = computeQuestionFingerprint('quarantined stem', 'quarantined concept');
-      await reportsRepo.create({ ...makeReportBase(), fingerprint: fp });
+      await quarantineFingerprint(reportsRepo, fp);
 
       const result = await service.getCatalog({});
       expect(result.data.map((q) => q.id)).toEqual(['q2']);
@@ -101,7 +109,7 @@ describe('QuestionCatalogService', () => {
     it('throws SELECTION_STALE when a selected question is cross-user quarantined', async () => {
       await seedAuthored(repo, 'q1', 'quarantined stem', 'quarantined concept');
       const fp = computeQuestionFingerprint('quarantined stem', 'quarantined concept');
-      await reportsRepo.create({ ...makeReportBase(), fingerprint: fp });
+      await quarantineFingerprint(reportsRepo, fp);
 
       await expect(service.createSession(['q1'])).rejects.toThrow('SELECTION_STALE');
     });
@@ -110,7 +118,7 @@ describe('QuestionCatalogService', () => {
       await seedAuthored(repo, 'q1', 'clean stem', 'clean concept');
       await seedAuthored(repo, 'q2', 'quarantined stem', 'quarantined concept');
       const fp = computeQuestionFingerprint('quarantined stem', 'quarantined concept');
-      await reportsRepo.create({ ...makeReportBase(), fingerprint: fp });
+      await quarantineFingerprint(reportsRepo, fp);
 
       await expect(service.createSession(['q1', 'q2'])).rejects.toThrow('SELECTION_STALE');
     });

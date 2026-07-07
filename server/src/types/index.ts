@@ -469,6 +469,9 @@ export interface FingerprintCountRow {
   duplicate:                      number;
   technical_issue:                number;
   unique_users:                   number;
+  unique_wrong_answer_users:      number;
+  unique_off_topic_users:         number;
+  unique_duplicate_users:         number;
 }
 
 /** Full per-fingerprint report with quarantine status — produced by QuestionReportService. */
@@ -550,7 +553,10 @@ export type ClinicianReviewStatus   = 'pending' | 'in_review' | 'approved' | 'ch
 
 export interface ClinicianReview {
   id:                   string;
-  question_id:          string;
+  /** Bank question external ID, when one is resolvable. Null for reports without one. */
+  question_id:          string | null;
+  /** Content fingerprint, always populated for report-triggered reviews (aggregation). */
+  report_fingerprint:   string | null;
   review_priority:      ClinicianReviewPriority;
   review_reason:        string;
   review_due_at:        Date;

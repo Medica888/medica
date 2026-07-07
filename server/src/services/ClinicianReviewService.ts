@@ -86,21 +86,40 @@ export class ClinicianReviewService {
    * Creates a review record or escalates an existing active one if
    * the proposed priority is higher than the current priority.
    * Lower-priority proposals are silently dropped (no downgrade).
+   *
+   * Identity is the bank question external ID when one is resolvable
+   * (`questionId`); otherwise the content fingerprint (`fingerprint`) is used
+   * so reports without a resolvable bank question still dedupe/escalate
+   * correctly and stay visible in governance analytics.
+   *
+   * Creation goes through `createIfAbsent`, an atomic insert-or-conflict
+   * backed by a DB partial unique index (PG) / a single synchronous
+   * check-and-insert (memory) — this closes the race where two concurrent
+   * triggers could both observe "no active review" and each create one.
    */
   async createOrEscalate(
-    questionId: string,
-    priority:   ClinicianReviewPriority,
-    reason:     string,
+    identity: { questionId?: string | null; fingerprint?: string | null },
+    priority: ClinicianReviewPriority,
+    reason:   string,
   ): Promise<void> {
-    const existing = await this.repo.findLatestActiveByQuestionId(questionId);
-    if (!existing) {
-      await this.repo.create({
-        question_id:     questionId,
-        review_priority: priority,
-        review_reason:   reason,
-        review_due_at:   computeDueAt(priority),
-      });
-    } else if (shouldEscalate(existing.review_priority, priority)) {
+    const questionId  = identity.questionId  ?? null;
+    const fingerprint = identity.fingerprint ?? null;
+
+    const created = await this.repo.createIfAbsent({
+      question_id:        questionId,
+      report_fingerprint: fingerprint,
+      review_priority:    priority,
+      review_reason:      reason,
+      review_due_at:      computeDueAt(priority),
+    });
+    if (created) return;
+
+    // createIfAbsent found an active review already in place — escalate it
+    // instead of creating a duplicate.
+    const existing = questionId != null
+      ? await this.repo.findLatestActiveByQuestionId(questionId)
+      : (fingerprint ? await this.repo.findLatestActiveByFingerprint(fingerprint) : null);
+    if (existing && shouldEscalate(existing.review_priority, priority)) {
       await this.repo.update(existing.id, {
         review_priority: priority,
         review_reason:   reason,

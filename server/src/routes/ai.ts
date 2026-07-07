@@ -463,7 +463,7 @@ router.post(
       const priority = req.body.priority ?? 'medium';
       const reason   = String(req.body.reason || 'Manually triggered by admin');
       await new ClinicianReviewService(getRepositories().clinicianReviews)
-        .createOrEscalate(externalId, priority, reason);
+        .createOrEscalate({ questionId: externalId }, priority, reason);
       const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId(externalId);
       res.status(201).json({ review });
     } catch (err) {
@@ -560,7 +560,7 @@ router.patch(
         );
         if (decision) {
           new ClinicianReviewService(repos.clinicianReviews)
-            .createOrEscalate(externalId, decision.priority, decision.reason)
+            .createOrEscalate({ questionId: externalId }, decision.priority, decision.reason)
             .catch(err => logger.warn('[clinician-review] sampling trigger failed', { error: (err as Error).message }));
         }
       }

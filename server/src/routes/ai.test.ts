@@ -9,6 +9,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { createApp } from '../app.js';
 import {
   runAdaptiveRefill,
@@ -50,6 +51,11 @@ function seedAuthUsers(): void {
   const users = getRepositories().users as InMemoryUsersRepository;
   users._seedWithId('user-1');
   users._seedWithId('user-999');
+  void users.setEmailVerified('user-1');
+  void users.setEmailVerified('user-999');
+  const eligibleCreatedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  users._setCreatedAt('user-1', eligibleCreatedAt);
+  users._setCreatedAt('user-999', eligibleCreatedAt);
 }
 
 /**
@@ -876,9 +882,9 @@ describe('quarantine filter — end-to-end data flow proof', () => {
     const repo = new InMemoryQuestionReportsRepository();
     const targetFp = fp('a 55-year-old man with hypertension presents with new onset headache', 'Secondary hypertension causes');
 
-    await repo.create(makeReport(targetFp, 'off_topic'));
-    await repo.create(makeReport(targetFp, 'off_topic'));
-    await repo.create(makeReport(targetFp, 'off_topic'));
+    await repo.create(makeReport(targetFp, 'off_topic', 'user-a'));
+    await repo.create(makeReport(targetFp, 'off_topic', 'user-b'));
+    await repo.create(makeReport(targetFp, 'off_topic', 'user-c'));
 
     const quarantined = await repo.getQuarantinedFingerprints();
     expect(quarantined.has(targetFp)).toBe(true);
@@ -889,7 +895,7 @@ describe('quarantine filter — end-to-end data flow proof', () => {
     const targetFp = fp('a 32-year-old woman presents with fatigue and weight gain', 'Hypothyroidism diagnosis');
 
     for (let i = 0; i < 5; i++) {
-      await repo.create(makeReport(targetFp, 'bad_explanation'));
+      await repo.create(makeReport(targetFp, 'bad_explanation', `user-${i}`));
     }
 
     const quarantined = await repo.getQuarantinedFingerprints();
@@ -3292,7 +3298,7 @@ describe('ClinicianReviewService — service integration', () => {
   describe('createOrEscalate', () => {
     it('creates a new review when none exists', async () => {
       const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
-      await svc.createOrEscalate('q-new', 'medium', 'test reason');
+      await svc.createOrEscalate({ questionId: 'q-new' }, 'medium', 'test reason');
       const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-new');
       expect(review).not.toBeNull();
       expect(review!.review_priority).toBe('medium');
@@ -3301,8 +3307,8 @@ describe('ClinicianReviewService — service integration', () => {
 
     it('escalates an existing lower-priority review to higher priority', async () => {
       const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
-      await svc.createOrEscalate('q-escalate', 'low', 'initial low');
-      await svc.createOrEscalate('q-escalate', 'critical', 'critical signal');
+      await svc.createOrEscalate({ questionId: 'q-escalate' }, 'low', 'initial low');
+      await svc.createOrEscalate({ questionId: 'q-escalate' }, 'critical', 'critical signal');
       const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-escalate');
       expect(review!.review_priority).toBe('critical');
       expect(review!.review_reason).toBe('critical signal');
@@ -3310,11 +3316,30 @@ describe('ClinicianReviewService — service integration', () => {
 
     it('does not downgrade an existing higher-priority review', async () => {
       const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
-      await svc.createOrEscalate('q-no-downgrade', 'critical', 'critical first');
-      await svc.createOrEscalate('q-no-downgrade', 'low', 'attempted downgrade');
+      await svc.createOrEscalate({ questionId: 'q-no-downgrade' }, 'critical', 'critical first');
+      await svc.createOrEscalate({ questionId: 'q-no-downgrade' }, 'low', 'attempted downgrade');
       const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('q-no-downgrade');
       expect(review!.review_priority).toBe('critical');
       expect(review!.review_reason).toBe('critical first');
+    });
+
+    it('creates a review keyed by fingerprint when no question_id is resolvable', async () => {
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      await svc.createOrEscalate({ fingerprint: 'fp-only' }, 'high', 'no bank question yet');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByFingerprint('fp-only');
+      expect(review).not.toBeNull();
+      expect(review!.question_id).toBeNull();
+      expect(review!.review_priority).toBe('high');
+    });
+
+    it('escalates a fingerprint-keyed review without creating a duplicate', async () => {
+      const svc = new ClinicianReviewService(getRepositories().clinicianReviews);
+      await svc.createOrEscalate({ fingerprint: 'fp-escalate' }, 'low', 'initial low');
+      await svc.createOrEscalate({ fingerprint: 'fp-escalate' }, 'critical', 'critical signal');
+      const queue = await getRepositories().clinicianReviews.findQueue({});
+      const forFingerprint = queue.filter(r => r.report_fingerprint === 'fp-escalate');
+      expect(forFingerprint).toHaveLength(1);
+      expect(forFingerprint[0].review_priority).toBe('critical');
     });
   });
 
@@ -3501,44 +3526,81 @@ describe('clinician review — HTTP admin endpoints', () => {
   });
 
   describe('Clinician review triggers via report submission', () => {
-    it('wrong_answer report (medical accuracy signal) triggers critical review', async () => {
-      await request(app)
+    function postAuthenticatedReport(fingerprint: string, reason: 'wrong_answer' | 'duplicate') {
+      return request(app)
         .post('/api/question-reports')
-        .send({ fingerprint: 'fp-wrong-answer-trigger', reason: 'wrong_answer' })
+        .set('Authorization', authHeader())
+        .send({ fingerprint, reason, clientReportId: randomUUID() });
+    }
+
+    it('wrong_answer report (medical accuracy signal) triggers critical review', async () => {
+      await postAuthenticatedReport('fp-wrong-answer-trigger', 'wrong_answer')
         .expect(201);
       await new Promise(r => setImmediate(r));
-      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-wrong-answer-trigger');
+      // No bank questionId was submitted, so the review is keyed by the content
+      // fingerprint (report_fingerprint), not question_id — see Issue 3's
+      // identifier contract fix.
+      const review = await getRepositories().clinicianReviews.findLatestActiveByFingerprint('fp-wrong-answer-trigger');
       expect(review).not.toBeNull();
+      expect(review!.question_id).toBeNull();
       expect(review!.review_priority).toBe('critical');
       expect(review!.review_reason).toMatch(/wrong_answer/);
     });
 
     it('duplicate report triggers high priority review', async () => {
-      await request(app)
-        .post('/api/question-reports')
-        .send({ fingerprint: 'fp-duplicate-trigger', reason: 'duplicate' })
+      await postAuthenticatedReport('fp-duplicate-trigger', 'duplicate')
         .expect(201);
       await new Promise(r => setImmediate(r));
-      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-duplicate-trigger');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByFingerprint('fp-duplicate-trigger');
       expect(review).not.toBeNull();
       expect(review!.review_priority).toBe('high');
     });
 
     it('second wrong_answer report escalates existing high review to critical', async () => {
       // First: duplicate → high
-      await request(app)
-        .post('/api/question-reports')
-        .send({ fingerprint: 'fp-escalate-trigger', reason: 'duplicate' })
+      await postAuthenticatedReport('fp-escalate-trigger', 'duplicate')
         .expect(201);
       await new Promise(r => setImmediate(r));
       // Then: wrong_answer → should escalate to critical
-      await request(app)
-        .post('/api/question-reports')
-        .send({ fingerprint: 'fp-escalate-trigger', reason: 'wrong_answer' })
+      await postAuthenticatedReport('fp-escalate-trigger', 'wrong_answer')
         .expect(201);
       await new Promise(r => setImmediate(r));
-      const review = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('fp-escalate-trigger');
+      const review = await getRepositories().clinicianReviews.findLatestActiveByFingerprint('fp-escalate-trigger');
       expect(review!.review_priority).toBe('critical');
+    });
+
+    it('a bank questionId in the report is preferred as the review identity', async () => {
+      await request(app)
+        .post('/api/question-reports')
+        .set('Authorization', authHeader())
+        .send({ fingerprint: 'fp-with-bank-q', questionId: 'bank-q-123', reason: 'wrong_answer', clientReportId: randomUUID() })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      const byQuestionId = await getRepositories().clinicianReviews.findLatestActiveByQuestionId('bank-q-123');
+      expect(byQuestionId).not.toBeNull();
+      expect(byQuestionId!.review_priority).toBe('critical');
+      // Not registered under the fingerprint lookup, since question_id took priority
+      const byFingerprint = await getRepositories().clinicianReviews.findLatestActiveByFingerprint('fp-with-bank-q');
+      expect(byFingerprint).toBeNull();
+    });
+
+    it('a replayed identical report does not create a second review', async () => {
+      const clientReportId = randomUUID();
+      await request(app)
+        .post('/api/question-reports')
+        .set('Authorization', authHeader())
+        .send({ fingerprint: 'fp-replay-trigger', reason: 'wrong_answer', clientReportId })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      await request(app)
+        .post('/api/question-reports')
+        .set('Authorization', authHeader())
+        .send({ fingerprint: 'fp-replay-trigger', reason: 'wrong_answer', clientReportId })
+        .expect(201);
+      await new Promise(r => setImmediate(r));
+      const queue = await getRepositories().clinicianReviews.findQueue({});
+      const forFingerprint = queue.filter(r => r.report_fingerprint === 'fp-replay-trigger');
+      expect(forFingerprint).toHaveLength(1);
     });
 
     it('restored question PATCH triggers high-priority review', async () => {

@@ -128,8 +128,14 @@ describe('session sync outbox', () => {
     expect(classifySessionSyncError(new Error('offline'))).toBe('retryable')
     expect(classifySessionSyncError({ status: 401 })).toBe('paused')
     expect(classifySessionSyncError({ status: 400 })).toBe('permanent')
+    expect(classifySessionSyncError({ status: 403, code: 'REPORTER_NOT_ELIGIBLE' })).toBe('local-only')
+    expect(classifySessionSyncError({ status: 403, code: 'FORBIDDEN' })).toBe('permanent')
     expect(classifySessionSyncError({ status: 429 })).toBe('retryable')
     expect(classifySessionSyncError({ status: 503 })).toBe('retryable')
+  })
+
+  it('classifies a replayed report with mismatched content (409 IDEMPOTENCY_CONFLICT) as permanent, not retried forever', () => {
+    expect(classifySessionSyncError({ status: 409, code: 'IDEMPOTENCY_CONFLICT' })).toBe('permanent')
   })
 })
 
@@ -179,6 +185,79 @@ describe('question-report outbox', () => {
     enqueueQuestionReportSync(reportPayload(id), id, USER_A, null, 1_000)
     enqueueQuestionReportSync(reportPayload(id), id, USER_A, null, 2_000)
     expect(getSessionSyncOutbox(USER_A, 2_000)).toHaveLength(1)
+  })
+
+  it('removes a 403 eligibility rejection from the sync queue while preserving local-only status', async () => {
+    const id = crypto.randomUUID()
+    const rpt = reportPayload(id)
+    enqueueQuestionReportSync(rpt, id, USER_A, null, 1_000)
+    const ineligible = Object.assign(new Error('not eligible'), {
+      status: 403,
+      code: 'REPORTER_NOT_ELIGIBLE',
+    })
+
+    const result = await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': vi.fn().mockRejectedValue(ineligible) },
+      force: true,
+      now: 2_000,
+    })
+    expect(result.failed).toBe(0)
+    expect(result.localOnly).toBe(1)
+    expect(getSessionSyncOutbox(USER_A, 2_000)).toHaveLength(0)
+  })
+
+  it('keeps a 429 rate limit response pending with retry backoff', async () => {
+    const id = crypto.randomUUID()
+    enqueueQuestionReportSync(reportPayload(id), id, USER_A, null, 1_000)
+    const limited = Object.assign(new Error('rate limited'), { status: 429, code: 'RATE_LIMITED' })
+
+    const result = await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': vi.fn().mockRejectedValue(limited) },
+      force: true,
+      now: 2_000,
+      random: () => 0.5,
+    })
+    const [entry] = getSessionSyncOutbox(USER_A, 2_000)
+
+    expect(result.pending).toBe(1)
+    expect(entry.status).toBe('pending')
+    expect(entry.nextAttemptAt).toBeGreaterThan(2_000)
+  })
+
+  it('keeps a network failure queued for retry', async () => {
+    const id = crypto.randomUUID()
+    const rpt = reportPayload(id)
+    enqueueQuestionReportSync(rpt, id, USER_A, null, 1_000)
+
+    const result = await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': vi.fn().mockRejectedValue(new Error('network error')) },
+      force: true,
+      now: 2_000,
+      random: () => 0.5,
+    })
+    const [entry] = getSessionSyncOutbox(USER_A, 2_000)
+
+    expect(result.pending).toBe(1)
+    expect(entry.status).toBe('pending')
+    expect(entry.payload).toEqual(rpt)
+  })
+
+  it('keeps a 5xx server error queued for retry', async () => {
+    const id = crypto.randomUUID()
+    enqueueQuestionReportSync(reportPayload(id), id, USER_A, null, 1_000)
+    const serverError = Object.assign(new Error('internal error'), { status: 503 })
+
+    const result = await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': vi.fn().mockRejectedValue(serverError) },
+      force: true,
+      now: 2_000,
+      random: () => 0.5,
+    })
+    const [entry] = getSessionSyncOutbox(USER_A, 2_000)
+
+    expect(result.pending).toBe(1)
+    expect(entry.status).toBe('pending')
+    expect(entry.nextAttemptAt).toBeGreaterThan(2_000)
   })
 })
 
