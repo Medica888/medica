@@ -7,7 +7,9 @@ import type { ConceptMappingService } from './ConceptMappingService.js';
 import type { ConceptMasteryService } from './ConceptMasteryService.js';
 import { normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
 
-const ANSWER_LETTERS = ['A', 'B', 'C', 'D'] as const;
+// A–L covers the USMLE Step 1 extended-matching ceiling (up to 12 options).
+// M and beyond are never valid — mirrors medica-app/src/lib/answerNormalize.js.
+const ANSWER_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const;
 
 /**
  * Resolves the correct answer from any of the three field aliases that exist
@@ -21,15 +23,15 @@ export function _getCorrectAnswer(q: Record<string, unknown>): string {
 }
 
 /**
- * Coerces any answer representation to an uppercase letter A–D, or '' if invalid.
+ * Coerces any answer representation to an uppercase letter A–L, or '' if invalid.
  * Mirrors normalizeAnswerLetter() in medica-app/src/lib/answerNormalize.js.
  *
  * Handles:
  *   'A' | 'a'            → 'A'
  *   'A. option text'     → 'A'  (strips prefix — used in some legacy payloads)
  *   ' b '               → 'B'  (trims whitespace)
- *   0 | 1 | 2 | 3       → 'A' | 'B' | 'C' | 'D'
- *   null | undefined | '' | 'X' → ''
+ *   0 | 1 | ... | 11    → 'A' | 'B' | ... | 'L'
+ *   null | undefined | '' | 'X' | 'M' | 12+ → ''  (M and beyond are never valid)
  *
  * Exported with underscore prefix for direct unit-testing (same pattern as _fingerprint).
  */

@@ -9,8 +9,10 @@ import {
   type QuestionQuality,
 } from './questionValidator.js';
 
+// 'ABCD'-only callers are unaffected — this just also supports the A-L extended-matching
+// ceiling for tests that need 5+ options.
 function makeOptions(texts: string[]) {
-  return texts.map((text, i) => ({ letter: 'ABCD'[i] as string, text }));
+  return texts.map((text, i) => ({ letter: 'ABCDEFGHIJKL'[i] as string, text }));
 }
 
 describe('questionValidator', () => {
@@ -574,6 +576,99 @@ describe('questionValidator', () => {
       const result = scoreQuestion(q, 'practice', 'Balanced');
       expect(result.rejectionReasons).toContain('insufficient_options');
       expect(result.validationStatus).toBe('fail');
+    });
+  });
+
+  describe('extended answer letters A-L (Step 1 alignment)', () => {
+    const FIVE_OPT_STEM = 'A 41-year-old woman presents with progressive weakness and a symmetric extended-matching item testing five candidate lesion sites. Which of the following is the most likely site?';
+    const FIVE_OPTS = makeOptions(['Site A finding', 'Site B finding', 'Site C finding', 'Site D finding', 'Site E finding']);
+    const TWELVE_OPTS = makeOptions([
+      'Site A finding', 'Site B finding', 'Site C finding', 'Site D finding',
+      'Site E finding', 'Site F finding', 'Site G finding', 'Site H finding',
+      'Site I finding', 'Site J finding', 'Site K finding', 'Site L finding',
+    ]);
+
+    it('accepts correct=E when a matching 5th option is provided', () => {
+      const q = { stem: FIVE_OPT_STEM, options: FIVE_OPTS, correct: 'E', explanation: 'Site E finding is correct because it matches the described lesion pattern.' };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).not.toContain('invalid_correct_letter');
+    });
+
+    it('accepts correct=L at the 12-option extended-matching ceiling', () => {
+      const q = { stem: FIVE_OPT_STEM, options: TWELVE_OPTS, correct: 'L', explanation: 'Site L finding is correct because it matches the described lesion pattern.' };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).not.toContain('invalid_correct_letter');
+    });
+
+    it('rejects correct=M even when 12 options are provided (M is beyond the ceiling)', () => {
+      const q = { stem: FIVE_OPT_STEM, options: TWELVE_OPTS, correct: 'M', explanation: 'Not a valid option letter.' };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).toContain('invalid_correct_letter');
+      expect(result.validationStatus).toBe('fail');
+    });
+
+    it('rejects a letter that is in A-L but has no matching option (5-option question, correct=F)', () => {
+      const q = { stem: FIVE_OPT_STEM, options: FIVE_OPTS, correct: 'F', explanation: 'No option F exists.' };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).toContain('invalid_correct_letter');
+    });
+
+    it('rejects a coach-mode question missing the explanation for a 5th option (E) even though A-D are present', () => {
+      const q = {
+        stem: FIVE_OPT_STEM,
+        options: FIVE_OPTS,
+        correct: 'E',
+        explanation: 'Site E finding is correct because it matches the described lesion pattern in this extended-matching item.',
+        optionExplanations: {
+          A: 'Site A is incorrect because it does not match the described lesion pattern.',
+          B: 'Site B is incorrect because it does not match the described lesion pattern.',
+          C: 'Site C is incorrect because it does not match the described lesion pattern.',
+          D: 'Site D is incorrect because it does not match the described lesion pattern.',
+          // E intentionally omitted — previously undetectable when checks were hardcoded to A-D.
+        },
+      };
+      const result = scoreQuestion(q, 'coach', 'Balanced');
+      expect(result.rejectionReasons).toContain('missing_option_explanations');
+    });
+
+    it('accepts a coach-mode question with all five option explanations (A-E) present', () => {
+      const q = {
+        stem: FIVE_OPT_STEM,
+        options: FIVE_OPTS,
+        correct: 'E',
+        explanation: 'Site E finding is correct because it matches the described lesion pattern in this extended-matching item.',
+        optionExplanations: {
+          A: 'Site A is incorrect because it does not match the described lesion pattern.',
+          B: 'Site B is incorrect because it does not match the described lesion pattern.',
+          C: 'Site C is incorrect because it does not match the described lesion pattern.',
+          D: 'Site D is incorrect because it does not match the described lesion pattern.',
+          E: 'Site E finding is correct because it matches the described lesion pattern in this extended-matching item.',
+        },
+      };
+      const result = scoreQuestion(q, 'coach', 'Balanced');
+      expect(result.rejectionReasons).not.toContain('missing_option_explanations');
+    });
+
+    it('still validates a standard 4-option question exactly as before (default AI generation is unaffected)', () => {
+      const q = {
+        stem: 'A 30-year-old man presents with foot drop after lateral knee trauma. He cannot dorsiflex his ankle or toes.',
+        options: makeOptions(['Common peroneal nerve', 'Femoral nerve', 'Sciatic nerve', 'Tibial nerve']),
+        correct: 'D',
+        explanation: 'This 4-option question exercises the standard default AI-generation shape and must keep validating exactly as it did before extended-matching support was added.',
+      };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).not.toContain('invalid_correct_letter');
+    });
+
+    it('still rejects a correct letter beyond the 4 provided options for a default-shaped question (correct=E)', () => {
+      const q = {
+        stem: 'A 30-year-old man presents with foot drop after lateral knee trauma. He cannot dorsiflex his ankle or toes.',
+        options: makeOptions(['Common peroneal nerve', 'Femoral nerve', 'Sciatic nerve', 'Tibial nerve']),
+        correct: 'E',
+        explanation: 'A 4-option question never gains a phantom 5th answer just because the abstract A-L range widened.',
+      };
+      const result = scoreQuestion(q, 'practice', 'Balanced');
+      expect(result.rejectionReasons).toContain('invalid_correct_letter');
     });
   });
 
@@ -2635,6 +2730,26 @@ describe('checkUworldSpecific — unit tests', () => {
   it('does not return missing_uworld_option_explanations when all 4 are present', () => {
     expect(checkUworldSpecific({ stem: UW_STEM, options: UW_OPTS, correct: 'A', explanation: UW_EXPL, optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST }, 'practice'))
       .not.toContain('missing_uworld_option_explanations');
+  });
+
+  it('returns [missing_uworld_option_explanations] for a 5-option question missing only the E explanation', () => {
+    // Regression guard: this was previously undetectable because the check iterated
+    // a fixed A-D letter set instead of the options actually provided.
+    const fiveOpts = makeOptions([
+      'Wire loop lesions with thickened glomerular basement membrane',
+      'Mesangial IgA deposits with focal hypercellularity',
+      'Diffuse foot process effacement on electron microscopy',
+      'Congo red staining with apple-green birefringence under polarized light',
+      'Crescentic glomerulonephritis with fibrin deposition',
+    ]);
+    const q = {
+      stem: UW_STEM,
+      options: fiveOpts,
+      correct: 'A',
+      explanation: UW_EXPL,
+      optionExplanations: UW_OPTS_EXPL_WITH_CONTRAST, // has A-D only, E omitted
+    };
+    expect(checkUworldSpecific(q, 'practice')).toContain('missing_uworld_option_explanations');
   });
 
   // ── shallow_uworld_option_explanations ────────────────────────────────────────

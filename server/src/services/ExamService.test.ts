@@ -242,21 +242,31 @@ describe('_normalizeAnswerLetter', () => {
 
   it('returns empty string for invalid answers', () => {
     expect(_normalizeAnswerLetter('X')).toBe('');
-    expect(_normalizeAnswerLetter('E')).toBe('');
+    expect(_normalizeAnswerLetter('M')).toBe(''); // one past the A-L ceiling
     expect(_normalizeAnswerLetter('')).toBe('');
     expect(_normalizeAnswerLetter(null)).toBe('');
     expect(_normalizeAnswerLetter(undefined)).toBe('');
   });
 
-  it('converts numeric indexes 0–3 to letters', () => {
+  it('supports extended-matching letters E through L', () => {
+    expect(_normalizeAnswerLetter('E')).toBe('E');
+    expect(_normalizeAnswerLetter('e')).toBe('E');
+    expect(_normalizeAnswerLetter('L')).toBe('L');
+    expect(_normalizeAnswerLetter('l')).toBe('L');
+    expect(_normalizeAnswerLetter('L. option text')).toBe('L');
+  });
+
+  it('converts numeric indexes 0–11 to letters A–L', () => {
     expect(_normalizeAnswerLetter(0)).toBe('A');
     expect(_normalizeAnswerLetter(1)).toBe('B');
     expect(_normalizeAnswerLetter(2)).toBe('C');
     expect(_normalizeAnswerLetter(3)).toBe('D');
+    expect(_normalizeAnswerLetter(4)).toBe('E');
+    expect(_normalizeAnswerLetter(11)).toBe('L');
   });
 
   it('returns empty string for out-of-range numeric index', () => {
-    expect(_normalizeAnswerLetter(4)).toBe('');
+    expect(_normalizeAnswerLetter(12)).toBe('');
     expect(_normalizeAnswerLetter(-1)).toBe('');
   });
 });
@@ -325,6 +335,29 @@ describe('ExamService — normalized answer comparison', () => {
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
     expect(attempts[0]!.selected_answer).toBe(raw);
+  });
+
+  it('marks attempt correct for a matching extended-matching letter beyond D (5+ option question)', async () => {
+    const extendedQuestion = { ...sampleQuestion, id: 'q-norm-e', correct_answer: 'E' };
+    const input = makeInput([extendedQuestion], { 'q-norm-e': 'E' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(true);
+  });
+
+  it('marks attempt correct for letter L (12-option ceiling)', async () => {
+    const extendedQuestion = { ...sampleQuestion, id: 'q-norm-l', correct_answer: 'L' };
+    const input = makeInput([extendedQuestion], { 'q-norm-l': 'l' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(true);
+  });
+
+  it('marks attempt incorrect when the submitted letter is M (beyond the valid ceiling)', async () => {
+    const input = makeInput([letterQuestion], { 'q-norm-001': 'M' });
+    const session = await service.createSession('user-1', input);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+    expect(attempts[0]!.is_correct).toBe(false);
   });
 });
 

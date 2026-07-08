@@ -65,7 +65,23 @@ interface QuestionInput {
   physicianTask?: string;
 }
 
-const VALID_LETTERS = ['A', 'B', 'C', 'D'];
+// A–L covers the USMLE Step 1 extended-matching ceiling (up to 12 options).
+// M and beyond are never valid answer letters.
+const VALID_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+
+/** Letters of the options actually provided, in order — never assumes a fixed A–D set. */
+function getOptionLetters(options: Array<{ letter: string; text: string }>): string[] {
+  return (options || []).map(o => o.letter).filter(Boolean);
+}
+
+/**
+ * A correct-answer letter is valid only if it's within the A–L ceiling AND matches
+ * one of the options actually provided — a letter outside the given option set is
+ * just as invalid as one outside A–L, even if it happens to be a "real" letter.
+ */
+function isValidCorrectLetter(q: QuestionInput): boolean {
+  return VALID_LETTERS.includes(q.correct) && getOptionLetters(q.options).includes(q.correct);
+}
 
 const HARD_REJECTIONS = new Set([
   'duplicate_options',
@@ -316,14 +332,15 @@ function checkAnswerContradiction(q: QuestionInput, mode: string): { reasons: st
 }
 
 /**
- * Returns 'missing_option_explanations' when coach mode questions lack
- * per-option explanations for all four letters A-D.
+ * Returns 'missing_option_explanations' when coach mode questions lack a
+ * per-option explanation for every option actually provided (not a fixed A-D set).
  * Matches generateAIQuestions.js:_hasCoachOptionExplanations().
  */
 function checkCoachOptionExplanations(q: QuestionInput, mode: string): { reasons: string[] } {
   if (mode !== 'coach') return { reasons: [] };
   const exps = q.optionExplanations ?? {};
-  const hasAll = VALID_LETTERS.every(letter => String(exps[letter] ?? '').trim());
+  const letters = getOptionLetters(q.options);
+  const hasAll = letters.length > 0 && letters.every(letter => String(exps[letter] ?? '').trim());
   return { reasons: hasAll ? [] : ['missing_option_explanations'] };
 }
 
@@ -478,7 +495,7 @@ export function scoreNbmeQuestion(
 
   // ── Layer 1: base structural ─────────────────────────────────────────────────
   if (stem.length < 70) rejectionReasons.push('nbme_stem_too_short');
-  if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
+  if (!isValidCorrectLetter(q)) rejectionReasons.push('invalid_correct_letter');
 
   // ── Layer 5: NBME-only format checks ─────────────────────────────────────────
   rejectionReasons.push(...scoreNbmePatientAnchor(stem).reasons);
@@ -804,17 +821,18 @@ export function checkUworldSpecific(q: QuestionInput, mode: string): string[] {
 
   // ── Option explanations (practice / coach only) ───────────────────────────────
   if (!isExam) {
-    const hasAll = VALID_LETTERS.every(l => String(exps[l] ?? '').trim().length > 0);
+    const letters = getOptionLetters(q.options);
+    const hasAll = letters.length > 0 && letters.every(l => String(exps[l] ?? '').trim().length > 0);
     if (!hasAll) {
       reasons.push('missing_uworld_option_explanations');
     } else {
-      if (VALID_LETTERS.some(l => String(exps[l] ?? '').trim().length < 60)) {
+      if (letters.some(l => String(exps[l] ?? '').trim().length < 60)) {
         reasons.push('shallow_uworld_option_explanations');
       }
     }
 
     // ── Wrong-option contrast teaching (soft) ────────────────────────────────────
-    const contrastCount = VALID_LETTERS.filter(l => {
+    const contrastCount = letters.filter(l => {
       if (l === q.correct) return false;
       const expl = String(exps[l] ?? '').trim();
       return expl.length > 0 && UWORLD_CONTRAST_RE.test(expl);
@@ -865,7 +883,7 @@ export function scoreQuestion(
 
   // ── Layer 1: base structural ──────────────────────────────────────────────────
   if (stem.length < 80) rejectionReasons.push('stem_too_short');
-  if (!VALID_LETTERS.includes(q.correct)) rejectionReasons.push('invalid_correct_letter');
+  if (!isValidCorrectLetter(q)) rejectionReasons.push('invalid_correct_letter');
 
   // ── Layer 2: content quality (vignette style, distractor, leakage, explanation) ──
   const nbme        = scoreClinicalVignetteStyle(stem, isValidNonClinicalScenario(q));

@@ -27,6 +27,9 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
 
   const options   = normalizeOptions(question.options)
   const cardClass = isCorrect ? 'erv-card correct' : isWrong ? 'erv-card wrong' : 'erv-card skipped'
+  const explanationLetters = options
+    .map(opt => opt.letter)
+    .filter(letter => String(question.optionExplanations?.[letter] ?? '').trim())
 
   const getOptState = (opt) => {
     if (opt.letter === correctLetter) return 'correct'
@@ -148,9 +151,8 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
       {detailsExpanded && question.optionExplanations && Object.keys(question.optionExplanations).length > 0 && (
         <div className="erv-opt-exps">
           <div className="erv-opt-exps-label">Option Dissection</div>
-          {['A', 'B', 'C', 'D'].map(letter => {
+          {explanationLetters.map(letter => {
             const exp = question.optionExplanations[letter]
-            if (!exp) return null
             return (
               <div key={letter} className="erv-opt-exp-row">
                 <span className="erv-opt-exp-letter">{letter}</span>

@@ -10,7 +10,11 @@ describe('answerNormalize', () => {
     expect(normalizeAnswerLetter('a')).toBe('A')
     expect(normalizeAnswerLetter('B. Beta blocker')).toBe('B')
     expect(normalizeAnswerLetter(2)).toBe('C')
-    expect(normalizeAnswerLetter('X')).toBe('')
+    expect(normalizeAnswerLetter('E. Correct fifth option')).toBe('E')
+    expect(normalizeAnswerLetter('L. Twelfth option')).toBe('L')
+    expect(normalizeAnswerLetter(11)).toBe('L')
+    expect(normalizeAnswerLetter('1')).toBe('')
+    expect(normalizeAnswerLetter('M. Beyond supported Step-style range')).toBe('')
   })
 
   it('normalizes option arrays from string and object shapes', () => {
@@ -24,6 +28,25 @@ describe('answerNormalize', () => {
     ])
   })
 
+  it('preserves answer options through L for longer Step-style option sets', () => {
+    expect(normalizeOptions([
+      'A. Alpha',
+      'B. Beta',
+      'C. Gamma',
+      'D. Delta',
+      'E. Epsilon',
+      { letter: 'l', text: 'Twelfth option' },
+      'M. Unsupported thirteenth option',
+    ])).toEqual([
+      { letter: 'A', text: 'Alpha' },
+      { letter: 'B', text: 'Beta' },
+      { letter: 'C', text: 'Gamma' },
+      { letter: 'D', text: 'Delta' },
+      { letter: 'E', text: 'Epsilon' },
+      { letter: 'L', text: 'Twelfth option' },
+    ])
+  })
+
   it('prefers canonical correct over legacy correctAnswer', () => {
     expect(getQuestionCorrectLetter({ correct: 'C', correctAnswer: 'A' })).toBe('C')
   })
@@ -34,6 +57,11 @@ describe('answerNormalize', () => {
 
   it('supports backend correct_answer when app aliases are missing', () => {
     expect(getQuestionCorrectLetter({ correct_answer: 'b' })).toBe('B')
+  })
+
+  it('supports correct answers through option L', () => {
+    expect(getQuestionCorrectLetter({ correct: 'L' })).toBe('L')
+    expect(getQuestionCorrectLetter({ correct: 'M' })).toBe('')
   })
 
   it('treats correct: 0 as option A instead of falling through as missing', () => {

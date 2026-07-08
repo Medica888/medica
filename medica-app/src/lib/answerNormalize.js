@@ -1,8 +1,8 @@
-const LETTERS = ['A', 'B', 'C', 'D']
+const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
 
 /**
- * Coerces any answer representation to a single uppercase letter A–D, or '' if invalid.
- * Handles: "A" | "a" | "A. text" | 0 | 1 | 2 | 3 | null | undefined
+ * Coerces common answer representations to a single uppercase Step-style letter.
+ * Medica supports A-L because USMLE/NBME-style items may use more than four choices.
  */
 export function normalizeAnswerLetter(value) {
   if (value === null || value === undefined) return ''
@@ -13,15 +13,15 @@ export function normalizeAnswerLetter(value) {
 }
 
 /**
- * Normalizes mixed option shapes → [{letter, text}], A–D only, max 4.
- * Supports: {letter,text} | {id,text} with string or numeric id | "A. text" strings.
- * Returns [] if options is absent or malformed — never throws.
+ * Normalizes mixed option shapes into [{ letter, text }].
+ * Supports: { letter, text }, { id, text } with string or numeric id, and "A. text" strings.
+ * Returns [] if options are absent or malformed; never throws.
  */
 export function normalizeOptions(options) {
   if (!Array.isArray(options)) return []
   return options.flatMap(opt => {
     if (typeof opt === 'string') {
-      const m = opt.match(/^([A-Da-d])[.\s]\s*(.+)/)
+      const m = opt.match(/^([A-La-l])[.\s]\s*(.+)/)
       return m ? [{ letter: m[1].toUpperCase(), text: m[2].trim() }] : []
     }
     const rawId =
@@ -31,14 +31,14 @@ export function normalizeOptions(options) {
           ? opt.id
           : ''
     const letter = normalizeAnswerLetter(rawId)
-    const text   = (opt.text ?? opt.label ?? '').toString()
+    const text = (opt.text ?? opt.label ?? '').toString()
     return LETTERS.includes(letter) ? [{ letter, text }] : []
-  }).filter(o => LETTERS.includes(o.letter)).slice(0, 4)
+  }).filter(o => LETTERS.includes(o.letter))
 }
 
 /**
- * Picks the first "present" value — null/undefined/'' all count as absent — so a
- * legitimate falsy value like 0 (option A by numeric index) isn't skipped by `||`.
+ * Picks the first present value. null, undefined, and '' count as absent, so a
+ * legitimate falsy value like 0 (option A by numeric index) is not skipped.
  */
 function firstPresent(...values) {
   for (const value of values) {

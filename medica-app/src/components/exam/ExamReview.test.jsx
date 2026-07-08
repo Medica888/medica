@@ -396,6 +396,31 @@ describe('ExamReview — full cards, not summaries', () => {
     expect(reportBtns.length).toBe(3)
   })
 
+  it('renders option dissection for answer choices beyond D', () => {
+    const q = makeQuestion('q-five-options', 'E', {
+      options: [
+        { letter: 'A', text: 'Distractor A' },
+        { letter: 'B', text: 'Distractor B' },
+        { letter: 'C', text: 'Distractor C' },
+        { letter: 'D', text: 'Distractor D' },
+        { letter: 'E', text: 'Correct E option' },
+      ],
+      optionExplanations: {
+        A: 'A is incorrect.',
+        B: 'B is incorrect.',
+        C: 'C is incorrect.',
+        D: 'D is incorrect.',
+        E: 'E is correct and must be visible in review.',
+      },
+    })
+    const session = { id: 's1', mode: 'exam', config: {}, questions: [q], answers: { 'q-five-options': 'E' } }
+
+    render(<ExamReview session={session} initialFilter="all" onBack={NOOP} onNewQuiz={NOOP} />)
+
+    expect(screen.getByText('Correct E option')).toBeInTheDocument()
+    expect(screen.getByText('E is correct and must be visible in review.')).toBeInTheDocument()
+  })
+
   it('filter buttons change the displayed set without removing stem content', () => {
     render(
       <ExamReview
