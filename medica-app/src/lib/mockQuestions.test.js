@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { validateUniqueQuestions } from './questionDedup.js'
+import { normalizeQuestionStem, validateUniqueQuestions } from './questionDedup.js'
 
 vi.mock('./storage.js', () => ({
   filterReportedQuestions: vi.fn(questions => questions),
@@ -13,7 +13,7 @@ vi.mock('./apiClient.js', () => ({
 }))
 
 import { filterReportedQuestions, getSessionHistory } from './storage.js'
-import { STANDARDIZED_40Q_BLOCK } from './quizTypes.js'
+import { STANDARDIZED_40Q_BLOCK, STANDARDIZED_STEP1_BLOCK } from './quizTypes.js'
 import {
   createQuizSession,
   createSelectedQuestionSession,
@@ -26,6 +26,8 @@ import {
   getDifficultyAvailability,
   getQuestionBankDifficultyStats,
   getBrowsableQuestionBank,
+  getStep1BlueprintGroup,
+  STEP1_STANDARD_BLOCK_BLUEPRINT,
   validateHardDifficultyQuestion,
 } from './mockQuestions.js'
 import {
@@ -50,12 +52,12 @@ const baseConfig = {
   clinicalFocus: '',
 }
 
-const standardized40Config = {
+const standardizedStep1Config = {
   ...baseConfig,
   mode:          'exam',
-  questionCount: 40,
+  questionCount: 20,
   difficulty:    'standardized',
-  blockType:     STANDARDIZED_40Q_BLOCK,
+  blockType:     STANDARDIZED_STEP1_BLOCK,
 }
 
 beforeEach(() => {
@@ -88,51 +90,81 @@ describe('ensureQuestionCount — test 1: no cloning', () => {
   })
 })
 
-// ─── Test 9/10: 40 Question Block ─────────────────────────────────────────────
+// ─── Current Step 1 and custom 40-question blocks ─────────────────────────────
 
-describe('ensureQuestionCount — test 10: 40Q block rejects insufficient pool', () => {
-  it('throws with 40Q message when pool < 40 for exam mode', () => {
+describe('ensureQuestionCount — strict block messages', () => {
+  it('throws with custom 40Q message when pool < 40 for exam mode', () => {
     const pool   = Array.from({ length: 20 }, (_, i) => ({ id: `q${i}`, correct: 'A', options: [], stem: `Stem ${i}` }))
     const config = { questionCount: 40, mode: 'exam' }
     expect(() => ensureQuestionCount(pool, config))
-      .toThrow('Not enough unique questions available for a standardized 40 Question Block.')
+      .toThrow('Not enough unique questions available for a 40-question exam.')
   })
 })
 
-describe('createQuizSession — 40Q block behavior', () => {
-  it('succeeds when bank has ≥40 unique unseen questions', () => {
-    // Bank now has ≥50 questions — 40Q block should work
-    const session = createQuizSession(standardized40Config)
-    expect(session.questions).toHaveLength(40)
+describe('createQuizSession — current Step 1 block behavior', () => {
+  it('creates a unique current-format 20-question block', () => {
+    const session = createQuizSession(standardizedStep1Config)
+    expect(session.questions).toHaveLength(20)
     expect(validateUniqueQuestions(session.questions).valid).toBe(true)
-    expect(session.config.blockType).toBe(STANDARDIZED_40Q_BLOCK)
+    expect(session.config.blockType).toBe(STANDARDIZED_STEP1_BLOCK)
     expect(session.config.difficulty).toBe('Balanced')
   })
 
-  it('does not filter standardized 40Q by fake standardized difficulty', () => {
-    expect(getAvailableQuestionCountForConfig(standardized40Config)).toBe(ACTIVE_QUESTION_BANK.length)
+  it('selects the representative USMLE system blueprint', () => {
+    const session = createQuizSession(standardizedStep1Config)
+    const counts = new Map()
+    for (const question of session.questions) {
+      const group = getStep1BlueprintGroup(question)
+      counts.set(group, (counts.get(group) || 0) + 1)
+    }
+    for (const group of STEP1_STANDARD_BLOCK_BLUEPRINT) {
+      expect(counts.get(group.id), group.id).toBe(group.count)
+    }
+  })
 
-    const pool = getBankQuestionsForConfig(standardized40Config)
+  it('does not repeat a tested concept or narrow topic within the block', () => {
+    const session = createQuizSession(standardizedStep1Config)
+    const concepts = session.questions.map(question => normalizeQuestionStem(question.testedConcept || ''))
+    const topics = session.questions.map(question => normalizeQuestionStem(question.topic || question.usmleSubdomain || ''))
 
-    expect(pool.length).toBeGreaterThanOrEqual(40)
+    expect(new Set(concepts.filter(Boolean)).size).toBe(concepts.filter(Boolean).length)
+    expect(new Set(topics.filter(Boolean)).size).toBe(topics.filter(Boolean).length)
+  })
+
+  it('does not filter the current block by a fake standardized difficulty', () => {
+    expect(getAvailableQuestionCountForConfig(standardizedStep1Config)).toBe(ACTIVE_QUESTION_BANK.length)
+
+    const pool = getBankQuestionsForConfig(standardizedStep1Config)
+
+    expect(pool.length).toBeGreaterThanOrEqual(20)
     expect(pool.every(q => q.difficulty !== 'standardized')).toBe(true)
   })
 
-  it('still starts when old seen history leaves fewer than 40 unseen questions', () => {
-    // Mark enough questions as seen so <40 remain unseen; standardized blocks
+  it('still starts when old seen history leaves fewer than 20 unseen questions', () => {
+    // Mark enough questions as seen so <20 remain unseen; standardized blocks
     // may reuse old-session questions while preserving in-block uniqueness.
-    const allIds = ACTIVE_QUESTION_BANK.slice(0, ACTIVE_QUESTION_BANK.length - 39).map(q => q.id)
+    const allIds = ACTIVE_QUESTION_BANK.slice(0, ACTIVE_QUESTION_BANK.length - 19).map(q => q.id)
     vi.mocked(getSessionHistory).mockReturnValueOnce([{ questionIds: allIds, missedQuestions: [] }])
-    const session = createQuizSession(standardized40Config)
+    const session = createQuizSession(standardizedStep1Config)
 
-    expect(session.questions).toHaveLength(40)
+    expect(session.questions).toHaveLength(20)
     expect(validateUniqueQuestions(session.questions).valid).toBe(true)
   })
 
-  it('still throws when reported questions reduce the standardized pool below 40', () => {
-    vi.mocked(filterReportedQuestions).mockImplementation(questions => questions.slice(0, 39))
+  it('still throws when reported questions reduce the standardized pool below 20', () => {
+    vi.mocked(filterReportedQuestions).mockImplementation(questions => questions.slice(0, 19))
 
-    expect(() => createQuizSession(standardized40Config)).toThrow('Not enough unique questions')
+    expect(() => createQuizSession(standardizedStep1Config)).toThrow('Not enough unique questions')
+  })
+
+  it('migrates the saved legacy 40-question preset to the current format', () => {
+    const session = createQuizSession({
+      ...standardizedStep1Config,
+      questionCount: 40,
+      blockType: STANDARDIZED_40Q_BLOCK,
+    })
+    expect(session.questions).toHaveLength(20)
+    expect(session.config.blockType).toBe(STANDARDIZED_STEP1_BLOCK)
   })
 
   it('keeps NBME 40Q difficulty behavior unchanged', () => {
@@ -1185,8 +1217,8 @@ describe('ACTIVE_QUESTION_BANK — quarantine exclusion', () => {
     }
   })
 
-  it('40Q exam never contains quarantined questions', () => {
-    const session = createQuizSession(standardized40Config)
+  it('standardized Step 1 block never contains quarantined questions', () => {
+    const session = createQuizSession(standardizedStep1Config)
     const leaked = session.questions.filter(q => isQuarantined(q.id))
     expect(leaked.map(q => q.id)).toHaveLength(0)
   })

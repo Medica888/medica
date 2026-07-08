@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
+import { isStandardized40QuestionBlock } from '../../lib/quizTypes'
 import QuestionNavigator from './QuestionNavigator'
 import HighlightedText from './HighlightedText'
 import LabDrawer from './LabDrawer'
@@ -72,7 +73,9 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
     normalizedInitial.mode === 'exam'
       ? (Number.isFinite(normalizedInitial.secondsLeft)
           ? Math.max(0, Math.floor(normalizedInitial.secondsLeft))
-          : (normalizedInitial.questions?.length ?? 0) * 60)
+          : isStandardized40QuestionBlock(normalizedInitial.config)
+            ? 30 * 60
+            : (normalizedInitial.questions?.length ?? 0) * 60)
       : null
   )
   const [marked, setMarked]             = useState(() => asRecord(normalizedInitial.marked))

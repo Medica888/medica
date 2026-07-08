@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import QuizSession from './QuizSession.jsx'
 import { saveQuizSession } from '../../lib/storage'
+import { STANDARDIZED_STEP1_BLOCK } from '../../lib/quizTypes'
 
 vi.mock('../../lib/storage', () => ({
   saveQuestionReport: vi.fn(() => ({ id: 'report-1' })),
@@ -111,6 +112,24 @@ describe('QuizSession exam answer display', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Notes' }))
     expect(screen.getByRole('textbox', { name: 'Question scratch pad' })).toHaveValue('Recheck the mechanism.')
+  })
+
+  it('starts a current-format standardized block with 30 minutes', () => {
+    const questions = Array.from({ length: 20 }, (_, index) => makeQ(`standard-${index}`, 'A'))
+    render(
+      <QuizSession
+        session={{
+          ...multiSession,
+          id: 'standardized-step1',
+          config: { blockType: STANDARDIZED_STEP1_BLOCK },
+          questions,
+        }}
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('30:00')).toBeInTheDocument()
   })
 
   it('saves the complete exam snapshot before exit', () => {

@@ -326,6 +326,7 @@ export const COVERAGE_EXPANSION_QUESTIONS = [
     topic: 'Clinical Communication',
     contentArea: 'Social Sciences',
     angle: 'communication',
+    physicianTask: 'Communication',
     stem: 'A patient with diabetes says, "I know my diet matters, but changing everything feels impossible." Which physician response best uses motivational interviewing?',
     correct: 'It sounds like you see the importance of change but feel overwhelmed by where to start.',
     distractors: ['You must follow the diet exactly or your diabetes will worsen.', 'Here is a strict meal plan; begin it tomorrow.', 'Your family should make sure you stop eating sweets.'],

@@ -27,6 +27,7 @@ import {
   buildSeenState,
   dedupeQuestionList,
   filterUnseenQuestions,
+  normalizeQuestionStem,
   validateUniqueQuestions,
   EMPTY_SEEN_STATE,
 } from './questionDedup.js'
@@ -140,6 +141,111 @@ export const QUESTION_BANK = [
 // Active bank: quarantined questions excluded from session generation.
 // QUESTION_BANK retains all authored questions for structural tests and coverage reports.
 export const ACTIVE_QUESTION_BANK = QUESTION_BANK.filter(q => !isQuarantined(q.id))
+
+// Representative 20-item block derived from the current USMLE Step 1 system
+// specifications. A single 20-item block cannot reproduce every published
+// percentage range exactly, so quotas use the nearest practical whole-item mix.
+export const STEP1_STANDARD_BLOCK_BLUEPRINT = Object.freeze([
+  { id: 'human-development', count: 1, areas: ['Human Development'] },
+  { id: 'blood-immune', count: 2, areas: ['Blood & Lymphoreticular System', 'Immune System'] },
+  { id: 'behavioral-neuro', count: 2, areas: ['Behavioral Health', 'Nervous System & Special Senses'] },
+  { id: 'musculoskeletal-skin', count: 2, areas: ['Musculoskeletal System', 'Skin & Subcutaneous Tissue'] },
+  { id: 'cardiovascular', count: 2, areas: ['Cardiovascular System'] },
+  { id: 'respiratory-renal', count: 3, areas: ['Respiratory System', 'Renal & Urinary System'] },
+  { id: 'gastrointestinal', count: 1, areas: ['Gastrointestinal System'] },
+  {
+    id: 'reproductive-endocrine',
+    count: 3,
+    areas: [
+      'Pregnancy, Childbirth, & the Puerperium',
+      'Female and Transgender Reproductive System & Breast',
+      'Male and Transgender Reproductive System',
+      'Endocrine System',
+    ],
+  },
+  { id: 'multisystem', count: 2, areas: ['Multisystem Processes & Disorders'] },
+  {
+    id: 'biostatistics-epidemiology',
+    count: 1,
+    areas: ['Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature'],
+  },
+  { id: 'social-sciences', count: 1, areas: ['Social Sciences'] },
+])
+
+const STEP1_BLUEPRINT_BY_AREA = new Map(
+  STEP1_STANDARD_BLOCK_BLUEPRINT.flatMap(group => group.areas.map(area => [area, group.id])),
+)
+
+export function getStep1BlueprintGroup(question) {
+  return STEP1_BLUEPRINT_BY_AREA.get(question?.usmleContentArea) || null
+}
+
+function _shuffleWith(items, random = Math.random) {
+  const shuffled = [...items]
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1))
+    ;[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]]
+  }
+  return shuffled
+}
+
+/** Selects a representative current-format Step 1 block without duplicating questions. */
+export function selectStandardizedStep1Questions(questions, questionCount = 20, random = Math.random) {
+  const target = Number(questionCount) || 20
+  const unique = dedupeQuestionList(questions || [])
+  if (target !== 20) return _shuffleWith(unique, random).slice(0, target)
+
+  const selected = []
+  const selectedIds = new Set()
+  const selectedConcepts = new Set()
+  const selectedTopics = new Set()
+  const keyFor = value => normalizeQuestionStem(String(value || ''))
+  const canSelect = question => {
+    const concept = keyFor(question.testedConcept)
+    const topic = keyFor(question.topic || question.usmleSubdomain)
+    return !selectedIds.has(question.id)
+      && (!concept || !selectedConcepts.has(concept))
+      && (!topic || !selectedTopics.has(topic))
+  }
+  const addQuestion = question => {
+    selected.push(question)
+    selectedIds.add(question.id)
+    const concept = keyFor(question.testedConcept)
+    const topic = keyFor(question.topic || question.usmleSubdomain)
+    if (concept) selectedConcepts.add(concept)
+    if (topic) selectedTopics.add(topic)
+  }
+
+  for (const group of STEP1_STANDARD_BLOCK_BLUEPRINT) {
+    const candidates = _shuffleWith(
+      unique.filter(question =>
+        getStep1BlueprintGroup(question) === group.id && canSelect(question)
+      ),
+      random,
+    )
+    let groupSelected = 0
+    for (const question of candidates) {
+      if (!canSelect(question)) continue
+      addQuestion(question)
+      groupSelected += 1
+      if (groupSelected === group.count) break
+    }
+  }
+
+  if (selected.length < target) {
+    const remaining = _shuffleWith(
+      unique.filter(canSelect),
+      random,
+    )
+    for (const question of remaining) {
+      if (!canSelect(question)) continue
+      addQuestion(question)
+      if (selected.length === target) break
+    }
+  }
+
+  return _shuffleWith(selected, random)
+}
 
 // Coach Mode can use every active local question because normalization guarantees A-D explanations.
 export const ENRICHED_IDS = new Set(ACTIVE_QUESTION_BANK.map(q => q.id))
@@ -283,9 +389,12 @@ export function ensureQuestionCount(questions, config) {
   const target = config.questionCount
   if (questions.length >= target) return questions.slice(0, target)
 
-  const is40Q  = target === 40 && config.mode === 'exam'
-  const label  = is40Q
-    ? 'Not enough unique questions available for a standardized 40 Question Block.'
+  const isStandardized = isStandardized40QuestionBlock(config)
+  const is40Q = target === 40 && config.mode === 'exam'
+  const label = isStandardized
+    ? 'Not enough unique questions available for a current USMLE Step 1 block.'
+    : is40Q
+      ? 'Not enough unique questions available for a 40-question exam.'
     : 'Not enough unique questions available. Please broaden your filters or reduce the question count.'
 
   throw Object.assign(new Error(label), {
@@ -366,16 +475,16 @@ function _buildMockPool(config, enrichedOnly, seenState = EMPTY_SEEN_STATE) {
 
   const totalBeforeExclusion = pool.length
   const unseenPool = filterReportedQuestions(filterUnseenQuestions(pool, seenState))
-  const isStandardized40Q =
+  const isStandardizedStep1Block =
     isStandardized40QuestionBlock(normalizedConfig) &&
     normalizedConfig.mode === 'exam' &&
-    normalizedConfig.questionCount === 40
+    normalizedConfig.questionCount === 20
 
   // Standardized blocks must be unique within the block, but old session history
-  // should not permanently prevent a user from starting another 40Q exam.
+  // should not permanently prevent a user from starting another current-format block.
   const dedupedPool = pool
   pool = unseenPool
-  if (isStandardized40Q && pool.length < normalizedConfig.questionCount) {
+  if (isStandardizedStep1Block && pool.length < normalizedConfig.questionCount) {
     const reportedFilteredPool = filterReportedQuestions(dedupedPool)
     if (reportedFilteredPool.length >= normalizedConfig.questionCount) {
       pool = reportedFilteredPool
@@ -395,7 +504,10 @@ export function generateMockQuestions(config) {
   const normalizedConfig = normalizeQuizConfigForGeneration(config)
   const seenState = _seenStateFromHistory()
   const { questions } = _buildMockPool(normalizedConfig, false, seenState)
-  return ensureQuestionCount(questions, normalizedConfig)
+  const selected = isStandardized40QuestionBlock(normalizedConfig)
+    ? selectStandardizedStep1Questions(questions, normalizedConfig.questionCount)
+    : questions
+  return ensureQuestionCount(selected, normalizedConfig)
 }
 
 function _buildSessionMetadata(config, finalQuestions, excludedCount) {
@@ -442,7 +554,10 @@ export function createQuizSession(config) {
   }
 
   const { questions, expandedScope, originalScopeType, expandedScopeTo, excludedCount } = _buildMockPool(normalizedConfig, false, seenState)
-  const finalQuestions = ensureQuestionCount(questions, normalizedConfig)
+  const selectedQuestions = isStandardized40QuestionBlock(normalizedConfig)
+    ? selectStandardizedStep1Questions(questions, normalizedConfig.questionCount)
+    : questions
+  const finalQuestions = ensureQuestionCount(selectedQuestions, normalizedConfig)
     .map(q => enrichQuestionWithUsmleTaxonomy(q, normalizedConfig))
     .map(shuffleQuestionOptions)
 
