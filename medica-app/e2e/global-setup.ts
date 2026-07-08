@@ -1,13 +1,15 @@
-import { chromium, request } from '@playwright/test';
+import { request } from '@playwright/test';
+import pg from 'pg';
 import path from 'path';
+import { mkdir } from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { SHARED_EMAIL, SHARED_NAME, SHARED_PASSWORD } from './helpers/shared-user';
+import { SHARED_EMAIL, SHARED_NAME, SHARED_PASSWORD, SHARED_USER_ID } from './helpers/shared-user';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const AUTH_FILE = path.join(__dirname, '.auth', 'user.json');
 
 const BACKEND_URL = 'http://localhost:4001';
-const FRONTEND_URL = 'http://localhost:5173';
+const E2E_DB_URL = 'postgresql://postgres:postgres@localhost:5432/medica_e2e';
 
 /**
  * Runs AFTER webServers are ready. Creates ONE shared authenticated user and
@@ -16,10 +18,7 @@ const FRONTEND_URL = 'http://localhost:5173';
  */
 export default async function globalSetup() {
   const api = await request.newContext({ baseURL: BACKEND_URL });
-  const browser = await chromium.launch();
-  const context = await browser.newContext();
-  const page = await context.newPage();
-
+  const pool = new pg.Pool({ connectionString: E2E_DB_URL });
   try {
     await api.post('/api/auth/register', {
       data: {
@@ -29,20 +28,32 @@ export default async function globalSetup() {
       },
     }).catch(() => null);
 
-    await page.goto(FRONTEND_URL);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.waitForSelector('#stg-email', { timeout: 15_000 });
-    await page.getByRole('tab', { name: 'Log In' }).click();
-    await page.fill('#stg-email', SHARED_EMAIL);
-    await page.fill('#stg-password', SHARED_PASSWORD);
-    await page.locator('.stg-submit-btn').click();
-    await page.waitForSelector('button[class*="stg-logout-btn"], .stg-logout-btn', { timeout: 15_000 });
+    await pool.query(
+      `UPDATE users
+       SET id = $1,
+           email_verified = true,
+           email_verified_at = now(),
+           created_at = now() - interval '48 hours'
+       WHERE email = $2`,
+      [SHARED_USER_ID, SHARED_EMAIL],
+    );
+
+    const login = await api.post('/api/auth/login', {
+      data: {
+        email: SHARED_EMAIL,
+        password: SHARED_PASSWORD,
+      },
+    });
+    if (!login.ok()) {
+      throw new Error(`[globalSetup] Shared user login failed: ${login.status()} ${await login.text()}`);
+    }
 
     // Persist authenticated cookies for all specs that use storageState.
-    await context.storageState({ path: AUTH_FILE });
+    await mkdir(path.dirname(AUTH_FILE), { recursive: true });
+    await api.storageState({ path: AUTH_FILE });
     console.log(`[globalSetup] Shared user ready -> ${AUTH_FILE}`);
   } finally {
-    await browser.close();
+    await pool.end();
     await api.dispose();
   }
 }

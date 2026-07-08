@@ -2,11 +2,20 @@ import { test, expect } from '@playwright/test';
 import pg from 'pg';
 
 const E2E_DB_URL = 'postgresql://postgres:postgres@localhost:5432/medica_e2e';
+const BACKEND_URL = 'http://localhost:4001';
 
 // Uses shared storageState (authenticated as SHARED_EMAIL) from global-setup.
 test.describe('Question report to governance trigger', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await expect.poll(async () => page.evaluate(async (backendUrl) => {
+      const res = await fetch(`${backendUrl}/api/auth/me`, { credentials: 'include' });
+      const body = await res.text();
+      return { ok: res.ok, status: res.status, body };
+    }, BACKEND_URL), {
+      timeout: 15_000,
+      message: 'shared E2E user should be authenticated before report tests run',
+    }).toMatchObject({ ok: true });
     // Navigate into the quiz so a question + Report button are visible.
     await page.getByRole('button', { name: 'New Session' }).click();
     await page.getByRole('button', { name: 'Generate Quiz' }).click();
@@ -23,7 +32,7 @@ test.describe('Question report to governance trigger', () => {
     await expect(page.locator('text=Saved')).toBeVisible({ timeout: 3_000 });
     await page.waitForTimeout(1_000);
     const cookies = await page.context().cookies();
-    const res = await request.get('/api/question-reports/summary', {
+    const res = await request.get(`${BACKEND_URL}/api/question-reports/summary`, {
       headers: { Cookie: cookies.map(c => `${c.name}=${c.value}`).join('; ') },
     });
     expect(res.ok()).toBeTruthy();
@@ -44,9 +53,9 @@ test.describe('Question report to governance trigger', () => {
     // Give it 2s to complete the async DB insert before we query.
     await page.waitForTimeout(2_000);
 
-    // Query the E2E database directly — the shared user is not admin so the
-    // /api/generated-question-bank/clinician-review endpoint always returns 403.
-    // A direct DB check is the only way to verify the row was actually created.
+    // The clinician-review row is created fire-and-forget after the response is
+    // sent, so there's no request to poll for completion — query the E2E database
+    // directly rather than racing an admin endpoint against an async insert.
     const pool = new pg.Pool({ connectionString: E2E_DB_URL });
     try {
       const qr = await pool.query(

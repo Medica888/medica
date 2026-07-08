@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { SHARED_USER_ID } from './e2e/helpers/shared-user';
 
 const E2E_DB_URL = 'postgresql://postgres:postgres@localhost:5432/medica_e2e';
 const BACKEND_PORT = 4001;
@@ -36,6 +37,7 @@ export default defineConfig({
         PORT: String(BACKEND_PORT),
         NODE_ENV: 'test',
         JWT_SECRET: 'e2e-test-secret-not-for-production',
+        ADMIN_USER_IDS: SHARED_USER_ID,
         ALLOWED_ORIGINS: `http://localhost:${FRONTEND_PORT}`,
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
       },
@@ -46,6 +48,12 @@ export default defineConfig({
       url: `http://localhost:${FRONTEND_PORT}`,
       timeout: process.env.CI ? 120_000 : 30_000,
       reuseExistingServer: !process.env.CI,
+      env: {
+        VITE_BACKEND_URL: `http://localhost:${BACKEND_PORT}`,
+        VITE_USE_BACKEND: 'true',
+        VITE_USE_BACKEND_API: 'true',
+        VITE_ALLOW_MOCK_FALLBACK: 'false',
+      },
     },
   ],
 });
