@@ -49,6 +49,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
   const [saved, setSaved]               = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError]               = useState(generationError)
+  const [lastCustomConfig, setLastCustomConfig] = useState(null)
 
   const isStandardized = isStandardized40QuestionBlock(config)
   const localAvailability = isStandardized ? null : getLocalQuestionAvailability(config)
@@ -74,9 +75,23 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
   }
 
   const setSessionFormat = (format) => {
-    setConfig(current => format === 'current-step1'
-      ? { ...current, ...LOCKED_CONFIG }
-      : { ...DEFAULT_CONFIG, mode: current.mode || 'exam', difficulty: normalizeDifficultyForMode(current.difficulty, current.mode || 'exam') })
+    if (format === 'current-step1') {
+      if (!isStandardized) {
+        setLastCustomConfig(config)
+      }
+      setConfig({ ...config, ...LOCKED_CONFIG })
+    } else {
+      const restored = lastCustomConfig || { ...DEFAULT_CONFIG }
+      const custom = { ...restored }
+      delete custom.blockType
+      const mode = custom.mode || 'exam'
+      setConfig({
+        ...DEFAULT_CONFIG,
+        ...custom,
+        mode,
+        difficulty: normalizeDifficultyForMode(custom.difficulty || DEFAULT_CONFIG.difficulty, mode),
+      })
+    }
     setSaved(false)
     setError(null)
   }
@@ -143,7 +158,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
           <div className="qb-card">
 
             <div className="qb-card-sec-hdr">How do you want to study?</div>
-            <ModeSelector value={config.mode} onChange={v => update('mode', v)} />
+            <ModeSelector value={config.mode} onChange={v => update('mode', v)} disabled={isStandardized} />
 
             <div className="qb-card-sec-hdr">Session Format</div>
             <div className="qb-format-options" role="group" aria-label="Session format">

@@ -119,6 +119,18 @@
   display: flex; align-items: center; justify-content: center; gap: 7px;
 }
 .qb-mode:hover:not(.active) { color: var(--t1); background: rgba(255,255,255,.65); }
+.qb-mode:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+.qb-mode:disabled:hover {
+  color: var(--t3);
+  background: transparent;
+}
+.qb-mode.active:disabled {
+  opacity: 1;
+  cursor: default;
+}
 .qb-mode.active {
   background: #fff; color: var(--blue); font-weight: 600;
   box-shadow: 0 1px 4px rgba(11,29,51,.1), 0 0 0 1px rgba(11,29,51,.06);
@@ -481,6 +493,7 @@
 .dark .lp-hdr { border-bottom-color: var(--border); }
 .dark .qb-modes { background: rgba(255,255,255,.03); border-color: var(--border); }
 .dark .qb-mode:hover:not(.active) { background: rgba(148,163,184,.08); color: var(--t1); }
+.dark .qb-mode:disabled:hover { color: var(--t3); background: transparent; }
 .dark .qb-mode.active {
   background: var(--blue-10);
   color: var(--blue);

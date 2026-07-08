@@ -92,6 +92,10 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     expect(screen.getByText('20 Questions')).toBeInTheDocument()
     expect(screen.getByText('30 Minutes')).toBeInTheDocument()
     expect(screen.getByText('Blueprint-balanced')).toBeInTheDocument()
+    expect(screen.getByText('Current Step 1 Block uses Exam mode.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Exam' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Practice' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Coach' })).toBeDisabled()
   })
 
   it('submits the locked current-format configuration', () => {
@@ -113,5 +117,18 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
       blockType: STANDARDIZED_STEP1_BLOCK,
       questionCount: 20,
     }))
+  })
+
+  it('restores the previous custom setup after previewing the current-format block', () => {
+    render(<QuizBuilder onStart={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Coach' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Challenge' }))
+    fireEvent.click(screen.getByRole('button', { name: /Current Step 1 Block/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Custom Set/ }))
+
+    expect(screen.getByRole('button', { name: 'Coach' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Challenge' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Harder questions with deep teaching, traps, and weak-spot repair.')).toBeInTheDocument()
   })
 })

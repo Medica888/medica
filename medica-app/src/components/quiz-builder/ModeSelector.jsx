@@ -19,20 +19,24 @@ const MODE_ICONS = {
   ),
 }
 
-/** @param {{ value: string, onChange: (v: string) => void }} props */
-export default function ModeSelector({ value, onChange }) {
+/** @param {{ value: string, onChange: (v: string) => void, disabled?: boolean }} props */
+export default function ModeSelector({ value, onChange, disabled = false }) {
   const selected = MODES.find(m => m.id === value)
+  const hint = disabled
+    ? 'Current Step 1 Block uses Exam mode.'
+    : 'Choose the learning experience first. Difficulty only controls how hard the questions are.'
 
   return (
-    <div className="qb-field">
+    <div className={`qb-field${disabled ? ' qb-field--locked' : ''}`}>
       <div className="qb-field-lbl">Study Mode</div>
-      <div className="qb-mode-hint-top">Choose the learning experience first. Difficulty only controls how hard the questions are.</div>
+      <div className="qb-mode-hint-top">{hint}</div>
       <div className="qb-modes" role="group" aria-label="Study mode">
         {MODES.map(m => (
           <button
             key={m.id}
             type="button"
             className={`qb-mode${value === m.id ? ' active' : ''}`}
+            disabled={disabled}
             onClick={() => onChange(m.id)}
             aria-pressed={value === m.id}
           >
