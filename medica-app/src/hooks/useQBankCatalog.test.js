@@ -112,7 +112,7 @@ describe('useQBankCatalog', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     qbank.catalog.mockResolvedValue({ data: [makeCatalogQuestion('new-1')], totalPages: 1 })
-    result.current.refresh()
+    await act(async () => { result.current.refresh() })
 
     await waitFor(() => expect(result.current.questions).toHaveLength(1))
   })

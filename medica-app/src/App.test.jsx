@@ -352,8 +352,9 @@ beforeEach(() => {
 })
 
 describe('App quiz phase routing', () => {
-  it('provides a keyboard skip link to the focusable main content landmark', () => {
+  it('provides a keyboard skip link to the focusable main content landmark', async () => {
     render(<App />)
+    await screen.findByText('Dashboard Mock')
 
     expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')

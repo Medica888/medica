@@ -40,7 +40,7 @@ describe('VerifyEmailPage', () => {
   });
 
   it('scrubs token from URL on mount', () => {
-    auth.verifyEmail.mockResolvedValueOnce({ message: 'ok' });
+    auth.verifyEmail.mockReturnValueOnce(new Promise(() => {}));
     const spy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
     render(<VerifyEmailPage token="validtoken" />);
     expect(spy).toHaveBeenCalledWith(null, '', '/verify-email');
