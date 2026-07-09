@@ -88,6 +88,41 @@ export function useReviewActions() {
   return { pending, error, act }
 }
 
+export function useBulkReviewActions() {
+  const [pending, setPending] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const actBulk = useCallback(async (ids, status) => {
+    const uniqueIds = [...new Set((ids || []).map(id => String(id || '').trim()).filter(Boolean))]
+    if (uniqueIds.length === 0) return { succeeded: [], failed: [] }
+
+    setPending(true)
+    setError(null)
+    try {
+      const results = await Promise.allSettled(
+        uniqueIds.map(id => governance.updateStatus(id, status)),
+      )
+      const succeeded = []
+      const failed = []
+      results.forEach((result, index) => {
+        const id = uniqueIds[index]
+        if (result.status === 'fulfilled') succeeded.push(id)
+        else failed.push({ id, error: result.reason })
+      })
+      if (failed.length > 0) {
+        const bulkError = new Error(`${failed.length} review action${failed.length === 1 ? '' : 's'} failed.`)
+        bulkError.failed = failed
+        setError(bulkError)
+      }
+      return { succeeded, failed }
+    } finally {
+      setPending(false)
+    }
+  }, [])
+
+  return { pending, error, actBulk }
+}
+
 export function useReviewMetadataActions() {
   const [pending, setPending] = useState(false)
   const [error,   setError]   = useState(null)

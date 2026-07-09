@@ -25,6 +25,19 @@
                      border: 1px solid var(--border); background: var(--card); color: var(--t1);
                      cursor: pointer; }
 
+.adm-bulk-bar      { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                     padding: 10px 12px; border: 1px solid var(--border-s);
+                     border-radius: var(--r); background: var(--card); }
+.adm-bulk-count    { font-size: 12px; color: var(--t3); font-weight: 700; min-width: 72px; }
+.adm-bulk-btn      { font-size: 12px; font-weight: 800; padding: 5px 10px; border-radius: var(--r);
+                     border: 1px solid var(--border); background: var(--bg); color: var(--t2);
+                     cursor: pointer; }
+.adm-bulk-btn.approve { border-color: rgba(15,173,111,.28); color: var(--green); }
+.adm-bulk-btn.quarantine { border-color: rgba(204,58,58,.25); color: var(--red); }
+.adm-bulk-btn:disabled { opacity: .45; cursor: not-allowed; }
+.adm-bulk-ok       { font-size: 12px; color: var(--green); font-weight: 700; }
+.adm-bulk-error    { font-size: 12px; color: var(--red); font-weight: 700; }
+
 /* ── Admin: Table ─────────────────────────────────────────────────────────── */
 .adm-table-wrap    { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--border);
                      box-shadow: var(--sh-card); }
@@ -42,6 +55,10 @@
 .adm-cell-text     { color: var(--t2); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adm-cell-date     { color: var(--t3); font-size: 12px; white-space: nowrap; }
 .adm-th-num        { text-align: right !important; }
+.adm-th-select,
+.adm-cell-select   { width: 36px; text-align: center !important; }
+.adm-th-select input,
+.adm-cell-select input { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
 .adm-cell-num      { text-align: right; font-variant-numeric: tabular-nums; color: var(--t2); }
 
 /* ── Admin: Badges ────────────────────────────────────────────────────────── */

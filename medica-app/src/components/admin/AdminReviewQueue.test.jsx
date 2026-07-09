@@ -4,9 +4,10 @@ import AdminReviewQueue from './AdminReviewQueue'
 
 vi.mock('../../hooks/useAdminReview', () => ({
   useReviewQueue: vi.fn(),
+  useBulkReviewActions: vi.fn(),
 }))
 
-import { useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useReviewQueue } from '../../hooks/useAdminReview'
 
 const makeQuestion = (overrides = {}) => ({
   externalId:      'fp-test-1',
@@ -34,6 +35,7 @@ const makePage = (questions, overrides = {}) => ({
 
 beforeEach(() => {
   useReviewQueue.mockReturnValue({ data: null, loading: false, error: null, refetch: vi.fn() })
+  useBulkReviewActions.mockReturnValue({ pending: false, error: null, actBulk: vi.fn() })
 })
 
 describe('AdminReviewQueue', () => {
@@ -149,6 +151,65 @@ describe('AdminReviewQueue', () => {
     render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
     expect(screen.getByText('Not ready')).toBeTruthy()
     expect(screen.getByText('Missing source, Needs source check')).toBeTruthy()
+  })
+
+  it('runs a bulk action for selected visible questions and refreshes the queue', async () => {
+    const refetch = vi.fn()
+    const actBulk = vi.fn().mockResolvedValue({ succeeded: ['fp-a', 'fp-b'], failed: [] })
+    useBulkReviewActions.mockReturnValue({ pending: false, error: null, actBulk })
+    useReviewQueue.mockReturnValue({
+      data: makePage([
+        makeQuestion({ externalId: 'fp-a' }),
+        makeQuestion({ externalId: 'fp-b' }),
+      ]),
+      loading: false,
+      error: null,
+      refetch,
+    })
+
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Select question fp-a'))
+    fireEvent.click(screen.getByLabelText('Select question fp-b'))
+    fireEvent.click(screen.getByText('Quarantine'))
+
+    await vi.waitFor(() => {
+      expect(actBulk).toHaveBeenCalledWith(['fp-a', 'fp-b'], 'quarantined')
+    })
+    expect(refetch).toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(screen.getByText('2 updated.')).toBeTruthy()
+    })
+  })
+
+  it('selects all visible questions and reports partial bulk failures', async () => {
+    const actBulk = vi.fn().mockResolvedValue({
+      succeeded: ['fp-a'],
+      failed: [{ id: 'fp-b', error: new Error('Nope') }],
+    })
+    useBulkReviewActions.mockReturnValue({ pending: false, error: new Error('1 review action failed.'), actBulk })
+    useReviewQueue.mockReturnValue({
+      data: makePage([
+        makeQuestion({ externalId: 'fp-a' }),
+        makeQuestion({ externalId: 'fp-b' }),
+      ]),
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Select all visible questions'))
+    fireEvent.click(screen.getByText('Approve'))
+
+    await vi.waitFor(() => {
+      expect(actBulk).toHaveBeenCalledWith(['fp-a', 'fp-b'], 'approved')
+    })
+    await vi.waitFor(() => {
+      expect(screen.getByText('1 updated, 1 failed.')).toBeTruthy()
+    })
+    expect(screen.getByText('1 review action failed.')).toBeTruthy()
   })
 
   it('renders status badge for approved question', () => {

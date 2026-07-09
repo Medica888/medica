@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useReviewQueue } from '../../hooks/useAdminReview'
 
 const STATUS_FILTERS = [
   { value: '',                    label: 'All' },
@@ -79,6 +79,9 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const [readyFilter,  setReadyFilter]  = useState('')
   const [sort,         setSort]         = useState('priority')
   const [page,         setPage]         = useState(1)
+  const [selectedIds,  setSelectedIds]  = useState([])
+  const [bulkMessage,  setBulkMessage]  = useState('')
+  const { pending: bulkPending, error: bulkError, actBulk } = useBulkReviewActions()
 
   const { data, loading, error, refetch } = useReviewQueue({
     status: filterStatus || undefined,
@@ -89,15 +92,43 @@ export default function AdminReviewQueue({ onSelectDetail }) {
     limit: PAGE_SIZE,
   })
 
-  const handleFilter = (val) => { setFilterStatus(val); setPage(1) }
-  const handleReviewStatus = (val) => { setReviewStatus(val); setPage(1) }
-  const handleReadyFilter = (val) => { setReadyFilter(val); setPage(1) }
-  const handleSort   = (val) => { setSort(val);         setPage(1) }
-
   const questions = data?.questions ?? []
   const total     = data?.total ?? 0
   const hasMore   = data?.hasMore ?? false
   const hasPrev   = page > 1
+  const visibleIds = questions.map(q => q.externalId).filter(Boolean)
+  const selectedVisibleIds = selectedIds.filter(id => visibleIds.includes(id))
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length
+
+  const setFilterAndClear = (setter, val) => {
+    setter(val)
+    setPage(1)
+    setSelectedIds([])
+    setBulkMessage('')
+  }
+
+  const toggleSelected = (id) => {
+    setBulkMessage('')
+    setSelectedIds(ids => (
+      ids.includes(id) ? ids.filter(existing => existing !== id) : [...ids, id]
+    ))
+  }
+
+  const toggleVisibleSelection = () => {
+    setBulkMessage('')
+    setSelectedIds(ids => {
+      const rest = ids.filter(id => !visibleIds.includes(id))
+      return allVisibleSelected ? rest : [...rest, ...visibleIds]
+    })
+  }
+
+  const handleBulkAction = async (status) => {
+    setBulkMessage('')
+    const result = await actBulk(selectedVisibleIds, status)
+    setBulkMessage(`${result.succeeded.length} updated${result.failed.length ? `, ${result.failed.length} failed` : ''}.`)
+    setSelectedIds([])
+    refetch()
+  }
 
   return (
     <div className="adm-page">
@@ -123,7 +154,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             <button
               key={f.value}
               className={`adm-filter-tab${filterStatus === f.value ? ' active' : ''}`}
-              onClick={() => handleFilter(f.value)}
+              onClick={() => setFilterAndClear(setFilterStatus, f.value)}
               aria-pressed={filterStatus === f.value}
             >
               {f.label}
@@ -136,7 +167,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             id="adm-review-state-select"
             className="adm-sort-select"
             value={reviewStatus}
-            onChange={e => handleReviewStatus(e.target.value)}
+            onChange={e => setFilterAndClear(setReviewStatus, e.target.value)}
           >
             {REVIEW_FILTERS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -147,7 +178,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             id="adm-ready-select"
             className="adm-sort-select"
             value={readyFilter}
-            onChange={e => handleReadyFilter(e.target.value)}
+            onChange={e => setFilterAndClear(setReadyFilter, e.target.value)}
           >
             {READY_FILTERS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -158,13 +189,40 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             id="adm-sort-select"
             className="adm-sort-select"
             value={sort}
-            onChange={e => handleSort(e.target.value)}
+            onChange={e => setFilterAndClear(setSort, e.target.value)}
           >
             {SORT_MODES.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="adm-bulk-bar" aria-label="Bulk review actions">
+        <span className="adm-bulk-count">{selectedVisibleIds.length} selected</span>
+        <button
+          className="adm-bulk-btn approve"
+          disabled={bulkPending || selectedVisibleIds.length === 0}
+          onClick={() => handleBulkAction('approved')}
+        >
+          Approve
+        </button>
+        <button
+          className="adm-bulk-btn quarantine"
+          disabled={bulkPending || selectedVisibleIds.length === 0}
+          onClick={() => handleBulkAction('quarantined')}
+        >
+          Quarantine
+        </button>
+        <button
+          className="adm-bulk-btn"
+          disabled={bulkPending || selectedVisibleIds.length === 0}
+          onClick={() => handleBulkAction('validated_generated')}
+        >
+          Restore
+        </button>
+        {bulkMessage && <span className="adm-bulk-ok" role="status">{bulkMessage}</span>}
+        {bulkError && <span className="adm-bulk-error" role="alert">{bulkError.message}</span>}
       </div>
 
       {error && (
@@ -178,6 +236,15 @@ export default function AdminReviewQueue({ onSelectDetail }) {
           <table className="adm-table" aria-label="Review queue">
             <thead>
               <tr>
+                <th className="adm-th-select">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible questions"
+                    checked={allVisibleSelected}
+                    onChange={toggleVisibleSelection}
+                    disabled={loading || visibleIds.length === 0}
+                  />
+                </th>
                 <th>Status</th>
                 <th>Subject</th>
                 <th>System</th>
@@ -194,16 +261,24 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={11} className="adm-table-empty">Loading...</td>
+                  <td colSpan={12} className="adm-table-empty">Loading...</td>
                 </tr>
               )}
               {!loading && questions.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="adm-table-empty">No questions found.</td>
+                  <td colSpan={12} className="adm-table-empty">No questions found.</td>
                 </tr>
               )}
               {questions.map(q => (
                 <tr key={q.externalId} className="adm-table-row">
+                  <td className="adm-cell-select">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select question ${q.externalId}`}
+                      checked={selectedIds.includes(q.externalId)}
+                      onChange={() => toggleSelected(q.externalId)}
+                    />
+                  </td>
                   <td>
                     <span className={STATUS_CLASS[q.bankStatus] ?? 'adm-badge'}>
                       {STATUS_LABEL[q.bankStatus] ?? q.bankStatus}
@@ -256,7 +331,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
       <div className="adm-pagination">
         <button
           className="adm-btn-page"
-          onClick={() => setPage(p => p - 1)}
+          onClick={() => { setSelectedIds([]); setBulkMessage(''); setPage(p => p - 1) }}
           disabled={!hasPrev}
           aria-label="Previous page"
         >
@@ -265,7 +340,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
         <span className="adm-page-info">Page {page}</span>
         <button
           className="adm-btn-page"
-          onClick={() => setPage(p => p + 1)}
+          onClick={() => { setSelectedIds([]); setBulkMessage(''); setPage(p => p + 1) }}
           disabled={!hasMore}
           aria-label="Next page"
         >
