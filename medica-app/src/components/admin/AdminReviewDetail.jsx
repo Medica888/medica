@@ -40,6 +40,16 @@ const RUBRIC_OPTIONS = [
   ['fail', 'Fail'],
 ]
 
+const READINESS_REASON_LABELS = {
+  not_student_visible_status: 'Question must be approved or restored.',
+  missing_source_refs: 'Add at least one source reference.',
+  medical_accuracy_not_pass: 'Medical accuracy must be marked pass.',
+  item_writing_blocked: 'Resolve major/failing item-writing issues.',
+  difficulty_calibration_blocked: 'Resolve major/failing difficulty-calibration issues.',
+  hard_mode_needs_expert_review: 'NBME/UWorld-style content requires expert review.',
+  needs_source_or_expert_review: 'Mark as source checked or expert reviewed.',
+}
+
 function fmt(dateStr) {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('en-US', {
@@ -78,6 +88,11 @@ function splitSourceRefs(value) {
     .filter(Boolean)
 }
 
+function readinessReasonLabels(reasons) {
+  if (!Array.isArray(reasons)) return []
+  return reasons.map(reason => READINESS_REASON_LABELS[reason] || String(reason).replace(/_/g, ' '))
+}
+
 export default function AdminReviewDetail({ questionId, onBack }) {
   const { data: detail, loading, error } = useReviewDetail(questionId)
   const { data: histData, loading: histLoading, refetch: refetchHistory } = useReviewHistory(questionId)
@@ -93,12 +108,14 @@ export default function AdminReviewDetail({ questionId, onBack }) {
   const [localStatus, setLocalStatus] = useState(null) // optimistic update after action
   const [localReviewMetadata, setLocalReviewMetadata] = useState(null)
   const [localCommercialReady, setLocalCommercialReady] = useState(null)
+  const [localReadinessReasons, setLocalReadinessReasons] = useState(null)
   const [metadataSaved, setMetadataSaved] = useState(false)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalReviewMetadata(null)
     setLocalCommercialReady(null)
+    setLocalReadinessReasons(null)
     setMetadataSaved(false)
   }, [questionId])
 
@@ -109,6 +126,9 @@ export default function AdminReviewDetail({ questionId, onBack }) {
   const currentStatus = localStatus ?? question?.bankStatus
   const reviewMetadata = localReviewMetadata ?? question?.reviewMetadata ?? body.reviewMetadata ?? {}
   const commercialReady = localCommercialReady ?? (question?.commercialReady === true)
+  const readinessReasons = localCommercialReady === true
+    ? []
+    : readinessReasonLabels(localReadinessReasons ?? question?.readinessReasons)
 
   const options = parseOptions(body)
   const correctLetter = normalizeAnswerLetter(body.correct ?? body.correctAnswer ?? body.correct_answer)
@@ -144,6 +164,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
       })
       setLocalReviewMetadata(result?.question?.reviewMetadata ?? null)
       setLocalCommercialReady(Boolean(result?.question?.commercialReady))
+      setLocalReadinessReasons(Array.isArray(result?.question?.readinessReasons) ? result.question.readinessReasons : null)
       setMetadataSaved(true)
       refetchHistory()
     } catch {
@@ -324,6 +345,13 @@ export default function AdminReviewDetail({ questionId, onBack }) {
               <small>
                 Requires sources, medical accuracy pass, and the correct review level.
               </small>
+              {!commercialReady && readinessReasons.length > 0 && (
+                <ul className="adm-ready-reasons">
+                  {readinessReasons.map(reason => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              )}
             </div>
             {metadataError && (
               <div className="adm-action-err" role="alert">{metadataError.message}</div>

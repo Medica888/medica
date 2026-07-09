@@ -46,6 +46,16 @@ const STATUS_LABEL = {
   legacy:              'Legacy',
 }
 
+const READINESS_REASON_LABELS = {
+  not_student_visible_status: 'Not approved/restored',
+  missing_source_refs: 'Missing source',
+  medical_accuracy_not_pass: 'Medical accuracy not pass',
+  item_writing_blocked: 'Item-writing issue',
+  difficulty_calibration_blocked: 'Difficulty issue',
+  hard_mode_needs_expert_review: 'Needs expert review',
+  needs_source_or_expert_review: 'Needs source check',
+}
+
 function fmt(dateStr) {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -56,6 +66,11 @@ function scoreColor(score) {
   if (score >= 80)  return 'var(--green)'
   if (score >= 60)  return 'var(--orange)'
   return 'var(--red)'
+}
+
+function readinessReasonText(reasons) {
+  if (!Array.isArray(reasons) || reasons.length === 0) return ''
+  return reasons.map(reason => READINESS_REASON_LABELS[reason] || String(reason).replace(/_/g, ' ')).join(', ')
 }
 
 export default function AdminReviewQueue({ onSelectDetail }) {
@@ -203,9 +218,16 @@ export default function AdminReviewQueue({ onSelectDetail }) {
                     </span>
                   </td>
                   <td>
-                    <span className={`adm-ready-pill${q.commercialReady ? ' ready' : ''}`}>
-                      {q.commercialReady ? 'Ready' : 'Not ready'}
-                    </span>
+                    <div className="adm-ready-cell">
+                      <span className={`adm-ready-pill${q.commercialReady ? ' ready' : ''}`}>
+                        {q.commercialReady ? 'Ready' : 'Not ready'}
+                      </span>
+                      {!q.commercialReady && readinessReasonText(q.readinessReasons) && (
+                        <span className="adm-ready-reason">
+                          {readinessReasonText(q.readinessReasons)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <span style={{ color: scoreColor(q.validationScore), fontVariantNumeric: 'tabular-nums' }}>

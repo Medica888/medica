@@ -9,6 +9,7 @@ import {
 } from '../../lib/medicaTaxonomy.js';
 import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
 import {
+  getCommercialReadinessReasons,
   isCommerciallyContentReady,
   mergeReviewedContentMetadataIntoBody,
   normalizeReviewedContentMetadata,
@@ -71,6 +72,15 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       validatorVersion: entry.validatorVersion,
       reviewMetadata,
       commercialReady: isCommerciallyContentReady({
+        bankStatus: entry.bankStatus,
+        difficulty: entry.difficulty,
+        source: entry.source,
+        aiModel: entry.aiModel,
+        validatorVersion: entry.validatorVersion,
+        body,
+        reviewMetadata,
+      }),
+      readinessReasons: getCommercialReadinessReasons({
         bankStatus: entry.bankStatus,
         difficulty: entry.difficulty,
         source: entry.source,
@@ -445,6 +455,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       options: this.sanitizeOptions(e.body),
       reviewMetadata: this.enrichEntry(externalId, e).reviewMetadata as Record<string, unknown>,
       commercialReady: Boolean(this.enrichEntry(externalId, e).commercialReady),
+      readinessReasons: this.enrichEntry(externalId, e).readinessReasons as string[],
     }));
 
     return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };

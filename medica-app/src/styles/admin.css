@@ -153,6 +153,10 @@
                         color: var(--green); }
 .adm-ready-card span { font-size: 13px; font-weight: 800; }
 .adm-ready-card small { color: var(--t3); font-size: 11.5px; line-height: 1.4; }
+.adm-ready-cell     { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.adm-ready-reason   { max-width: 190px; color: var(--t3); font-size: 10.5px; line-height: 1.35; }
+.adm-ready-reasons  { margin: 5px 0 0; padding-left: 16px; color: var(--t2); font-size: 11.5px;
+                      line-height: 1.45; }
 .adm-review-form    { display: flex; flex-direction: column; gap: 9px; }
 .adm-review-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px;
                          font-weight: 700; letter-spacing: .04em; text-transform: uppercase;

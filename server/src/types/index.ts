@@ -79,6 +79,7 @@ export interface CatalogQuestion {
   options: Array<{ letter: string; text: string }>;
   reviewMetadata?: Record<string, unknown>;
   commercialReady?: boolean;
+  readinessReasons?: string[];
 }
 
 export interface SubjectStats {

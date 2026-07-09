@@ -9,6 +9,7 @@ import {
 } from '../../lib/medicaTaxonomy.js';
 import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
 import {
+  getCommercialReadinessReasons,
   isCommerciallyContentReady,
   mergeReviewedContentMetadataIntoBody,
   normalizeReviewedContentMetadata,
@@ -33,6 +34,15 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       body: mergeReviewedContentMetadataIntoBody(body, reviewMetadata),
       reviewMetadata,
       commercialReady: isCommerciallyContentReady({
+        bankStatus: row['bankStatus'] == null ? null : String(row['bankStatus']),
+        difficulty: row['difficulty'] == null ? null : String(row['difficulty']),
+        source: row['source'] == null ? null : String(row['source']),
+        aiModel: row['aiModel'] == null ? null : String(row['aiModel']),
+        validatorVersion: row['validatorVersion'] == null ? null : String(row['validatorVersion']),
+        body,
+        reviewMetadata,
+      }),
+      readinessReasons: getCommercialReadinessReasons({
         bankStatus: row['bankStatus'] == null ? null : String(row['bankStatus']),
         difficulty: row['difficulty'] == null ? null : String(row['difficulty']),
         source: row['source'] == null ? null : String(row['source']),
@@ -593,6 +603,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
         ...row,
         reviewMetadata: enriched['reviewMetadata'] as Record<string, unknown>,
         commercialReady: Boolean(enriched['commercialReady']),
+        readinessReasons: enriched['readinessReasons'] as string[],
       };
     });
 

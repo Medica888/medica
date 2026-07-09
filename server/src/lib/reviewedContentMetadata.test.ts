@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getCommercialReadinessReasons,
   isCommerciallyContentReady,
   mergeReviewedContentMetadataIntoBody,
   normalizeReviewedContentMetadata,
@@ -75,6 +76,39 @@ describe('reviewed content metadata', () => {
       ...base,
       reviewMetadata: { ...base.reviewMetadata, reviewStatus: 'expert_reviewed' },
     })).toBe(true);
+  });
+
+  it('explains why content is not commercially ready', () => {
+    expect(getCommercialReadinessReasons({
+      bankStatus: 'approved',
+      difficulty: 'NBME Difficult',
+      reviewMetadata: {
+        reviewStatus: 'source_checked',
+        sourceRefs: [],
+        medicalAccuracyStatus: 'minor_issue',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'fail',
+      },
+    })).toEqual([
+      'missing_source_refs',
+      'medical_accuracy_not_pass',
+      'difficulty_calibration_blocked',
+      'hard_mode_needs_expert_review',
+    ]);
+  });
+
+  it('returns no readiness reasons for commercially ready content', () => {
+    expect(getCommercialReadinessReasons({
+      bankStatus: 'approved',
+      difficulty: 'Balanced',
+      reviewMetadata: {
+        reviewStatus: 'source_checked',
+        sourceRefs: ['USMLE Content Outline'],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      },
+    })).toEqual([]);
   });
 
   it('merges normalized metadata into the body without dropping question content', () => {

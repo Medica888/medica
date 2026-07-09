@@ -215,6 +215,7 @@ describe('AdminReviewDetail', () => {
     useReviewDetail.mockReturnValue({
       data: makeDetail({
         commercialReady: false,
+        readinessReasons: ['missing_source_refs', 'needs_source_or_expert_review'],
         reviewMetadata: {
           reviewStatus: 'validator_passed',
           sourceRefs: [],
@@ -230,6 +231,8 @@ describe('AdminReviewDetail', () => {
     render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)
 
     expect(screen.getByText('Not commercial ready')).toBeTruthy()
+    expect(screen.getByText('Add at least one source reference.')).toBeTruthy()
+    expect(screen.getByText('Mark as source checked or expert reviewed.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Review status'), { target: { value: 'source_checked' } })
     fireEvent.change(screen.getByLabelText('Medical accuracy'), { target: { value: 'pass' } })
     fireEvent.change(screen.getByLabelText('Item writing'), { target: { value: 'pass' } })

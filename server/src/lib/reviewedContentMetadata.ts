@@ -56,6 +56,15 @@ export interface ReviewedContentMetadata {
   };
 }
 
+export type CommercialReadinessReason =
+  | 'not_student_visible_status'
+  | 'missing_source_refs'
+  | 'medical_accuracy_not_pass'
+  | 'item_writing_blocked'
+  | 'difficulty_calibration_blocked'
+  | 'hard_mode_needs_expert_review'
+  | 'needs_source_or_expert_review';
+
 const REVIEW_STATUS_SET = new Set<string>(REVIEW_STATUSES);
 const REVIEWER_DECISION_SET = new Set<string>(REVIEWER_DECISIONS);
 const RUBRIC_STATUS_SET = new Set<string>(REVIEW_RUBRIC_STATUSES);
@@ -161,20 +170,41 @@ export function isCommerciallyContentReady(input: {
   validatorVersion?: string | null;
   body?: Record<string, unknown> | null;
 }): boolean {
+  return getCommercialReadinessReasons(input).length === 0;
+}
+
+export function getCommercialReadinessReasons(input: {
+  bankStatus?: string | null;
+  difficulty?: string | null;
+  reviewMetadata?: unknown;
+  source?: string | null;
+  aiModel?: string | null;
+  validatorVersion?: string | null;
+  body?: Record<string, unknown> | null;
+}): CommercialReadinessReason[] {
+  const reasons: CommercialReadinessReason[] = [];
   const bankStatus = String(input.bankStatus || '');
-  if (!['approved', 'restored'].includes(bankStatus)) return false;
+  if (!['approved', 'restored'].includes(bankStatus)) {
+    reasons.push('not_student_visible_status');
+  }
 
   const meta = normalizeReviewedContentMetadata(input.reviewMetadata, input);
-  if (meta.sourceRefs.length === 0) return false;
-  if (meta.medicalAccuracyStatus !== 'pass') return false;
-  if (meta.itemWritingStatus === 'major_issue' || meta.itemWritingStatus === 'fail') return false;
-  if (meta.difficultyCalibrationStatus === 'major_issue' || meta.difficultyCalibrationStatus === 'fail') return false;
+  if (meta.sourceRefs.length === 0) reasons.push('missing_source_refs');
+  if (meta.medicalAccuracyStatus !== 'pass') reasons.push('medical_accuracy_not_pass');
+  if (meta.itemWritingStatus === 'major_issue' || meta.itemWritingStatus === 'fail') reasons.push('item_writing_blocked');
+  if (meta.difficultyCalibrationStatus === 'major_issue' || meta.difficultyCalibrationStatus === 'fail') {
+    reasons.push('difficulty_calibration_blocked');
+  }
 
   const difficulty = String(input.difficulty || '');
   const hardMode = difficulty === 'UWorld Challenge' || difficulty === 'NBME Difficult';
-  return hardMode
-    ? meta.reviewStatus === 'expert_reviewed'
-    : meta.reviewStatus === 'source_checked' || meta.reviewStatus === 'expert_reviewed';
+  if (hardMode) {
+    if (meta.reviewStatus !== 'expert_reviewed') reasons.push('hard_mode_needs_expert_review');
+  } else if (meta.reviewStatus !== 'source_checked' && meta.reviewStatus !== 'expert_reviewed') {
+    reasons.push('needs_source_or_expert_review');
+  }
+
+  return reasons;
 }
 
 export function isStudentVisibleStatus(status: GeneratedBankStatus | string | null | undefined): boolean {

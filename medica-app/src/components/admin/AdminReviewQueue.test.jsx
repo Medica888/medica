@@ -139,6 +139,18 @@ describe('AdminReviewQueue', () => {
     expect(document.querySelector('.adm-ready-pill.ready')?.textContent).toBe('Ready')
   })
 
+  it('shows reviewer-facing readiness blockers for not-ready questions', () => {
+    const q = makeQuestion({
+      reviewMetadata: { reviewStatus: 'validator_passed' },
+      commercialReady: false,
+      readinessReasons: ['missing_source_refs', 'needs_source_or_expert_review'],
+    })
+    useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    expect(screen.getByText('Not ready')).toBeTruthy()
+    expect(screen.getByText('Missing source, Needs source check')).toBeTruthy()
+  })
+
   it('renders status badge for approved question', () => {
     const q = makeQuestion({ bankStatus: 'approved' })
     useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
