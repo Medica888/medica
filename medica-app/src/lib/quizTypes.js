@@ -13,7 +13,7 @@ import { CANONICAL_SUBJECTS, CANONICAL_SYSTEMS } from './usmleTaxonomy.js'
  * @property {string} clinicalFocus
  * @property {string} createdAt
  *
- * @typedef {'A'|'B'|'C'|'D'} OptionLetter
+ * @typedef {'A'|'B'|'C'|'D'|'E'|'F'|'G'|'H'|'I'|'J'|'K'|'L'} OptionLetter
  *
  * @typedef {Object} QuizOption
  * @property {OptionLetter} letter
@@ -25,7 +25,7 @@ import { CANONICAL_SUBJECTS, CANONICAL_SYSTEMS } from './usmleTaxonomy.js'
  * @property {string} system
  * @property {string} difficulty
  * @property {string} stem
- * @property {[QuizOption, QuizOption, QuizOption, QuizOption]} options
+ * @property {QuizOption[]} options - 4 options by default; trusted/imported USMLE-style items may have 5-12 (A-L)
  * @property {OptionLetter} correct
  * @property {string} explanation
  * @property {string} pearl

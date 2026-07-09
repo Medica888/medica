@@ -1,5 +1,5 @@
 import { shuffleQuestionOptions } from './questionNormalizer.js'
-import { getQuestionCorrectLetter } from './answerNormalize.js'
+import { ANSWER_LETTERS, getQuestionCorrectLetter, normalizeOptions } from './answerNormalize.js'
 import { isStandardized40QuestionBlock, normalizeQuizConfigForGeneration } from './quizTypes.js'
 import {
   enrichQuestionWithUsmleTaxonomy,
@@ -39,22 +39,50 @@ function _seenStateFromHistory() {
 }
 
 /**
- * Ensures a question has exactly 4 options labeled A–D.
+ * Ensures a question has 4-12 options labeled sequentially A-L (most stay at 4;
+ * trusted/imported Step-style items may have more). Never truncates a valid
+ * question and never mislabels the correct answer.
  * @param {object} q
  * @returns {import('./quizTypes').QuizQuestion}
  */
 export function normalizeQuestion(q) {
-  const letters = ['A', 'B', 'C', 'D']
-  const opts = (q.options || []).slice(0, 4).map((o, i) => ({
-    letter: letters[i],
-    text: typeof o === 'string' ? o : (o?.text ?? ''),
+  // Support q.correctAnswer (AI-generated) or q.correct (mock), numeric or letter.
+  // Locate the correct option's position BEFORE relabeling - normalizeOptions may
+  // drop a malformed entry, shifting later positions, so comparing the original
+  // letter against the already-relabeled array (post-shift) would silently point
+  // at the wrong option's text instead of the one actually authored as correct.
+  const preLabelOpts = normalizeOptions(q.options).slice(0, ANSWER_LETTERS.length)
+  const rawCorrect = getQuestionCorrectLetter(q)
+  const correctIdx = preLabelOpts.findIndex(option => option.letter === rawCorrect)
+  if (correctIdx < 0) {
+    console.error(`[normalizeQuestion] correct answer '${rawCorrect}' has no matching option for question ${q.id}`)
+    throw Object.assign(
+      new Error('This question could not be loaded. Please try again or choose a different question.'),
+      { code: 'INVALID_CORRECT_ANSWER', questionId: q.id },
+    )
+  }
+
+  const opts = preLabelOpts.map((o, i) => ({
+    letter: ANSWER_LETTERS[i],
+    text: o.text,
   }))
-  // Support q.correctAnswer (AI-generated) or q.correct (mock), numeric or letter
-  const correct = getQuestionCorrectLetter(q) || 'A'
+  const correct = ANSWER_LETTERS[correctIdx]
+
+  // Remap optionExplanations from original letter -> new letter using the same
+  // index correspondence as the options relabel above, so a dropped/shifted
+  // option's explanation stays attached to the option it was actually written for.
+  const rawExplanations = q.optionExplanations || {}
+  const remappedExplanations = {}
+  preLabelOpts.forEach((o, i) => {
+    const exp = rawExplanations[o.letter]
+    if (exp) remappedExplanations[ANSWER_LETTERS[i]] = exp
+  })
+
   const normalized = normalizeQuestionTaxonomyFields({
     ...q,
     options: opts,
     correct,
+    optionExplanations: remappedExplanations,
   })
 
   return enrichQuestionWithUsmleTaxonomy({
@@ -79,7 +107,7 @@ function buildOptionExplanations(question) {
   const scope = [question.subject, question.system].filter(Boolean).join(' / ')
   const filled = {}
 
-  for (const letter of ['A', 'B', 'C', 'D']) {
+  for (const { letter } of question.options || []) {
     const current = String(existing[letter] || '').trim()
     if (current) {
       filled[letter] = letter === correct ? current : _strengthenWrongOptionExplanation(current, {
@@ -247,7 +275,7 @@ export function selectStandardizedStep1Questions(questions, questionCount = 20, 
   return _shuffleWith(selected, random)
 }
 
-// Coach Mode can use every active local question because normalization guarantees A-D explanations.
+// Coach Mode can use every active local question because normalization guarantees option explanations.
 export const ENRICHED_IDS = new Set(ACTIVE_QUESTION_BANK.map(q => q.id))
 
 /** Returns active, locally reported-filtered, identity-deduplicated questions for QBank browsing. */

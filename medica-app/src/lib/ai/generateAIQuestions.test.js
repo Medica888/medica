@@ -21,6 +21,7 @@ import {
   getGenerationTimeoutMs,
   getGenerationTimeoutMessage,
   isHardMedicalReviewGeneration,
+  validateBankQuestion,
 } from './generateAIQuestions.js'
 import {
   appendTrustedGeneratedQuestions,
@@ -651,6 +652,99 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     const result = await generateAIQuestions(baseConfig)
     expect(result).toHaveLength(5)
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('allows rare extended option sets from the validated bank path', async () => {
+    const extended = makeBankQuestion(99, {
+      id: 'bank-extended-five',
+      correct: 'E',
+      options: [
+        { letter: 'A', text: 'Alpha distractor' },
+        { letter: 'B', text: 'Beta distractor' },
+        { letter: 'C', text: 'Gamma distractor' },
+        { letter: 'D', text: 'Delta distractor' },
+        { letter: 'E', text: 'Correct fifth mechanism' },
+      ],
+      explanation: 'Correct fifth mechanism explains the vignette and is the best answer.',
+      optionExplanations: {
+        A: 'Alpha is incorrect because it does not explain the vignette.',
+        B: 'Beta is incorrect because it does not explain the vignette.',
+        C: 'Gamma is incorrect because it does not explain the vignette.',
+        D: 'Delta is incorrect because it does not explain the vignette.',
+        E: 'Correct fifth mechanism is correct because it explains the vignette.',
+      },
+    })
+
+    expect(validateBankQuestion(extended, { mode: 'coach' })).toHaveLength(0)
+  })
+
+  it('rejects a trusted/bank candidate missing the E option explanation in coach mode', async () => {
+    const missingE = makeBankQuestion(98, {
+      id: 'bank-extended-missing-e-explanation',
+      correct: 'E',
+      options: [
+        { letter: 'A', text: 'Alpha distractor' },
+        { letter: 'B', text: 'Beta distractor' },
+        { letter: 'C', text: 'Gamma distractor' },
+        { letter: 'D', text: 'Delta distractor' },
+        { letter: 'E', text: 'Correct fifth mechanism' },
+      ],
+      explanation: 'Correct fifth mechanism explains the vignette and is the best answer.',
+      optionExplanations: {
+        A: 'Alpha is incorrect because it does not explain the vignette.',
+        B: 'Beta is incorrect because it does not explain the vignette.',
+        C: 'Gamma is incorrect because it does not explain the vignette.',
+        D: 'Delta is incorrect because it does not explain the vignette.',
+        // E intentionally omitted
+      },
+    })
+
+    expect(validateBankQuestion(missingE, { mode: 'coach' })).toContain('missing_option_explanations')
+  })
+
+  it('rejects a bank/trusted candidate with an M option (beyond the A-L ceiling)', async () => {
+    const tooMany = makeBankQuestion(97, {
+      id: 'bank-extended-m-option',
+      correct: 'A',
+      options: [
+        { letter: 'A', text: 'Correct mechanism' },
+        { letter: 'B', text: 'Distractor B' },
+        { letter: 'C', text: 'Distractor C' },
+        { letter: 'D', text: 'Distractor D' },
+        { letter: 'E', text: 'Distractor E' },
+        { letter: 'F', text: 'Distractor F' },
+        { letter: 'G', text: 'Distractor G' },
+        { letter: 'H', text: 'Distractor H' },
+        { letter: 'I', text: 'Distractor I' },
+        { letter: 'J', text: 'Distractor J' },
+        { letter: 'K', text: 'Distractor K' },
+        { letter: 'L', text: 'Distractor L' },
+        { letter: 'M', text: 'Distractor M - beyond the ceiling' },
+      ],
+    })
+
+    expect(validateBankQuestion(tooMany, { mode: 'practice' })).toContain('invalid_options')
+  })
+
+  it('still rejects extended option sets returned by live AI generation', async () => {
+    const extended = makeQuestion(0, {
+      correct: 'E',
+      options: [
+        { letter: 'A', text: 'Alpha distractor' },
+        { letter: 'B', text: 'Beta distractor' },
+        { letter: 'C', text: 'Gamma distractor' },
+        { letter: 'D', text: 'Delta distractor' },
+        { letter: 'E', text: 'Correct fifth mechanism' },
+      ],
+      explanation: 'Correct fifth mechanism explains the unique clinical findings.',
+    })
+
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: [extended, ...makeQuestions(4, 20)] } }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result).toHaveLength(4)
+    expect(result.find(q => q.id === 'uuid-0')).toBeUndefined()
   })
 
   it('migrates the legacy standardized preset to the current 20Q bank-first block', async () => {

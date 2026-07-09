@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ANSWER_LETTERS } from './answerNormalize.js'
 import { normalizeQuestionStem, validateUniqueQuestions } from './questionDedup.js'
 
 vi.mock('./storage.js', () => ({
@@ -28,6 +29,7 @@ import {
   getBrowsableQuestionBank,
   getStep1BlueprintGroup,
   STEP1_STANDARD_BLOCK_BLUEPRINT,
+  normalizeQuestion,
   validateHardDifficultyQuestion,
 } from './mockQuestions.js'
 import {
@@ -462,7 +464,7 @@ describe('createQuizSession — test 5: coach 10Q has optionExplanations A-D', (
     expect(session.questions).toHaveLength(10)
     for (const q of session.questions) {
       expect(q.optionExplanations, `${q.id} missing optionExplanations`).toBeTruthy()
-      for (const letter of ['A', 'B', 'C', 'D']) {
+      for (const { letter } of q.options) {
         expect(
           String(q.optionExplanations[letter] ?? '').trim(),
           `${q.id} has empty optionExplanations[${letter}]`,
@@ -476,7 +478,7 @@ describe('createQuizSession — test 5: coach 10Q has optionExplanations A-D', (
     for (let i = 0; i < 5; i++) {
       const session = createQuizSession({ ...baseConfig, mode: 'coach', questionCount: 5 })
       for (const q of session.questions) {
-        expect(['A', 'B', 'C', 'D'].every(l => String(q.optionExplanations?.[l] ?? '').trim())).toBe(true)
+        expect(q.options.every(option => String(q.optionExplanations?.[option.letter] ?? '').trim())).toBe(true)
       }
     }
   })
@@ -745,22 +747,108 @@ describe('QUESTION_BANK — structural and semantic validation', () => {
     expect(failures, failures.join('\n')).toHaveLength(0)
   })
 
-  it('every question has exactly 4 options labeled A B C D in order', () => {
-    const LETTERS = ['A', 'B', 'C', 'D']
+  it('every question has a supported Step-style option set labeled sequentially', () => {
     for (const q of QUESTION_BANK) {
-      expect(q.options, `${q.id} bad options`).toHaveLength(4)
+      expect(q.options.length, `${q.id} bad option count`).toBeGreaterThanOrEqual(4)
+      expect(q.options.length, `${q.id} bad option count`).toBeLessThanOrEqual(ANSWER_LETTERS.length)
       q.options.forEach((o, i) => {
-        expect(o.letter, `${q.id} opt ${i} letter`).toBe(LETTERS[i])
+        expect(o.letter, `${q.id} opt ${i} letter`).toBe(ANSWER_LETTERS[i])
         expect(String(o.text || '').trim(), `${q.id} opt ${i} empty text`).not.toBe('')
       })
     }
   })
 
-  it('every question has a valid correct answer (A/B/C/D)', () => {
-    const VALID = new Set(['A', 'B', 'C', 'D'])
+  it('every question has a valid correct answer matching one rendered option', () => {
+    const VALID = new Set(ANSWER_LETTERS)
     for (const q of QUESTION_BANK) {
       expect(VALID.has(q.correct), `${q.id} invalid correct: ${q.correct}`).toBe(true)
+      expect(q.options.some(option => option.letter === q.correct), `${q.id} correct option missing: ${q.correct}`).toBe(true)
     }
+  })
+
+  it('keeps longer option sets rare in the authored bank', () => {
+    const extended = QUESTION_BANK.filter(q => q.options.length > 4)
+    expect(extended.length / QUESTION_BANK.length).toBeLessThanOrEqual(0.05)
+  })
+
+  it('normalizes rare longer option sets without truncating a correct E option', () => {
+    const question = normalizeQuestion({
+      id: 'rare-five-option-import',
+      stem: 'A patient stem with enough clinical context for a rare longer answer set?',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      options: [
+        'A. Alpha distractor',
+        'B. Beta distractor',
+        'C. Gamma distractor',
+        'D. Delta distractor',
+        'E. Correct fifth answer',
+      ],
+      correct: 'E',
+      explanation: 'Correct fifth answer is the best answer because it matches the key clinical finding.',
+    })
+
+    expect(question.options).toHaveLength(5)
+    expect(question.options.map(option => option.letter)).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(question.correct).toBe('E')
+    expect(question.optionExplanations.E).toContain('Correct fifth answer')
+  })
+
+  it('safely excludes an option lettered M or beyond instead of mislabeling the rest', () => {
+    const question = normalizeQuestion({
+      id: 'rare-import-with-invalid-m-option',
+      stem: 'A patient stem with a malformed thirteenth option beyond the supported ceiling?',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      options: [
+        'A. Alpha distractor',
+        'B. Beta distractor',
+        'C. Gamma distractor',
+        'D. Delta distractor',
+        'M. Unsupported thirteenth-style option',
+      ],
+      correct: 'A',
+      explanation: 'Alpha distractor is the best answer because it matches the key clinical finding.',
+    })
+
+    expect(question.options).toHaveLength(4)
+    expect(question.options.map(option => option.letter)).toEqual(['A', 'B', 'C', 'D'])
+    expect(question.options.some(option => option.text.includes('Unsupported thirteenth'))).toBe(false)
+  })
+
+  it('keeps the correct answer pointed at the right text when a malformed middle option shifts positions', () => {
+    const question = normalizeQuestion({
+      id: 'shifted-correct-answer-guard',
+      stem: 'A patient stem with a malformed middle option that must not misalign the correct answer?',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      options: [
+        { letter: 'A', text: 'Alpha distractor' },
+        { letter: 'B', text: 'Beta distractor' },
+        { text: 'Malformed entry with no letter or id - must be dropped' },
+        { letter: 'D', text: 'Delta distractor (originally D)' },
+        { letter: 'E', text: 'Correct fifth answer (originally E)' },
+      ],
+      correct: 'E',
+      optionExplanations: {
+        A: 'Alpha is wrong.',
+        B: 'Beta is wrong.',
+        D: 'Delta is wrong.',
+        E: 'Correct fifth answer is correct.',
+      },
+      explanation: 'Correct fifth answer is the best answer.',
+    })
+
+    // The malformed entry is dropped, shifting D and E down by one position and
+    // relabeling them C and D - the correct answer must follow the shift, not
+    // stay pinned to the stale original letter 'E'.
+    expect(question.options).toHaveLength(4)
+    expect(question.options.map(option => option.letter)).toEqual(['A', 'B', 'C', 'D'])
+    expect(question.correct).toBe('D')
+    const correctOption = question.options.find(option => option.letter === question.correct)
+    expect(correctOption.text).toBe('Correct fifth answer (originally E)')
+    expect(question.optionExplanations.D).toContain('Correct fifth answer is correct')
+    expect(question.optionExplanations.C).toContain('Delta is wrong')
   })
 
   it('no duplicate question IDs', () => {
@@ -775,11 +863,11 @@ describe('QUESTION_BANK — structural and semantic validation', () => {
     expect(stemDupes, stemDupes.map(d => d.id).join(', ')).toHaveLength(0)
   })
 
-  it('every ENRICHED_ID has non-empty A B C D optionExplanations', () => {
+  it('every ENRICHED_ID has non-empty option explanations for every rendered option', () => {
     const failures = []
     for (const q of QUESTION_BANK) {
       if (!ENRICHED_IDS.has(q.id)) continue
-      for (const l of ['A', 'B', 'C', 'D']) {
+      for (const { letter: l } of q.options) {
         if (!String(q.optionExplanations?.[l] ?? '').trim()) {
           failures.push(`${q.id} missing optionExplanations[${l}]`)
         }
@@ -827,9 +915,9 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     expect(ENRICHED_IDS.size).toBe(ACTIVE_QUESTION_BANK.length)
   })
 
-  it('every local-bank question has A-D optionExplanations for Coach teaching', () => {
+  it('every local-bank question has option explanations for Coach teaching', () => {
     const coachReady = ACTIVE_QUESTION_BANK.filter(q =>
-      ['A', 'B', 'C', 'D'].every(letter => String(q.optionExplanations?.[letter] ?? '').trim()),
+      q.options.every(option => String(q.optionExplanations?.[option.letter] ?? '').trim()),
     )
 
     expect(coachReady.length).toBe(ACTIVE_QUESTION_BANK.length)
@@ -839,7 +927,7 @@ describe('QUESTION_BANK — coverage analytics (hard gates)', () => {
     const failures = []
 
     for (const q of QUESTION_BANK) {
-      for (const letter of ['A', 'B', 'C', 'D']) {
+      for (const { letter } of q.options) {
         if (letter === q.correct) continue
         const explanation = String(q.optionExplanations?.[letter] ?? '')
         if (!/\b(not|does not|do not|instead|whereas|however|although|unlike|lacks?|incorrect|wrong|would|rather|contrast|describes?|causes?|associated with|best answer|less likely|rules out|incompatible|not the|fails to|neither|feature of|opposite of|impossible|excludes?|inferior)\b/i.test(explanation) || explanation.length < 70) {

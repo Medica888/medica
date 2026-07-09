@@ -1,4 +1,5 @@
-const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+export const ANSWER_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+const LETTERS = ANSWER_LETTERS
 
 /**
  * Coerces common answer representations to a single uppercase Step-style letter.
@@ -20,6 +21,7 @@ export function normalizeAnswerLetter(value) {
 export function normalizeOptions(options) {
   if (!Array.isArray(options)) return []
   return options.flatMap(opt => {
+    if (opt === null || opt === undefined) return []
     if (typeof opt === 'string') {
       const m = opt.match(/^([A-La-l])[.\s]\s*(.+)/)
       return m ? [{ letter: m[1].toUpperCase(), text: m[2].trim() }] : []

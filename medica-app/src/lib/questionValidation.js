@@ -2,7 +2,7 @@
 // Extracted from mockQuestions.js into a leaf module (no storage.js/apiClient.js imports)
 // so it can be reused by both the app (mockQuestions.js) and offline Node tooling
 // (scripts/exportAuthoredQuestions.mjs) without duplicating the rules.
-import { getQuestionCorrectLetter } from './answerNormalize.js'
+import { ANSWER_LETTERS, getQuestionCorrectLetter, normalizeOptions } from './answerNormalize.js'
 import { PHYSICIAN_TASKS, USMLE_CONTENT_AREAS } from './usmleTaxonomy.js'
 
 export const HARD_DIFFICULTY_TARGETS = {
@@ -59,6 +59,10 @@ function _optionTexts(question) {
     : []
 }
 
+function _optionLetters(question) {
+  return normalizeOptions(question.options).map(option => option.letter)
+}
+
 function _normalizeHardOption(text) {
   return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
@@ -77,17 +81,19 @@ function _hasDuplicateOptionMeaning(options) {
 }
 
 function _hasAllOptionExplanations(question) {
-  return ['A', 'B', 'C', 'D'].every(letter => String(question.optionExplanations?.[letter] ?? '').trim())
+  const letters = _optionLetters(question)
+  return letters.length > 0 && letters.every(letter => String(question.optionExplanations?.[letter] ?? '').trim())
 }
 
 function _hasDeepUworldOptionExplanations(question, minLength) {
   if (minLength <= 0) return true
-  return ['A', 'B', 'C', 'D'].every(letter => String(question.optionExplanations?.[letter] ?? '').trim().length >= minLength)
+  const letters = _optionLetters(question)
+  return letters.length > 0 && letters.every(letter => String(question.optionExplanations?.[letter] ?? '').trim().length >= minLength)
 }
 
 function _wrongOptionContrastCount(question) {
   const correct = getQuestionCorrectLetter(question)
-  return ['A', 'B', 'C', 'D'].filter(letter => {
+  return _optionLetters(question).filter(letter => {
     if (letter === correct) return false
     return WRONG_OPTION_CONTRAST_RE.test(String(question.optionExplanations?.[letter] || ''))
   }).length
@@ -95,7 +101,7 @@ function _wrongOptionContrastCount(question) {
 
 function _hasNbmeClueLeakage(question, stem) {
   const correct = getQuestionCorrectLetter(question)
-  const correctText = _optionTexts(question)[['A', 'B', 'C', 'D'].indexOf(correct)] || ''
+  const correctText = normalizeOptions(question.options).find(option => option.letter === correct)?.text || ''
   const answer = _normalizeHardOption(correctText)
   const normalizedStem = _normalizeHardOption(stem)
   if (!answer || answer.length < 9) return false
@@ -126,7 +132,7 @@ function validateNbmeDifficultyQuestion(question) {
   if (!NBME_CLINICAL_SIGNAL_RE.test(stem) && _clinicalSignalCount(stem) === 0) reasons.push('weak_clinical_signal')
   if (!NBME_LEAD_IN_RE.test(stem) || !/\?\s*$/.test(stem)) reasons.push('weak_single_best_answer_lead_in')
   if (NBME_TEACHING_STEM_RE.test(stem)) reasons.push('teaching_language_in_stem')
-  if (options.length !== 4 && options.length !== 5 && options.length !== 6) reasons.push('invalid_options')
+  if (options.length < 4 || options.length > ANSWER_LETTERS.length) reasons.push('invalid_options')
   if (options.some(text => !text || text.length < 4)) reasons.push('weak_distractors')
   if (options.some(text => text.length > 160)) reasons.push('non_concise_nbme_options')
   if (options.some(text => GENERIC_HARD_OPTION_RE.test(text))) reasons.push('low_plausibility_hard_options')
@@ -157,7 +163,7 @@ export function validateHardDifficultyQuestion(question) {
   if (!LEAD_IN_RE.test(stem) || !/\?\s*$/.test(stem)) reasons.push('weak_single_best_answer_lead_in')
   if (_reasoningTermCount(combinedReasoningText) < rules.minReasoningTerms) reasons.push('insufficient_reasoning_depth')
   if (explanation.length < rules.explanationMin) reasons.push('hard_explanation_too_short')
-  if (options.length !== 4 || options.some(text => text.length < rules.minOptionLength)) reasons.push('weak_hard_distractors')
+  if (options.length < 4 || options.length > ANSWER_LETTERS.length || options.some(text => text.length < rules.minOptionLength)) reasons.push('weak_hard_distractors')
   if (options.some(text => _wordCount(text) < rules.minOptionWordCount || GENERIC_HARD_OPTION_RE.test(text))) reasons.push('low_plausibility_hard_options')
   if (_hasDuplicateOptionMeaning(options)) reasons.push('duplicated_hard_options')
   _validateHardQuestionMetadata(question, reasons)

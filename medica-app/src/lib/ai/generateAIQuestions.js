@@ -1,6 +1,6 @@
 import { normalizeQuestionStem, getQuestionFingerprint, filterUnseenQuestions } from '../questionDedup.js'
 import { generate, isAuthenticated } from '../apiClient.js'
-import { getQuestionCorrectLetter } from '../answerNormalize.js'
+import { ANSWER_LETTERS, getQuestionCorrectLetter, normalizeOptions } from '../answerNormalize.js'
 import { enrichQuestionWithUsmleTaxonomy } from '../usmleTaxonomy.js'
 import { isStandardized40QuestionBlock, normalizeQuizConfigForGeneration } from '../quizTypes.js'
 import {
@@ -285,7 +285,9 @@ function _getBankCandidates(config, seenState) {
   // the AI fill step covers the shortfall (static content can't be repaired in-client).
   const rawBankQs = getBankQuestionsForConfig(config, seenState)
     .map(q => enrichQuestionWithUsmleTaxonomy(q, config))
-  const { valid: validBankQs, rejected: bankRejected } = _validateGeneratedQuestions(rawBankQs, config)
+  const { valid: validBankQs, rejected: bankRejected } = _validateGeneratedQuestions(rawBankQs, config, {
+    allowExtendedOptions: true,
+  })
   if (bankRejected > 0) {
     console.warn(`[generateAIQuestions] excluded ${bankRejected} static bank question(s) that failed validation`)
   }
@@ -349,19 +351,25 @@ function _getOptionText(question, letter) {
   return String(opt?.text || opt || '').trim()
 }
 
-function _validateStructure(question) {
+function _validateStructure(question, { allowExtendedOptions = false } = {}) {
   const reasons = []
   const correct = getQuestionCorrectLetter(question)
+  const options = normalizeOptions(question.options)
+  const allowedLetters = allowExtendedOptions ? ANSWER_LETTERS : ANSWER_LETTERS.slice(0, 4)
 
   if (!String(question.stem || '').trim()) reasons.push('missing_stem')
-  if (!['A', 'B', 'C', 'D'].includes(correct)) reasons.push('invalid_correct_answer')
-  if (!Array.isArray(question.options) || question.options.length !== 4) {
+  if (!allowedLetters.includes(correct)) reasons.push('invalid_correct_answer')
+  if (!Array.isArray(question.options)
+    || options.length !== question.options.length
+    || options.length < 4
+    || options.length > allowedLetters.length) {
     reasons.push('invalid_options')
     return reasons
   }
-  if (question.options.some((o, i) => o?.letter !== ['A', 'B', 'C', 'D'][i] || !String(o?.text || '').trim())) {
+  if (options.some((o, i) => o.letter !== allowedLetters[i] || !String(o.text || '').trim())) {
     reasons.push('invalid_options')
   }
+  if (!options.some(option => option.letter === correct)) reasons.push('invalid_correct_answer')
 
   return reasons
 }
@@ -413,11 +421,12 @@ function _contradictsCorrectAnswer(question) {
 function _hasCoachOptionExplanations(question, config) {
   if (config.mode !== 'coach') return true
   const exps = question.optionExplanations || {}
-  return ['A', 'B', 'C', 'D'].every(letter => String(exps[letter] || '').trim())
+  const options = normalizeOptions(question.options)
+  return options.length > 0 && options.every(option => String(exps[option.letter] || '').trim())
 }
 
-function _getQuestionRejectionReasons(question, config) {
-  const reasons = _validateStructure(question)
+function _getQuestionRejectionReasons(question, config, validationOptions = {}) {
+  const reasons = _validateStructure(question, validationOptions)
   if (reasons.length > 0) return reasons
 
   if (config.mode === 'exam') return []
@@ -429,12 +438,12 @@ function _getQuestionRejectionReasons(question, config) {
   return reasons
 }
 
-function _validateGeneratedQuestions(questions, config) {
+function _validateGeneratedQuestions(questions, config, validationOptions = {}) {
   const reasonCounts = {}
   const valid = []
 
   for (const q of questions) {
-    const reasons = _getQuestionRejectionReasons(q, config)
+    const reasons = _getQuestionRejectionReasons(q, config, validationOptions)
     if (reasons.length === 0) {
       valid.push(q)
     } else {
@@ -487,5 +496,5 @@ function _checkCount(questions, config) {
  * Exported for bank-wide test validation.
  */
 export function validateBankQuestion(question, config) {
-  return _getQuestionRejectionReasons(question, config)
+  return _getQuestionRejectionReasons(question, config, { allowExtendedOptions: true })
 }

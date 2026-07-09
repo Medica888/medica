@@ -1,5 +1,11 @@
 import HighlightedText from '../session/HighlightedText'
 import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
+import {
+  getCorrectLetter,
+  getUserLetter,
+  isQuestionCorrect,
+  normalizeOptions,
+} from '../../lib/examReviewHelpers'
 
 /**
  * @param {{
@@ -10,12 +16,17 @@ import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
  * }} props
  */
 export default function PracticeReviewCard({ question, userAnswer, questionNumber, highlights = [] }) {
-  const isCorrect = userAnswer === question.correct
-  const options = question.options.slice(0, 4)
+  const correctLetter = getCorrectLetter(question)
+  const userLetter = getUserLetter(userAnswer)
+  const isCorrect = isQuestionCorrect(question, userAnswer)
+  const options = normalizeOptions(question.options)
+  const explanationLetters = options
+    .map(opt => opt.letter)
+    .filter(letter => String(question.optionExplanations?.[letter] ?? '').trim())
 
   const getState = (opt) => {
-    if (opt.letter === question.correct) return 'correct'
-    if (opt.letter === userAnswer && !isCorrect) return 'wrong'
+    if (opt.letter === correctLetter) return 'correct'
+    if (opt.letter === userLetter && !isCorrect) return 'wrong'
     return 'neutral'
   }
 
@@ -61,6 +72,19 @@ export default function PracticeReviewCard({ question, userAnswer, questionNumbe
       {question.explanation && (
         <div className="prv-explanation">
           <p>{question.explanation}</p>
+        </div>
+      )}
+
+      {/* Option explanations */}
+      {explanationLetters.length > 0 && (
+        <div className="prv-opt-exps">
+          <div className="prv-opt-exps-label">Option Dissection</div>
+          {explanationLetters.map(letter => (
+            <div key={letter} className="prv-opt-exp-row">
+              <span className="prv-opt-exp-letter">{letter}</span>
+              <span className="prv-opt-exp-text">{question.optionExplanations[letter]}</span>
+            </div>
+          ))}
         </div>
       )}
 
