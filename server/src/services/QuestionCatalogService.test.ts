@@ -11,6 +11,30 @@ async function seedAuthored(repo: InMemoryQuestionsRepository, externalId: strin
     body: { stem, testedConcept, options: [{ letter: 'A', text: 'x' }], correct: 'A' },
     source: 'authored',
     bankStatus: 'approved',
+    reviewMetadata: {
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+      medicalAccuracyStatus: 'pass',
+      itemWritingStatus: 'pass',
+      difficultyCalibrationStatus: 'pass',
+    },
+  });
+}
+
+async function seedUnreadyAuthored(repo: InMemoryQuestionsRepository, externalId: string, stem: string, testedConcept = 'concept') {
+  await repo.upsertByExternalId(externalId, {
+    subject: 'Cardiology',
+    system: 'Cardiovascular',
+    body: { stem, testedConcept, options: [{ letter: 'A', text: 'x' }], correct: 'A' },
+    source: 'authored',
+    bankStatus: 'approved',
+    reviewMetadata: {
+      reviewStatus: 'validator_passed',
+      sourceRefs: [],
+      medicalAccuracyStatus: 'pass',
+      itemWritingStatus: 'pass',
+      difficultyCalibrationStatus: 'pass',
+    },
   });
 }
 
@@ -79,6 +103,16 @@ describe('QuestionCatalogService', () => {
       expect(result.total).toBe(1);
     });
 
+    it('excludes approved authored rows that are not commercially ready', async () => {
+      await seedUnreadyAuthored(repo, 'q1', 'unreviewed stem', 'unreviewed concept');
+      await seedAuthored(repo, 'q2', 'ready stem', 'ready concept');
+
+      const result = await service.getCatalog({});
+
+      expect(result.data.map((q) => q.id)).toEqual(['q2']);
+      expect(result.total).toBe(1);
+    });
+
     it('fails closed when the quarantine lookup throws, instead of serving unfiltered data', async () => {
       await seedAuthored(repo, 'q1', 'stem one');
       vi.spyOn(reportsRepo, 'getQuarantinedFingerprints').mockRejectedValue(new Error('db down'));
@@ -111,6 +145,11 @@ describe('QuestionCatalogService', () => {
       const fp = computeQuestionFingerprint('quarantined stem', 'quarantined concept');
       await quarantineFingerprint(reportsRepo, fp);
 
+      await expect(service.createSession(['q1'])).rejects.toThrow('SELECTION_STALE');
+    });
+
+    it('throws SELECTION_STALE when a selected question is not commercially ready', async () => {
+      await seedUnreadyAuthored(repo, 'q1', 'unready stem', 'unready concept');
       await expect(service.createSession(['q1'])).rejects.toThrow('SELECTION_STALE');
     });
 

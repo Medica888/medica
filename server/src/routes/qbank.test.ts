@@ -25,6 +25,13 @@ async function seedAuthored(externalId: string, overrides: Record<string, unknow
     body: { stem: `stem ${externalId}`, options: [{ letter: 'A', text: 'x' }], correct: 'A' },
     source: 'authored',
     bankStatus: 'approved',
+    reviewMetadata: {
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+      medicalAccuracyStatus: 'pass',
+      itemWritingStatus: 'pass',
+      difficultyCalibrationStatus: 'pass',
+    },
     ...overrides,
   });
 }
@@ -124,6 +131,26 @@ describe('GET /api/qbank/catalog', () => {
     expect(res.body.data.map((q: { id: string }) => q.id)).toEqual(['q1']);
   });
 
+  it('excludes approved authored questions that are not commercially ready', async () => {
+    await seedAuthored('ready');
+    await seedAuthored('not-ready', {
+      reviewMetadata: {
+        reviewStatus: 'validator_passed',
+        sourceRefs: [],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      },
+    });
+
+    const token = await registerAndGetToken();
+    const res = await request(app).get('/api/qbank/catalog').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((q: { id: string }) => q.id)).toEqual(['ready']);
+    expect(res.body.total).toBe(1);
+  });
+
   it('applies subject/system/difficulty filters', async () => {
     await seedAuthored('q1');
     await seedAuthored('q2', { subject: 'Neurology', system: 'Nervous' });
@@ -212,6 +239,24 @@ describe('POST /api/qbank/sessions', () => {
       .post('/api/qbank/sessions')
       .set('Authorization', `Bearer ${token}`)
       .send({ ids: ['q1', 'missing'] });
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 409 when a selected id is approved but not commercially ready', async () => {
+    await seedAuthored('q1', {
+      reviewMetadata: {
+        reviewStatus: 'validator_passed',
+        sourceRefs: [],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      },
+    });
+    const token = await registerAndGetToken();
+    const res = await request(app)
+      .post('/api/qbank/sessions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ids: ['q1'] });
     expect(res.status).toBe(409);
   });
 

@@ -181,7 +181,7 @@ export interface IQuestionsRepository {
   getConceptCoverage(): Promise<Array<{ concept: string; count: number }>>;
   /**
    * Student-safe catalog: returns authored questions stripped of answers/explanations.
-   * Filters source='authored' AND bank_status IN ('approved','restored').
+   * Filters source='authored', safe bank_status, and reviewed-content commercial readiness.
    */
   findStudentCatalog(params: {
     page?: number;
@@ -196,7 +196,7 @@ export interface IQuestionsRepository {
   }): Promise<PaginatedResult<CatalogQuestion>>;
   /**
    * Resolves a list of external IDs to their full question bodies (with answers).
-   * Only returns authored questions with safe bank_status, excluding any whose content
+   * Only returns authored, commercially ready questions, excluding any whose content
    * fingerprint is cross-user quarantined (see QuestionReportService).
    * Used by POST /api/qbank/sessions to serve full question data for a session.
    */

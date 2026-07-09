@@ -410,6 +410,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     const entries = [...this.store.entries()].filter(([, e]) => {
       if (e.source !== 'authored') return false;
       if (!['approved', 'restored'].includes(e.bankStatus)) return false;
+      if (!this.enrichEntry('', e).commercialReady) return false;
       if (params.subject?.trim() && e.subject !== params.subject.trim()) return false;
       if (params.system?.trim() && e.system !== params.system.trim()) return false;
       if (params.difficulty?.trim() && e.difficulty !== params.difficulty.trim()) return false;
@@ -459,6 +460,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     return safe.flatMap(externalId => {
       const e = this.store.get(externalId);
       if (!e || e.source !== 'authored' || !['approved', 'restored'].includes(e.bankStatus)) return [];
+      if (!this.enrichEntry(externalId, e).commercialReady) return [];
       if (e.bankStatus !== 'restored' && excluded.has(this.entryFingerprint(e.body))) return [];
       return [{ id: externalId, body: this.enrichEntry(externalId, e).body as Record<string, unknown> }];
     });

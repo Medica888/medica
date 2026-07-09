@@ -520,7 +520,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     const offset = (page - 1) * limit;
 
     const values: unknown[] = [];
-    const clauses: string[] = ["source = 'authored'", "bank_status IN ('approved', 'restored')"];
+    const clauses: string[] = ["source = 'authored'", this.commercialReadySql()];
 
     if (params.subject && params.subject.trim()) {
       values.push(params.subject.trim());
@@ -626,7 +626,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
        FROM questions
        WHERE external_id = ANY($1::text[])
          AND source = 'authored'
-         AND bank_status IN ('approved', 'restored')
+         AND ${this.commercialReadySql()}
          AND (bank_status = 'restored' OR fingerprint <> ALL($2::text[]))`,
       [safe, excludeFingerprints],
     );
