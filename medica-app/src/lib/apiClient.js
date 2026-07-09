@@ -258,6 +258,8 @@ export const governance = {
     request('GET', '/api/generated-question-bank/metrics'),
   updateStatus: (id, status) =>
     request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/status`, { status }),
+  updateReviewMetadata: (id, metadata) =>
+    request('PATCH', `/api/generated-question-bank/${encodeURIComponent(id)}/review-metadata`, metadata),
 };
 
 // QBank (backend-driven catalog)

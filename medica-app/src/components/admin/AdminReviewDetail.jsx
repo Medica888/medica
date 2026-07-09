@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useReviewDetail, useReviewHistory, useReviewActions } from '../../hooks/useAdminReview'
 import ActionConfirmModal from './ActionConfirmModal'
-
-const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E']
+import { ANSWER_LETTERS, normalizeAnswerLetter } from '../../lib/answerNormalize'
 
 const STATUS_LABEL = {
   approved:            'Approved',
@@ -33,10 +32,18 @@ function fmtDate(dateStr) {
 function parseOptions(body) {
   const raw = body?.options
   if (!Array.isArray(raw)) return []
-  return raw.map((opt) => {
+  return raw.flatMap((opt, index) => {
+    if (opt === null || opt === undefined) return []
+    if (typeof opt === 'object') {
+      const letter = normalizeAnswerLetter(opt.letter ?? opt.id ?? index)
+      if (!letter) return []
+      return [{ letter, text: String(opt.text ?? opt.label ?? '') }]
+    }
     const text = String(opt || '')
-    // Strip leading 'A. ', 'B. ' etc if present
-    return text.replace(/^[A-E]\.\s*/, '') || text
+    const matched = text.match(/^([A-La-l])[.)]\s*(.*)$/)
+    if (matched) return [{ letter: matched[1].toUpperCase(), text: matched[2] || text }]
+    const letter = ANSWER_LETTERS[index]
+    return letter ? [{ letter, text }] : []
   })
 }
 
@@ -56,7 +63,7 @@ export default function AdminReviewDetail({ questionId, onBack }) {
   const currentStatus = localStatus ?? question?.bankStatus
 
   const options = parseOptions(body)
-  const correctIdx = typeof body.correct === 'number' ? body.correct : -1
+  const correctLetter = normalizeAnswerLetter(body.correct ?? body.correctAnswer ?? body.correct_answer)
 
   const handleActionClick = (action) => {
     setRejectionError(null)
@@ -165,12 +172,12 @@ export default function AdminReviewDetail({ questionId, onBack }) {
               <div className="adm-options">
                 {options.map((opt, i) => (
                   <div
-                    key={i}
-                    className={`adm-option${i === correctIdx ? ' adm-option-correct' : ''}`}
+                    key={opt.letter || i}
+                    className={`adm-option${opt.letter === correctLetter ? ' adm-option-correct' : ''}`}
                   >
-                    <span className="adm-option-letter">{OPTION_LETTERS[i] ?? i}</span>
-                    <span className="adm-option-text">{opt}</span>
-                    {i === correctIdx && <span className="adm-option-check" aria-label="Correct answer">Correct</span>}
+                    <span className="adm-option-letter">{opt.letter}</span>
+                    <span className="adm-option-text">{opt.text}</span>
+                    {opt.letter === correctLetter && <span className="adm-option-check" aria-label="Correct answer">Correct</span>}
                   </div>
                 ))}
               </div>

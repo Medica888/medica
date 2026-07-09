@@ -83,6 +83,35 @@ describe('GET /api/qbank/catalog', () => {
     expect(question).not.toHaveProperty('correct');
   });
 
+  it('returns reviewed-content metadata and commercial readiness for authored catalog rows', async () => {
+    await seedAuthored('q1', {
+      body: {
+        stem: 'source-checked stem',
+        testedConcept: 'source checked concept',
+        options: [{ letter: 'A', text: 'x' }],
+        correct: 'A',
+      },
+      reviewMetadata: {
+        reviewStatus: 'source_checked',
+        sourceRefs: ['USMLE Content Outline'],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      },
+    });
+
+    const token = await registerAndGetToken();
+    const res = await request(app).get('/api/qbank/catalog').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].reviewMetadata).toMatchObject({
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+      medicalAccuracyStatus: 'pass',
+    });
+    expect(res.body.data[0].commercialReady).toBe(true);
+  });
+
   it('excludes AI-generated and non-approved authored questions', async () => {
     await seedAuthored('q1');
     await repos.questions.upsertByExternalId('q2', {

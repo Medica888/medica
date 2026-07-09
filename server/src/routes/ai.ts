@@ -18,6 +18,7 @@ import {
   skillsGenerateSchema,
   generatedQuestionBankReviewQuerySchema,
   generatedQuestionBankStatusUpdateSchema,
+  reviewedContentMetadataUpdateSchema,
   taxonomyCandidateReviewQuerySchema,
   taxonomyCandidateStatusUpdateSchema,
   clinicianReviewQueueQuerySchema,
@@ -50,6 +51,7 @@ import { normalizeConcept, lookupConcept } from '../lib/medicaConceptTaxonomy.js
 import { taxonomyResolutionService } from '../services/TaxonomyResolutionService.js';
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
+import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata.js';
 import { getGeneratedBankReusePolicy, config } from '../config.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
@@ -469,6 +471,84 @@ router.post(
     } catch (err) {
       logger.error('[clinician-review/trigger]', { error: err instanceof Error ? err.message : String(err) });
       res.status(500).json({ error: 'Clinician review trigger failed', code: 'CLINICIAN_REVIEW_TRIGGER_FAILED' });
+    }
+  },
+);
+
+router.patch(
+  '/generated-question-bank/:externalId/review-metadata',
+  requireAuth,
+  requireAdmin,
+  validate(reviewedContentMetadataUpdateSchema),
+  async (req: AuthRequest, res: Response) => {
+    const externalId = String(req.params.externalId || '').trim();
+    if (!externalId || externalId.length > 300) {
+      res.status(400).json({ error: 'Invalid generated question id', code: 'INVALID_GENERATED_QUESTION_ID' });
+      return;
+    }
+
+    try {
+      const repos = getRepositories();
+      const reviewRows = await repos.questions.findGeneratedBankReview({ externalId, limit: 1 });
+      const reviewRow = reviewRows[0] as Record<string, any> | undefined;
+      if (!reviewRow) {
+        res.status(404).json({ error: 'Generated question not found', code: 'GENERATED_QUESTION_NOT_FOUND' });
+        return;
+      }
+
+      const previousMetadata = normalizeReviewedContentMetadata(reviewRow.reviewMetadata, {
+        bankStatus: reviewRow.bankStatus,
+        source: reviewRow.source,
+        aiModel: reviewRow.aiModel,
+        validatorVersion: reviewRow.validatorVersion,
+        body: reviewRow.body,
+      });
+      const now = new Date().toISOString();
+      const body = req.body as Record<string, unknown>;
+      const nextMetadata = {
+        ...previousMetadata,
+        ...body,
+        provenance: {
+          ...previousMetadata.provenance,
+          ...(typeof body.provenance === 'object' && body.provenance !== null ? body.provenance : {}),
+        },
+      };
+      if (body.reviewStatus === 'source_checked' || body.reviewStatus === 'expert_reviewed') {
+        nextMetadata.reviewedAt = typeof body.reviewedAt === 'string' ? body.reviewedAt : now;
+        nextMetadata.lastContentReviewedAt =
+          typeof body.lastContentReviewedAt === 'string' ? body.lastContentReviewedAt : now;
+        nextMetadata.reviewerId =
+          (typeof body.reviewerId === 'string' ? body.reviewerId : null)
+          ?? previousMetadata.reviewerId
+          ?? req.userId
+          ?? null;
+        nextMetadata.reviewedBy =
+          (typeof body.reviewedBy === 'string' ? body.reviewedBy : null)
+          ?? previousMetadata.reviewedBy
+          ?? req.authenticatedUser?.email
+          ?? req.userId
+          ?? null;
+      }
+
+      const question = await repos.questions.updateReviewedContentMetadata(externalId, nextMetadata);
+      if (!question) {
+        res.status(404).json({ error: 'Generated question not found', code: 'GENERATED_QUESTION_NOT_FOUND' });
+        return;
+      }
+
+      const updatedMetadata = (question.reviewMetadata ?? {}) as Record<string, unknown>;
+      await repos.auditLog.log({
+        userId: req.userId ?? null,
+        action: 'review_metadata_updated',
+        questionId: externalId,
+        previousStatus: String(previousMetadata.reviewStatus || '') || null,
+        newStatus: String(updatedMetadata.reviewStatus || '') || null,
+      });
+
+      res.json({ question });
+    } catch (err) {
+      logger.error('[generated-question-bank/review-metadata]', { error: err instanceof Error ? err.message : String(err) });
+      res.status(500).json({ error: 'Generated question review metadata update failed', code: 'REVIEW_METADATA_UPDATE_FAILED' });
     }
   },
 );

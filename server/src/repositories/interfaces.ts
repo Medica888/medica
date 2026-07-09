@@ -116,6 +116,7 @@ export interface IQuestionsRepository {
       validatedAt?: Date | string | null;
       aiModel?: string | null;
       validatorVersion?: string | null;
+      reviewMetadata?: Record<string, unknown> | null;
     },
     tx?: unknown,
   ): Promise<{ id: string }>;
@@ -141,6 +142,10 @@ export interface IQuestionsRepository {
   updateGeneratedBankStatus(
     externalId: string,
     status: GeneratedBankStatus,
+  ): Promise<Record<string, unknown> | null>;
+  updateReviewedContentMetadata(
+    externalId: string,
+    metadata: Record<string, unknown>,
   ): Promise<Record<string, unknown> | null>;
   getGeneratedBankMetrics(): Promise<{
     total: number;

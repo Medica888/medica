@@ -77,6 +77,8 @@ export interface CatalogQuestion {
   testedConcept: string | null;
   stem: string | null;
   options: Array<{ letter: string; text: string }>;
+  reviewMetadata?: Record<string, unknown>;
+  commercialReady?: boolean;
 }
 
 export interface SubjectStats {

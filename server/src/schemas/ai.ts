@@ -2,6 +2,19 @@ import { z } from 'zod';
 
 const generatedBankStatusSchema = z.enum(['validated_generated', 'approved', 'restored', 'quarantined', 'validation_failed', 'rejected']);
 const taxonomyCandidateStatusSchema = z.enum(['pending', 'approved_canonical', 'mapped_alias', 'rejected']);
+const reviewStatusSchema = z.enum([
+  'unreviewed',
+  'validator_passed',
+  'source_checked',
+  'expert_reviewed',
+  'changes_requested',
+  'rejected',
+  'quarantined',
+  'retired',
+]);
+const reviewerDecisionSchema = z.enum(['approved', 'changes_requested', 'rejected', 'quarantined', 'restored', 'retired']);
+const reviewRubricStatusSchema = z.enum(['unknown', 'pass', 'minor_issue', 'major_issue', 'fail']);
+const authorTypeSchema = z.enum(['human', 'ai', 'imported', 'rewritten']);
 
 export const generateQuestionsSchema = z.object({
   config: z.object({
@@ -56,6 +69,27 @@ export const generatedQuestionBankReviewQuerySchema = z.object({
 export const generatedQuestionBankStatusUpdateSchema = z.object({
   status: generatedBankStatusSchema,
 });
+
+export const reviewedContentMetadataUpdateSchema = z.object({
+  reviewStatus: reviewStatusSchema.optional(),
+  reviewedBy: z.string().trim().min(1).max(200).nullable().optional(),
+  reviewerId: z.string().trim().min(1).max(100).nullable().optional(),
+  reviewedAt: z.string().datetime().nullable().optional(),
+  reviewNotes: z.string().trim().max(2000).nullable().optional(),
+  reviewerDecision: reviewerDecisionSchema.nullable().optional(),
+  sourceRefs: z.array(z.string().trim().min(1).max(1000)).max(20).optional(),
+  medicalAccuracyStatus: reviewRubricStatusSchema.optional(),
+  itemWritingStatus: reviewRubricStatusSchema.optional(),
+  difficultyCalibrationStatus: reviewRubricStatusSchema.optional(),
+  contentVersion: z.union([z.number().int().min(1), z.string().trim().min(1).max(50)]).optional(),
+  lastContentReviewedAt: z.string().datetime().nullable().optional(),
+  provenance: z.object({
+    authorType: authorTypeSchema.optional(),
+    aiModel: z.string().trim().max(100).nullable().optional(),
+    validatorVersion: z.string().trim().max(100).nullable().optional(),
+    originalQuestionId: z.string().trim().max(300).nullable().optional(),
+  }).strict().optional(),
+}).strict();
 
 export const taxonomyCandidateReviewQuerySchema = z.object({
   status: taxonomyCandidateStatusSchema.optional(),

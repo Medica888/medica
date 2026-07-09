@@ -19,7 +19,7 @@ function makeQuestion(id: string, overrides: Partial<AuthoredQuestion> = {}): Au
 
 async function getRow(pool: Pool, externalId: string) {
   const res = await pool.query(
-    `SELECT external_id, subject, system, source, bank_status, fingerprint, body FROM questions WHERE external_id = $1`,
+    `SELECT external_id, subject, system, source, bank_status, fingerprint, body, review_metadata FROM questions WHERE external_id = $1`,
     [externalId],
   );
   return res.rows[0] ?? null;
@@ -38,6 +38,33 @@ describe('seedAuthoredQuestions — lifecycle protection', () => {
     expect(row.source).toBe('authored');
     expect(row.bank_status).toBe('approved');
     expect(row.fingerprint).toContain('||');
+  });
+
+  it('persists reviewed-content metadata and mirrors it into the stored body', async () => {
+    await upsertAuthoredQuestions(pool, [
+      makeQuestion('q1', {
+        sourceRefs: ['USMLE Content Outline'],
+        reviewMetadata: {
+          reviewStatus: 'source_checked',
+          sourceRefs: ['USMLE Content Outline'],
+          medicalAccuracyStatus: 'pass',
+          itemWritingStatus: 'pass',
+          difficultyCalibrationStatus: 'pass',
+        },
+      }),
+    ]);
+
+    const row = await getRow(pool, 'q1');
+    expect(row.review_metadata).toMatchObject({
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+      medicalAccuracyStatus: 'pass',
+    });
+    expect(row.body.reviewMetadata).toMatchObject({
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+    });
+    expect(row.body.sourceRefs).toEqual(['USMLE Content Outline']);
   });
 
   it('re-seeding an approved authored row updates its content normally', async () => {

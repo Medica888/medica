@@ -8,9 +8,41 @@ import {
   systemSearchLabels,
 } from '../../lib/medicaTaxonomy.js';
 import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
+import {
+  isCommerciallyContentReady,
+  mergeReviewedContentMetadataIntoBody,
+  normalizeReviewedContentMetadata,
+} from '../../lib/reviewedContentMetadata.js';
 
 export class PgQuestionsRepository implements IQuestionsRepository {
   constructor(private pool: Pool) {}
+
+  private withReviewMetadata(row: Record<string, unknown>): Record<string, unknown> {
+    const body = row['body'] && typeof row['body'] === 'object'
+      ? row['body'] as Record<string, unknown>
+      : {};
+    const reviewMetadata = normalizeReviewedContentMetadata(row['reviewMetadata'] ?? body.reviewMetadata, {
+      bankStatus: row['bankStatus'] == null ? null : String(row['bankStatus']),
+      source: row['source'] == null ? null : String(row['source']),
+      aiModel: row['aiModel'] == null ? null : String(row['aiModel']),
+      validatorVersion: row['validatorVersion'] == null ? null : String(row['validatorVersion']),
+      body,
+    });
+    return {
+      ...row,
+      body: mergeReviewedContentMetadataIntoBody(body, reviewMetadata),
+      reviewMetadata,
+      commercialReady: isCommerciallyContentReady({
+        bankStatus: row['bankStatus'] == null ? null : String(row['bankStatus']),
+        difficulty: row['difficulty'] == null ? null : String(row['difficulty']),
+        source: row['source'] == null ? null : String(row['source']),
+        aiModel: row['aiModel'] == null ? null : String(row['aiModel']),
+        validatorVersion: row['validatorVersion'] == null ? null : String(row['validatorVersion']),
+        body,
+        reviewMetadata,
+      }),
+    };
+  }
 
   async upsertByExternalId(
     externalId: string,
@@ -26,6 +58,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       validatedAt?: Date | string | null;
       aiModel?: string | null;
       validatorVersion?: string | null;
+      reviewMetadata?: Record<string, unknown> | null;
     },
     tx?: unknown,
   ): Promise<{ id: string }> {
@@ -38,14 +71,21 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       data.body.validationScore == null ? null : Number(data.body.validationScore)
     );
     const validatedAt = data.validatedAt ?? data.body.validatedAt ?? null;
-    const aiModel = data.aiModel ?? data.body.aiModel ?? null;
-    const validatorVersion = data.validatorVersion ?? data.body.validatorVersion ?? data.body.validationVersion ?? null;
+    const aiModel = data.aiModel ?? (typeof data.body.aiModel === 'string' ? data.body.aiModel : null);
+    const validatorVersion = data.validatorVersion
+      ?? (typeof data.body.validatorVersion === 'string' ? data.body.validatorVersion : null)
+      ?? (typeof data.body.validationVersion === 'string' ? data.body.validationVersion : null);
     const fingerprint = computeQuestionFingerprint(data.body.stem, data.body.testedConcept);
+    const reviewMetadata = normalizeReviewedContentMetadata(
+      data.reviewMetadata ?? data.body.reviewMetadata,
+      { bankStatus, source, aiModel, validatorVersion, body: data.body },
+    );
+    const body = mergeReviewedContentMetadataIntoBody(data.body, reviewMetadata);
     const res = await q.query<{ id: string }>(
       `INSERT INTO questions
          (external_id, subject, system, body, source, bank_status, mode, difficulty,
-          validation_score, validated_at, ai_model, validator_version, fingerprint)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          validation_score, validated_at, ai_model, validator_version, fingerprint, review_metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (external_id) DO UPDATE
          SET subject = EXCLUDED.subject,
              system  = EXCLUDED.system,
@@ -58,13 +98,14 @@ export class PgQuestionsRepository implements IQuestionsRepository {
              validated_at = EXCLUDED.validated_at,
              ai_model = EXCLUDED.ai_model,
              validator_version = EXCLUDED.validator_version,
-             fingerprint = EXCLUDED.fingerprint
+             fingerprint = EXCLUDED.fingerprint,
+             review_metadata = EXCLUDED.review_metadata
        RETURNING id`,
       [
         externalId,
         data.subject,
         data.system,
-        JSON.stringify(data.body),
+        JSON.stringify(body),
         source,
         bankStatus,
         mode,
@@ -74,6 +115,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
         aiModel,
         validatorVersion,
         fingerprint,
+        JSON.stringify(reviewMetadata),
       ],
     );
     return res.rows[0];
@@ -197,6 +239,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
               validated_at AS "validatedAt",
               ai_model AS "aiModel",
               validator_version AS "validatorVersion",
+              review_metadata AS "reviewMetadata",
               last_used_at AS "lastUsedAt",
               usage_count AS "usageCount",
               report_count AS "reportCount",
@@ -208,7 +251,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
        LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       values,
     );
-    return res.rows;
+    return res.rows.map(row => this.withReviewMetadata(row));
   }
 
   async countGeneratedBankReview(params: {
@@ -246,6 +289,9 @@ export class PgQuestionsRepository implements IQuestionsRepository {
                  difficulty,
                  validation_score AS "validationScore",
                  validated_at AS "validatedAt",
+                 ai_model AS "aiModel",
+                 validator_version AS "validatorVersion",
+                 review_metadata AS "reviewMetadata",
                  last_used_at AS "lastUsedAt",
                  usage_count AS "usageCount",
                  report_count AS "reportCount",
@@ -253,7 +299,54 @@ export class PgQuestionsRepository implements IQuestionsRepository {
                  body`,
       [externalId, status],
     );
-    return res.rows[0] ?? null;
+    return res.rows[0] ? this.withReviewMetadata(res.rows[0]) : null;
+  }
+
+  async updateReviewedContentMetadata(
+    externalId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const existingRows = await this.findGeneratedBankReview({ externalId, limit: 1 });
+    const existing = existingRows[0];
+    if (!existing) return null;
+
+    const body = existing['body'] && typeof existing['body'] === 'object'
+      ? existing['body'] as Record<string, unknown>
+      : {};
+    const normalized = normalizeReviewedContentMetadata(metadata, {
+      bankStatus: existing['bankStatus'] == null ? null : String(existing['bankStatus']),
+      source: existing['source'] == null ? null : String(existing['source']),
+      aiModel: existing['aiModel'] == null ? null : String(existing['aiModel']),
+      validatorVersion: existing['validatorVersion'] == null ? null : String(existing['validatorVersion']),
+      body,
+    });
+    const updatedBody = mergeReviewedContentMetadataIntoBody(body, normalized);
+
+    const res = await this.pool.query<Record<string, unknown>>(
+      `UPDATE questions
+       SET review_metadata = $2::jsonb,
+           body = $3::jsonb
+       WHERE external_id = $1
+       RETURNING external_id AS "externalId",
+                 subject,
+                 system,
+                 source,
+                 bank_status AS "bankStatus",
+                 mode,
+                 difficulty,
+                 validation_score AS "validationScore",
+                 validated_at AS "validatedAt",
+                 ai_model AS "aiModel",
+                 validator_version AS "validatorVersion",
+                 review_metadata AS "reviewMetadata",
+                 last_used_at AS "lastUsedAt",
+                 usage_count AS "usageCount",
+                 report_count AS "reportCount",
+                 created_at AS "createdAt",
+                 body`,
+      [externalId, JSON.stringify(normalized), JSON.stringify(updatedBody)],
+    );
+    return res.rows[0] ? this.withReviewMetadata(res.rows[0]) : null;
   }
 
   async getGeneratedBankMetrics(): Promise<{
@@ -350,16 +443,18 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     const res = await this.pool.query<Record<string, unknown>>(
       `WITH array_rows AS (
          SELECT external_id, subject, system, source, bank_status, mode, difficulty,
-                validation_score, validated_at, last_used_at, usage_count,
-                report_count, created_at, body
+                 validation_score, validated_at, ai_model, validator_version, review_metadata, last_used_at, usage_count,
+                 report_count, created_at, body
          FROM questions
          WHERE source = 'ai'
            AND jsonb_typeof(body->'canonicalConcepts') = 'array'
        )
        SELECT external_id AS "externalId", subject, system, source,
-              bank_status AS "bankStatus", mode, difficulty,
-              validation_score AS "validationScore", validated_at AS "validatedAt",
-              last_used_at AS "lastUsedAt", usage_count AS "usageCount",
+               bank_status AS "bankStatus", mode, difficulty,
+               validation_score AS "validationScore", validated_at AS "validatedAt",
+               ai_model AS "aiModel", validator_version AS "validatorVersion",
+               review_metadata AS "reviewMetadata",
+               last_used_at AS "lastUsedAt", usage_count AS "usageCount",
               report_count AS "reportCount", created_at AS "createdAt", body
        FROM array_rows
        WHERE EXISTS (
@@ -370,7 +465,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
        LIMIT $2`,
       [concept, safeLimit],
     );
-    return res.rows;
+    return res.rows.map(row => this.withReviewMetadata(row));
   }
 
   async findStudentCatalog(params: {
@@ -432,8 +527,9 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     const total = Number(countRes.rows[0]?.total || 0);
 
     values.push(limit, offset);
-    const dataRes = await this.pool.query<CatalogQuestion>(
-      `SELECT external_id AS id, subject, system, difficulty, mode,
+    const dataRes = await this.pool.query<CatalogQuestion & { bankStatus: string; source: string; aiModel: string | null; validatorVersion: string | null }>(
+      `SELECT external_id AS id, subject, system, source, bank_status AS "bankStatus", difficulty, mode,
+              ai_model AS "aiModel", validator_version AS "validatorVersion", review_metadata AS "reviewMetadata",
               body->>'topic' AS topic,
               body->>'testedConcept' AS "testedConcept",
               body->>'stem' AS stem,
@@ -451,8 +547,20 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       values,
     );
 
+    const data = dataRes.rows.map((row) => {
+      const enriched = this.withReviewMetadata({
+        ...row,
+        body: {},
+      });
+      return {
+        ...row,
+        reviewMetadata: enriched['reviewMetadata'] as Record<string, unknown>,
+        commercialReady: Boolean(enriched['commercialReady']),
+      };
+    });
+
     return {
-      data: dataRes.rows,
+      data,
       total,
       page,
       limit,
@@ -466,8 +574,18 @@ export class PgQuestionsRepository implements IQuestionsRepository {
   ): Promise<Array<{ id: string; body: Record<string, unknown> }>> {
     if (ids.length === 0) return [];
     const safe = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
-    const res = await this.pool.query<{ id: string; body: Record<string, unknown> }>(
-      `SELECT external_id AS id, body
+    const res = await this.pool.query<{
+      id: string;
+      body: Record<string, unknown>;
+      source: string;
+      bankStatus: string;
+      difficulty: string;
+      aiModel: string | null;
+      validatorVersion: string | null;
+      reviewMetadata: Record<string, unknown>;
+    }>(
+      `SELECT external_id AS id, body, source, bank_status AS "bankStatus", difficulty,
+              ai_model AS "aiModel", validator_version AS "validatorVersion", review_metadata AS "reviewMetadata"
        FROM questions
        WHERE external_id = ANY($1::text[])
          AND source = 'authored'
@@ -475,7 +593,19 @@ export class PgQuestionsRepository implements IQuestionsRepository {
          AND (bank_status = 'restored' OR fingerprint <> ALL($2::text[]))`,
       [safe, excludeFingerprints],
     );
-    return res.rows;
+    return res.rows.map((row) => {
+      const reviewMetadata = normalizeReviewedContentMetadata(row.reviewMetadata, {
+        bankStatus: row.bankStatus,
+        source: row.source,
+        aiModel: row.aiModel,
+        validatorVersion: row.validatorVersion,
+        body: row.body,
+      });
+      return {
+        id: row.id,
+        body: mergeReviewedContentMetadataIntoBody(row.body, reviewMetadata),
+      };
+    });
   }
 
   async getConceptCoverage(): Promise<Array<{ concept: string; count: number }>> {

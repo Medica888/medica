@@ -9,6 +9,10 @@ import { config } from '../config.js';
 import { getPool } from '../config/db.js';
 import { computeQuestionFingerprint } from '../lib/questionFingerprint.js';
 import { logger } from '../lib/logger.js';
+import {
+  mergeReviewedContentMetadataIntoBody,
+  normalizeReviewedContentMetadata,
+} from '../lib/reviewedContentMetadata.js';
 
 export interface AuthoredQuestion {
   id: string;
@@ -50,14 +54,22 @@ export async function upsertAuthoredQuestions(pool: Pool, questions: AuthoredQue
   const externalIds  = rows.map((q) => String(q.id).trim());
   const subjects      = rows.map((q) => String(q.subject || ''));
   const systems        = rows.map((q) => String(q.system || ''));
-  const bodies         = rows.map((q) => JSON.stringify(q));
   const difficulties   = rows.map((q) => String(q.difficulty || 'Balanced'));
   const fingerprints   = rows.map((q) => computeQuestionFingerprint(q.stem, q.testedConcept));
+  const reviewMetadata = rows.map((q) => normalizeReviewedContentMetadata(q.reviewMetadata, {
+    bankStatus: 'approved',
+    source: 'authored',
+    body: q,
+  }));
+  const bodies         = rows.map((q, index) => JSON.stringify(
+    mergeReviewedContentMetadataIntoBody(q, reviewMetadata[index]),
+  ));
+  const reviewMetadataJson = reviewMetadata.map((metadata) => JSON.stringify(metadata));
 
   const res = await pool.query<{ inserted: boolean }>(
-    `INSERT INTO questions (external_id, subject, system, body, source, bank_status, mode, difficulty, fingerprint)
+    `INSERT INTO questions (external_id, subject, system, body, source, bank_status, mode, difficulty, fingerprint, review_metadata)
      SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::jsonb[]),
-            'authored', 'approved', '', unnest($5::text[]), unnest($6::text[])
+            'authored', 'approved', '', unnest($5::text[]), unnest($6::text[]), unnest($7::jsonb[])
      ON CONFLICT (external_id) DO UPDATE
        SET subject     = EXCLUDED.subject,
            system      = EXCLUDED.system,
@@ -66,11 +78,12 @@ export async function upsertAuthoredQuestions(pool: Pool, questions: AuthoredQue
            bank_status = EXCLUDED.bank_status,
            mode        = EXCLUDED.mode,
            difficulty  = EXCLUDED.difficulty,
-           fingerprint = EXCLUDED.fingerprint
+           fingerprint = EXCLUDED.fingerprint,
+           review_metadata = EXCLUDED.review_metadata
      WHERE questions.source IN ('authored', 'unknown')
        AND questions.bank_status NOT IN ('quarantined', 'rejected', 'validation_failed', 'restored')
      RETURNING (xmax = 0) AS inserted`,
-    [externalIds, subjects, systems, bodies, difficulties, fingerprints],
+    [externalIds, subjects, systems, bodies, difficulties, fingerprints, reviewMetadataJson],
   );
 
   const inserted = res.rows.filter((r) => r.inserted).length;

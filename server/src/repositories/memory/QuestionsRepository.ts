@@ -8,6 +8,11 @@ import {
   systemSearchLabels,
 } from '../../lib/medicaTaxonomy.js';
 import { computeQuestionFingerprint } from '../../lib/questionFingerprint.js';
+import {
+  isCommerciallyContentReady,
+  mergeReviewedContentMetadataIntoBody,
+  normalizeReviewedContentMetadata,
+} from '../../lib/reviewedContentMetadata.js';
 
 export class InMemoryQuestionsRepository implements IQuestionsRepository {
   private store = new Map<string, {
@@ -23,9 +28,63 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     validatedAt: Date | string | null;
     aiModel: string | null;
     validatorVersion: string | null;
+    reviewMetadata: unknown;
     usageCount: number;
     lastUsedAt: Date | null;
   }>();
+
+  private enrichEntry(externalId: string, entry: {
+    subject: string;
+    system: string;
+    body: Record<string, unknown>;
+    source: string;
+    bankStatus: string;
+    mode: string;
+    difficulty: string;
+    validationScore: number | null;
+    validatedAt: Date | string | null;
+    aiModel: string | null;
+    validatorVersion: string | null;
+    reviewMetadata?: unknown;
+    usageCount: number;
+    lastUsedAt: Date | null;
+  }): Record<string, unknown> {
+    const reviewMetadata = normalizeReviewedContentMetadata(entry.reviewMetadata ?? entry.body['reviewMetadata'], {
+      bankStatus: entry.bankStatus,
+      source: entry.source,
+      aiModel: entry.aiModel,
+      validatorVersion: entry.validatorVersion,
+      body: entry.body,
+    });
+    const body = mergeReviewedContentMetadataIntoBody(entry.body, reviewMetadata);
+    return {
+      externalId,
+      subject: entry.subject,
+      system: entry.system,
+      source: entry.source,
+      bankStatus: entry.bankStatus,
+      mode: entry.mode,
+      difficulty: entry.difficulty,
+      validationScore: entry.validationScore,
+      validatedAt: entry.validatedAt,
+      aiModel: entry.aiModel,
+      validatorVersion: entry.validatorVersion,
+      reviewMetadata,
+      commercialReady: isCommerciallyContentReady({
+        bankStatus: entry.bankStatus,
+        difficulty: entry.difficulty,
+        source: entry.source,
+        aiModel: entry.aiModel,
+        validatorVersion: entry.validatorVersion,
+        body,
+        reviewMetadata,
+      }),
+      lastUsedAt: entry.lastUsedAt,
+      usageCount: entry.usageCount,
+      reportCount: 0,
+      body,
+    };
+  }
 
   async upsertByExternalId(
     externalId: string,
@@ -41,6 +100,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       validatedAt?: Date | string | null;
       aiModel?: string | null;
       validatorVersion?: string | null;
+      reviewMetadata?: Record<string, unknown> | null;
     },
   ): Promise<{ id: string }> {
     const metadata = {
@@ -55,16 +115,26 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       aiModel: data.aiModel ?? (String(data.body.aiModel || '') || null),
       validatorVersion: data.validatorVersion ?? (String(data.body.validatorVersion || data.body.validationVersion || '') || null),
     };
+    const reviewMetadata = normalizeReviewedContentMetadata(data.reviewMetadata ?? data.body.reviewMetadata, {
+      bankStatus: metadata.bankStatus,
+      source: metadata.source,
+      aiModel: metadata.aiModel,
+      validatorVersion: metadata.validatorVersion,
+      body: data.body,
+    });
+    const body = mergeReviewedContentMetadataIntoBody(data.body, reviewMetadata);
     const existing = this.store.get(externalId);
     if (existing) {
-      this.store.set(externalId, { ...existing, ...data, ...metadata });
+      this.store.set(externalId, { ...existing, ...data, body, ...metadata, reviewMetadata });
       return { id: existing.id };
     }
     const id = randomUUID();
     this.store.set(externalId, {
       id,
       ...data,
+      body,
       ...metadata,
+      reviewMetadata,
       usageCount: 0,
       lastUsedAt: null,
     });
@@ -120,7 +190,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         if (aActive !== bActive) return aActive ? -1 : 1;
         return 0;
       })
-      .map(entry => entry.body)
+      .map(entry => this.enrichEntry('', entry).body as Record<string, unknown>)
       .slice(0, limit);
   }
 
@@ -158,23 +228,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       )
       .sort(sorter(params.sort))
       .slice(offset, offset + limit)
-      .map(([externalId, entry]) => ({
-        externalId,
-        subject: entry.subject,
-        system: entry.system,
-        source: entry.source,
-        bankStatus: entry.bankStatus,
-        mode: entry.mode,
-        difficulty: entry.difficulty,
-        validationScore: entry.validationScore,
-        validatedAt: entry.validatedAt,
-        aiModel: entry.aiModel,
-        validatorVersion: entry.validatorVersion,
-        lastUsedAt: entry.lastUsedAt,
-        usageCount: entry.usageCount,
-        reportCount: 0,
-        body: entry.body,
-      }));
+      .map(([externalId, entry]) => this.enrichEntry(externalId, entry));
   }
 
   async countGeneratedBankReview(params: {
@@ -201,21 +255,29 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       },
     };
     this.store.set(externalId, updated);
-    return {
-      externalId,
-      subject: updated.subject,
-      system: updated.system,
-      source: updated.source,
-      bankStatus: updated.bankStatus,
-      mode: updated.mode,
-      difficulty: updated.difficulty,
-      validationScore: updated.validationScore,
-      validatedAt: updated.validatedAt,
-      lastUsedAt: updated.lastUsedAt,
-      usageCount: updated.usageCount,
-      reportCount: 0,
-      body: updated.body,
+    return this.enrichEntry(externalId, updated);
+  }
+
+  async updateReviewedContentMetadata(
+    externalId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const entry = this.store.get(externalId);
+    if (!entry) return null;
+    const reviewMetadata = normalizeReviewedContentMetadata(metadata, {
+      bankStatus: entry.bankStatus,
+      source: entry.source,
+      aiModel: entry.aiModel,
+      validatorVersion: entry.validatorVersion,
+      body: entry.body,
+    });
+    const updated = {
+      ...entry,
+      reviewMetadata,
+      body: mergeReviewedContentMetadataIntoBody(entry.body, reviewMetadata),
     };
+    this.store.set(externalId, updated);
+    return this.enrichEntry(externalId, updated);
   }
 
   async getGeneratedBankMetrics(): Promise<{
@@ -287,21 +349,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         return Array.isArray(concepts) && concepts.includes(concept);
       })
       .slice(0, safeLimit)
-      .map(([externalId, entry]) => ({
-        externalId,
-        subject: entry.subject,
-        system: entry.system,
-        source: entry.source,
-        bankStatus: entry.bankStatus,
-        mode: entry.mode,
-        difficulty: entry.difficulty,
-        validationScore: entry.validationScore,
-        validatedAt: entry.validatedAt,
-        lastUsedAt: entry.lastUsedAt,
-        usageCount: entry.usageCount,
-        reportCount: 0,
-        body: entry.body,
-      }));
+      .map(([externalId, entry]) => this.enrichEntry(externalId, entry));
   }
 
   async getConceptCoverage(): Promise<Array<{ concept: string; count: number }>> {
@@ -380,6 +428,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       testedConcept: typeof e.body['testedConcept'] === 'string' ? e.body['testedConcept'] : null,
       stem: typeof e.body['stem'] === 'string' ? e.body['stem'] : null,
       options: this.sanitizeOptions(e.body),
+      reviewMetadata: this.enrichEntry(externalId, e).reviewMetadata as Record<string, unknown>,
+      commercialReady: Boolean(this.enrichEntry(externalId, e).commercialReady),
     }));
 
     return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
@@ -396,7 +446,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       const e = this.store.get(externalId);
       if (!e || e.source !== 'authored' || !['approved', 'restored'].includes(e.bankStatus)) return [];
       if (e.bankStatus !== 'restored' && excluded.has(this.entryFingerprint(e.body))) return [];
-      return [{ id: externalId, body: e.body }];
+      return [{ id: externalId, body: this.enrichEntry(externalId, e).body as Record<string, unknown> }];
     });
   }
 

@@ -77,6 +77,38 @@ describe('AdminReviewDetail', () => {
     expect(metoprolol?.classList.contains('adm-option-correct')).toBe(true)
   })
 
+  it('renders and marks rare extended A-L answer choices in admin review', () => {
+    useReviewDetail.mockReturnValue({
+      data: makeDetail({
+        body: {
+          stem: 'A rare extended-option item needs admin review.',
+          options: [
+            { letter: 'A', text: 'Choice A' },
+            { letter: 'B', text: 'Choice B' },
+            { letter: 'C', text: 'Choice C' },
+            { letter: 'D', text: 'Choice D' },
+            { letter: 'E', text: 'Choice E' },
+            { letter: 'F', text: 'Choice F' },
+            { letter: 'G', text: 'Choice G' },
+            { letter: 'H', text: 'Choice H' },
+            { letter: 'I', text: 'Choice I' },
+            { letter: 'J', text: 'Choice J' },
+            { letter: 'K', text: 'Choice K' },
+            { letter: 'L', text: 'Choice L' },
+          ],
+          correct: 'L',
+          explanation: 'Extended options must remain reviewable by clinicians.',
+        },
+      }),
+      loading: false,
+      error: null,
+    })
+    render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)
+    const choiceL = screen.getByText('Choice L').closest('.adm-option')
+    expect(choiceL?.classList.contains('adm-option-correct')).toBe(true)
+    expect(within(choiceL).getByText('L')).toBeTruthy()
+  })
+
   it('renders explanation', () => {
     useReviewDetail.mockReturnValue({ data: makeDetail(), loading: false, error: null })
     render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)

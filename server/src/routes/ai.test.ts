@@ -1621,6 +1621,42 @@ describe('generated question bank', () => {
     expect(logs[0].newStatus).toBe('approved');
   });
 
+  it('updates reviewed-content metadata and writes an audit log entry', async () => {
+    const { fingerprint } = await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
+
+    const res = await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(fingerprint)}/review-metadata`)
+      .set('Authorization', authHeader('user-1'))
+      .send({
+        reviewStatus: 'source_checked',
+        sourceRefs: ['USMLE Content Outline'],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+        reviewNotes: 'Reviewed against source outline.',
+      })
+      .expect(200);
+
+    expect(res.body.question.reviewMetadata).toMatchObject({
+      reviewStatus: 'source_checked',
+      sourceRefs: ['USMLE Content Outline'],
+      medicalAccuracyStatus: 'pass',
+      itemWritingStatus: 'pass',
+      difficultyCalibrationStatus: 'pass',
+      reviewerId: 'user-1',
+    });
+    expect(res.body.question.commercialReady).toBe(true);
+    expect(res.body.question.body.reviewMetadata.reviewStatus).toBe('source_checked');
+
+    const logs = getRepositories().auditLog.getAll();
+    expect(logs.at(-1)).toMatchObject({
+      action: 'review_metadata_updated',
+      questionId: fingerprint,
+      previousStatus: 'validator_passed',
+      newStatus: 'source_checked',
+    });
+  });
+
   it('history endpoint returns entries in reverse chronological order', async () => {
     const { fingerprint } = await seedBankQuestion();
 
