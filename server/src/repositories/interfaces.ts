@@ -131,10 +131,14 @@ export interface IQuestionsRepository {
   }): Promise<Record<string, unknown>[]>;
   countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
   }): Promise<number>;
   findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';

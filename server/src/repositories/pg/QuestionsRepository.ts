@@ -44,6 +44,23 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     };
   }
 
+  private commercialReadySql(): string {
+    return `(
+      bank_status IN ('approved', 'restored')
+      AND jsonb_array_length(COALESCE(review_metadata->'sourceRefs', '[]'::jsonb)) > 0
+      AND review_metadata->>'medicalAccuracyStatus' = 'pass'
+      AND COALESCE(review_metadata->>'itemWritingStatus', 'unknown') NOT IN ('major_issue', 'fail')
+      AND COALESCE(review_metadata->>'difficultyCalibrationStatus', 'unknown') NOT IN ('major_issue', 'fail')
+      AND (
+        CASE
+          WHEN difficulty IN ('UWorld Challenge', 'NBME Difficult')
+            THEN review_metadata->>'reviewStatus' = 'expert_reviewed'
+          ELSE review_metadata->>'reviewStatus' IN ('source_checked', 'expert_reviewed')
+        END
+      )
+    )`;
+  }
+
   async upsertByExternalId(
     externalId: string,
     data: {
@@ -189,6 +206,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
   async findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -202,6 +221,14 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     if (params.status) {
       values.push(params.status);
       clauses.push(`bank_status = $${values.length}`);
+    }
+    if (params.reviewStatus) {
+      values.push(params.reviewStatus);
+      clauses.push(`review_metadata->>'reviewStatus' = $${values.length}`);
+    }
+    if (typeof params.commercialReady === 'boolean') {
+      const commercialReadySql = this.commercialReadySql();
+      clauses.push(params.commercialReady ? commercialReadySql : `NOT ${commercialReadySql}`);
     }
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
     const offset = Math.max(0, Number(params.offset) || 0);
@@ -256,12 +283,22 @@ export class PgQuestionsRepository implements IQuestionsRepository {
 
   async countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
   }): Promise<number> {
     const values: unknown[] = [];
     const clauses = ["source = 'ai'"];
     if (params.status) {
       values.push(params.status);
       clauses.push(`bank_status = $${values.length}`);
+    }
+    if (params.reviewStatus) {
+      values.push(params.reviewStatus);
+      clauses.push(`review_metadata->>'reviewStatus' = $${values.length}`);
+    }
+    if (typeof params.commercialReady === 'boolean') {
+      const commercialReadySql = this.commercialReadySql();
+      clauses.push(params.commercialReady ? commercialReadySql : `NOT ${commercialReadySql}`);
     }
     const res = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM questions WHERE ${clauses.join(' AND ')}`,

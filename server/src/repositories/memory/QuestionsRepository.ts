@@ -197,6 +197,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
   async findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -221,11 +223,16 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       return b.usageCount - a.usageCount;
     };
     return [...this.store.entries()]
-      .filter(([eid, entry]) =>
-        entry.source === 'ai'
-        && (!params.externalId || eid === params.externalId)
-        && (!params.status || entry.bankStatus === params.status)
-      )
+      .filter(([eid, entry]) => {
+        if (entry.source !== 'ai') return false;
+        if (params.externalId && eid !== params.externalId) return false;
+        if (params.status && entry.bankStatus !== params.status) return false;
+        const enriched = this.enrichEntry(eid, entry);
+        const metadata = enriched.reviewMetadata as Record<string, unknown>;
+        if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
+        if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
+        return true;
+      })
       .sort(sorter(params.sort))
       .slice(offset, offset + limit)
       .map(([externalId, entry]) => this.enrichEntry(externalId, entry));
@@ -233,11 +240,18 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
 
   async countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
+    reviewStatus?: string;
+    commercialReady?: boolean;
   }): Promise<number> {
-    return [...this.store.values()].filter(entry =>
-      entry.source === 'ai'
-      && (!params.status || entry.bankStatus === params.status)
-    ).length;
+    return [...this.store.entries()].filter(([externalId, entry]) => {
+      if (entry.source !== 'ai') return false;
+      if (params.status && entry.bankStatus !== params.status) return false;
+      const enriched = this.enrichEntry(externalId, entry);
+      const metadata = enriched.reviewMetadata as Record<string, unknown>;
+      if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
+      if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
+      return true;
+    }).length;
   }
 
   async updateGeneratedBankStatus(

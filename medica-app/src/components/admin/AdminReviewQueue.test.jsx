@@ -74,7 +74,7 @@ describe('AdminReviewQueue', () => {
     const q = makeQuestion({ externalId: 'fp-abc' })
     useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
     render(<AdminReviewQueue onSelectDetail={onSelect} />)
-    fireEvent.click(screen.getByText('Review'))
+    fireEvent.click(screen.getByLabelText('Review question fp-abc'))
     expect(onSelect).toHaveBeenCalledWith('fp-abc')
   })
 
@@ -109,6 +109,34 @@ describe('AdminReviewQueue', () => {
   it('renders sort select with priority option', () => {
     render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
     expect(screen.getByDisplayValue('Highest Priority')).toBeTruthy()
+  })
+
+  it('passes review-state and readiness filters to the queue query', () => {
+    useReviewQueue.mockReturnValue({ data: makePage([]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Review'), { target: { value: 'source_checked' } })
+    fireEvent.change(screen.getByLabelText('Readiness'), { target: { value: 'false' } })
+
+    expect(useReviewQueue).toHaveBeenLastCalledWith({
+      status: undefined,
+      reviewStatus: 'source_checked',
+      commercialReady: false,
+      sort: 'priority',
+      page: 1,
+      limit: 50,
+    })
+  })
+
+  it('renders review state and commercial readiness columns', () => {
+    const q = makeQuestion({
+      reviewMetadata: { reviewStatus: 'expert_reviewed' },
+      commercialReady: true,
+    })
+    useReviewQueue.mockReturnValue({ data: makePage([q]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    expect(screen.getByText('expert reviewed')).toBeTruthy()
+    expect(document.querySelector('.adm-ready-pill.ready')?.textContent).toBe('Ready')
   })
 
   it('renders status badge for approved question', () => {

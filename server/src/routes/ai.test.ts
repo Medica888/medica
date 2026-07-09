@@ -1560,6 +1560,55 @@ describe('generated question bank', () => {
     expect(res.body.questions[0].externalId).toBe(fingerprint);
   });
 
+  it('filters review queue by reviewed-content status and commercial readiness', async () => {
+    const ready = await seedBankQuestion(
+      { testedConcept: 'Ready source checked concept', topic: 'ready source checked' },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+    const notReady = await seedBankQuestion(
+      { testedConcept: 'Not ready source checked concept', topic: 'not ready source checked' },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+    await seedBankQuestion(
+      { testedConcept: 'Expert reviewed distractor concept', topic: 'expert reviewed distractor' },
+      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+    );
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(ready.fingerprint)}/review-metadata`)
+      .set('Authorization', authHeader('user-1'))
+      .send({
+        reviewStatus: 'source_checked',
+        sourceRefs: ['USMLE Content Outline'],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/generated-question-bank/${encodeURIComponent(notReady.fingerprint)}/review-metadata`)
+      .set('Authorization', authHeader('user-1'))
+      .send({
+        reviewStatus: 'source_checked',
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+      })
+      .expect(200);
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review?reviewStatus=source_checked&commercialReady=false')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+
+    expect(res.body.count).toBe(1);
+    expect(res.body.questions).toHaveLength(1);
+    expect(res.body.questions[0].externalId).toBe(notReady.fingerprint);
+    expect(res.body.questions[0].reviewMetadata.reviewStatus).toBe('source_checked');
+    expect(res.body.questions[0].commercialReady).toBe(false);
+  });
+
   // ── Audit log ─────────────────────────────────────────────────────────────────
 
   it('writes an audit log entry on quarantine', async () => {

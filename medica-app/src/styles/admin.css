@@ -19,7 +19,7 @@
                      cursor: pointer; transition: background .15s, color .15s; }
 .adm-filter-tab:hover  { background: var(--blue-10); color: var(--blue); border-color: var(--blue-20); }
 .adm-filter-tab.active { background: var(--blue); color: #fff; border-color: var(--blue); }
-.adm-sort-wrap     { display: flex; align-items: center; gap: 8px; }
+.adm-sort-wrap     { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .adm-sort-label    { font-size: 11px; color: var(--t3); }
 .adm-sort-select   { font-size: 12.5px; padding: 5px 10px; border-radius: var(--r);
                      border: 1px solid var(--border); background: var(--card); color: var(--t1);
@@ -51,6 +51,13 @@
 .adm-badge-quarantined  { background: rgba(204,58,58,.12);  color: var(--red); }
 .adm-badge-pending      { background: rgba(224,123,32,.12); color: var(--orange); }
 .adm-badge-legacy       { background: var(--border-s); color: var(--t3); }
+.adm-review-state       { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
+                          padding: 2px 7px; border-radius: 9px; text-transform: capitalize;
+                          background: var(--border-s); color: var(--t2); white-space: nowrap; }
+.adm-ready-pill         { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700;
+                          padding: 2px 8px; border-radius: 10px; background: rgba(224,123,32,.12);
+                          color: var(--orange); white-space: nowrap; }
+.adm-ready-pill.ready   { background: rgba(15,173,111,.12); color: var(--green); }
 
 /* ── Admin: Pagination ────────────────────────────────────────────────────── */
 .adm-pagination  { display: flex; align-items: center; gap: 16px; justify-content: center; }
@@ -135,6 +142,32 @@
 .adm-vscore.pass    { color: var(--green); }
 .adm-vscore.warn    { color: var(--orange); }
 .adm-vscore.fail    { color: var(--red); }
+
+/* ── Admin: Reviewed-content workflow ────────────────────────────────────── */
+.adm-review-meta    { border: 1px solid var(--border-s); border-radius: var(--r);
+                      padding: 12px; background: var(--bg); }
+.adm-ready-card     { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
+                      border-radius: var(--r); border: 1px solid rgba(224,123,32,.25);
+                      background: rgba(224,123,32,.08); color: var(--orange); }
+.adm-ready-card.ready { border-color: rgba(15,173,111,.3); background: rgba(15,173,111,.08);
+                        color: var(--green); }
+.adm-ready-card span { font-size: 13px; font-weight: 800; }
+.adm-ready-card small { color: var(--t3); font-size: 11.5px; line-height: 1.4; }
+.adm-review-form    { display: flex; flex-direction: column; gap: 9px; }
+.adm-review-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px;
+                         font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+                         color: var(--t3); }
+.adm-review-form select,
+.adm-review-form textarea { width: 100%; border: 1px solid var(--border); border-radius: var(--r);
+                             background: var(--card); color: var(--t1); font-size: 12.5px;
+                             padding: 7px 9px; text-transform: none; letter-spacing: 0;
+                             font-weight: 500; resize: vertical; }
+.adm-review-form textarea { line-height: 1.45; }
+.adm-btn-review-save { font-size: 12.5px; font-weight: 800; padding: 8px 12px; border-radius: var(--r);
+                       border: 1px solid var(--blue-20); background: var(--blue); color: #fff;
+                       cursor: pointer; }
+.adm-btn-review-save:disabled { opacity: .55; cursor: not-allowed; }
+.adm-save-ok       { font-size: 12px; color: var(--green); font-weight: 700; }
 
 /* ── Admin: Audit history ─────────────────────────────────────────────────── */
 .adm-hist-entry     { padding: 10px 0; border-bottom: 1px solid var(--border-s);
@@ -271,3 +304,6 @@
 .dark .adm-tc-inline-input   { background: var(--card); border-color: var(--border); color: var(--t1); }
 .dark .adm-tc-inline         { background: var(--nav2); border-top-color: var(--border); }
 .dark .adm-tc-btn-note       { border-color: var(--border); }
+.dark .adm-review-meta       { background: var(--nav2); border-color: var(--border); }
+.dark .adm-review-form select,
+.dark .adm-review-form textarea { background: var(--card); border-color: var(--border); color: var(--t1); }

@@ -17,6 +17,21 @@ const SORT_MODES = [
 
 const PAGE_SIZE = 50
 
+const REVIEW_FILTERS = [
+  { value: '', label: 'All review states' },
+  { value: 'unreviewed', label: 'Unreviewed' },
+  { value: 'validator_passed', label: 'Validator passed' },
+  { value: 'source_checked', label: 'Source checked' },
+  { value: 'expert_reviewed', label: 'Expert reviewed' },
+  { value: 'changes_requested', label: 'Changes requested' },
+]
+
+const READY_FILTERS = [
+  { value: '', label: 'Any readiness' },
+  { value: 'false', label: 'Not commercial ready' },
+  { value: 'true', label: 'Commercial ready' },
+]
+
 const STATUS_CLASS = {
   approved:           'adm-badge adm-badge-approved',
   quarantined:        'adm-badge adm-badge-quarantined',
@@ -45,17 +60,23 @@ function scoreColor(score) {
 
 export default function AdminReviewQueue({ onSelectDetail }) {
   const [filterStatus, setFilterStatus] = useState('')
+  const [reviewStatus, setReviewStatus] = useState('')
+  const [readyFilter,  setReadyFilter]  = useState('')
   const [sort,         setSort]         = useState('priority')
   const [page,         setPage]         = useState(1)
 
   const { data, loading, error, refetch } = useReviewQueue({
     status: filterStatus || undefined,
+    reviewStatus: reviewStatus || undefined,
+    commercialReady: readyFilter === '' ? undefined : readyFilter === 'true',
     sort,
     page,
     limit: PAGE_SIZE,
   })
 
   const handleFilter = (val) => { setFilterStatus(val); setPage(1) }
+  const handleReviewStatus = (val) => { setReviewStatus(val); setPage(1) }
+  const handleReadyFilter = (val) => { setReadyFilter(val); setPage(1) }
   const handleSort   = (val) => { setSort(val);         setPage(1) }
 
   const questions = data?.questions ?? []
@@ -95,6 +116,28 @@ export default function AdminReviewQueue({ onSelectDetail }) {
           ))}
         </div>
         <div className="adm-sort-wrap">
+          <label className="adm-sort-label" htmlFor="adm-review-state-select">Review</label>
+          <select
+            id="adm-review-state-select"
+            className="adm-sort-select"
+            value={reviewStatus}
+            onChange={e => handleReviewStatus(e.target.value)}
+          >
+            {REVIEW_FILTERS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          <label className="adm-sort-label" htmlFor="adm-ready-select">Readiness</label>
+          <select
+            id="adm-ready-select"
+            className="adm-sort-select"
+            value={readyFilter}
+            onChange={e => handleReadyFilter(e.target.value)}
+          >
+            {READY_FILTERS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
           <label className="adm-sort-label" htmlFor="adm-sort-select">Sort</label>
           <select
             id="adm-sort-select"
@@ -124,6 +167,8 @@ export default function AdminReviewQueue({ onSelectDetail }) {
                 <th>Subject</th>
                 <th>System</th>
                 <th>Difficulty</th>
+                <th>Review</th>
+                <th>Ready</th>
                 <th>Score</th>
                 <th>Created</th>
                 <th>Last Used</th>
@@ -134,12 +179,12 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="adm-table-empty">Loading...</td>
+                  <td colSpan={11} className="adm-table-empty">Loading...</td>
                 </tr>
               )}
               {!loading && questions.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="adm-table-empty">No questions found.</td>
+                  <td colSpan={11} className="adm-table-empty">No questions found.</td>
                 </tr>
               )}
               {questions.map(q => (
@@ -152,6 +197,16 @@ export default function AdminReviewQueue({ onSelectDetail }) {
                   <td className="adm-cell-text">{q.subject || '-'}</td>
                   <td className="adm-cell-text">{q.system || '-'}</td>
                   <td className="adm-cell-text">{q.difficulty || '-'}</td>
+                  <td>
+                    <span className="adm-review-state">
+                      {String(q.reviewMetadata?.reviewStatus || 'unreviewed').replace(/_/g, ' ')}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`adm-ready-pill${q.commercialReady ? ' ready' : ''}`}>
+                      {q.commercialReady ? 'Ready' : 'Not ready'}
+                    </span>
+                  </td>
                   <td>
                     <span style={{ color: scoreColor(q.validationScore), fontVariantNumeric: 'tabular-nums' }}>
                       {q.validationScore != null ? `${q.validationScore}%` : '-'}

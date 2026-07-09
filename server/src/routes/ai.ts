@@ -266,15 +266,16 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
     return;
   }
 
-  const { status, limit: rawLimit, page, offset: rawOffset, sort } = parsed.data;
+  const { status, reviewStatus, commercialReady, limit: rawLimit, page, offset: rawOffset, sort } = parsed.data;
   const limit = rawLimit ?? 50;
   const effectiveOffset = page != null ? (page - 1) * limit : (rawOffset ?? 0);
 
   try {
     const repos = getRepositories();
+    const filters = { status, reviewStatus, commercialReady };
     const [questions, total] = await Promise.all([
-      repos.questions.findGeneratedBankReview({ status, limit, offset: effectiveOffset, sort }),
-      repos.questions.countGeneratedBankReview({ status }),
+      repos.questions.findGeneratedBankReview({ ...filters, limit, offset: effectiveOffset, sort }),
+      repos.questions.countGeneratedBankReview(filters),
     ]);
     res.json({
       questions,

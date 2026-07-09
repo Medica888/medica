@@ -242,9 +242,11 @@ export const questionReports = {
 
 // Governance (admin)
 export const governance = {
-  list: ({ status, limit = 50, page = 1, sort } = {}) => {
+  list: ({ status, reviewStatus, commercialReady, limit = 50, page = 1, sort } = {}) => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
+    if (reviewStatus) params.set('reviewStatus', reviewStatus);
+    if (commercialReady !== undefined) params.set('commercialReady', String(commercialReady));
     params.set('limit', String(limit));
     params.set('page', String(page));
     if (sort) params.set('sort', sort);

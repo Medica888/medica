@@ -3,12 +3,18 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import AdminReviewDetail from './AdminReviewDetail'
 
 vi.mock('../../hooks/useAdminReview', () => ({
-  useReviewDetail:  vi.fn(),
-  useReviewHistory: vi.fn(),
-  useReviewActions: vi.fn(),
+  useReviewDetail:          vi.fn(),
+  useReviewHistory:         vi.fn(),
+  useReviewActions:         vi.fn(),
+  useReviewMetadataActions: vi.fn(),
 }))
 
-import { useReviewDetail, useReviewHistory, useReviewActions } from '../../hooks/useAdminReview'
+import {
+  useReviewActions,
+  useReviewDetail,
+  useReviewHistory,
+  useReviewMetadataActions,
+} from '../../hooks/useAdminReview'
 
 const makeDetail = (overrides = {}) => ({
   question: {
@@ -40,8 +46,9 @@ const makeDetail = (overrides = {}) => ({
 
 beforeEach(() => {
   useReviewDetail.mockReturnValue({ data: null, loading: true, error: null })
-  useReviewHistory.mockReturnValue({ data: null, loading: false, error: null })
+  useReviewHistory.mockReturnValue({ data: null, loading: false, error: null, refetch: vi.fn() })
   useReviewActions.mockReturnValue({ pending: false, error: null, act: vi.fn() })
+  useReviewMetadataActions.mockReturnValue({ pending: false, error: null, update: vi.fn() })
 })
 
 describe('AdminReviewDetail', () => {
@@ -176,13 +183,78 @@ describe('AdminReviewDetail', () => {
 
   it('calls act with correct args on confirm', async () => {
     const act = vi.fn().mockResolvedValue({ question: { bankStatus: 'approved' } })
+    const refetch = vi.fn()
     useReviewActions.mockReturnValue({ pending: false, error: null, act })
+    useReviewHistory.mockReturnValue({ data: null, loading: false, error: null, refetch })
     useReviewDetail.mockReturnValue({ data: makeDetail(), loading: false, error: null })
     render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)
     fireEvent.click(screen.getByText('Approve'))
     const modal = screen.getByRole('dialog')
     fireEvent.click(within(modal).getByText('Approve'))
     await waitFor(() => expect(act).toHaveBeenCalledWith('fp-test-abc', 'approved'))
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  it('saves reviewed-content metadata and updates commercial readiness', async () => {
+    const update = vi.fn().mockResolvedValue({
+      question: {
+        commercialReady: true,
+        reviewMetadata: {
+          reviewStatus: 'source_checked',
+          sourceRefs: ['USMLE Content Outline', 'Pathoma'],
+          medicalAccuracyStatus: 'pass',
+          itemWritingStatus: 'pass',
+          difficultyCalibrationStatus: 'pass',
+          reviewNotes: 'Reviewed against source.',
+        },
+      },
+    })
+    const refetch = vi.fn()
+    useReviewMetadataActions.mockReturnValue({ pending: false, error: null, update })
+    useReviewHistory.mockReturnValue({ data: null, loading: false, error: null, refetch })
+    useReviewDetail.mockReturnValue({
+      data: makeDetail({
+        commercialReady: false,
+        reviewMetadata: {
+          reviewStatus: 'validator_passed',
+          sourceRefs: [],
+          medicalAccuracyStatus: 'unknown',
+          itemWritingStatus: 'unknown',
+          difficultyCalibrationStatus: 'unknown',
+        },
+      }),
+      loading: false,
+      error: null,
+    })
+
+    render(<AdminReviewDetail questionId="fp-test-abc" onBack={vi.fn()} />)
+
+    expect(screen.getByText('Not commercial ready')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Review status'), { target: { value: 'source_checked' } })
+    fireEvent.change(screen.getByLabelText('Medical accuracy'), { target: { value: 'pass' } })
+    fireEvent.change(screen.getByLabelText('Item writing'), { target: { value: 'pass' } })
+    fireEvent.change(screen.getByLabelText('Difficulty fit'), { target: { value: 'pass' } })
+    fireEvent.change(screen.getByLabelText('Source references'), {
+      target: { value: 'USMLE Content Outline\nPathoma' },
+    })
+    fireEvent.change(screen.getByLabelText('Review notes'), {
+      target: { value: 'Reviewed against source.' },
+    })
+    fireEvent.click(screen.getByText('Save review metadata'))
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledWith('fp-test-abc', {
+        reviewStatus: 'source_checked',
+        sourceRefs: ['USMLE Content Outline', 'Pathoma'],
+        medicalAccuracyStatus: 'pass',
+        itemWritingStatus: 'pass',
+        difficultyCalibrationStatus: 'pass',
+        reviewNotes: 'Reviewed against source.',
+      })
+    })
+    expect(screen.getByText('Review metadata saved.')).toBeTruthy()
+    expect(screen.getByText('Commercial ready')).toBeTruthy()
+    expect(refetch).toHaveBeenCalled()
   })
 
   it('calls onBack when Back button clicked', () => {

@@ -1,5 +1,10 @@
-import { useState } from 'react'
-import { useReviewDetail, useReviewHistory, useReviewActions } from '../../hooks/useAdminReview'
+import { useEffect, useState } from 'react'
+import {
+  useReviewActions,
+  useReviewDetail,
+  useReviewHistory,
+  useReviewMetadataActions,
+} from '../../hooks/useAdminReview'
 import ActionConfirmModal from './ActionConfirmModal'
 import { ANSWER_LETTERS, normalizeAnswerLetter } from '../../lib/answerNormalize'
 
@@ -15,6 +20,25 @@ const STATUS_CLASS = {
   quarantined:         'adm-badge adm-badge-quarantined',
   validated_generated: 'adm-badge adm-badge-pending',
 }
+
+const REVIEW_STATUS_OPTIONS = [
+  ['unreviewed', 'Unreviewed'],
+  ['validator_passed', 'Validator passed'],
+  ['source_checked', 'Source checked'],
+  ['expert_reviewed', 'Expert reviewed'],
+  ['changes_requested', 'Changes requested'],
+  ['rejected', 'Rejected'],
+  ['quarantined', 'Quarantined'],
+  ['retired', 'Retired'],
+]
+
+const RUBRIC_OPTIONS = [
+  ['unknown', 'Unknown'],
+  ['pass', 'Pass'],
+  ['minor_issue', 'Minor issue'],
+  ['major_issue', 'Major issue'],
+  ['fail', 'Fail'],
+]
 
 function fmt(dateStr) {
   if (!dateStr) return '-'
@@ -47,20 +71,44 @@ function parseOptions(body) {
   })
 }
 
+function splitSourceRefs(value) {
+  return String(value || '')
+    .split(/\r?\n|,/)
+    .map(ref => ref.trim())
+    .filter(Boolean)
+}
+
 export default function AdminReviewDetail({ questionId, onBack }) {
   const { data: detail, loading, error } = useReviewDetail(questionId)
   const { data: histData, loading: histLoading, refetch: refetchHistory } = useReviewHistory(questionId)
   const { pending, error: actionError, act } = useReviewActions()
+  const {
+    pending: metadataPending,
+    error: metadataError,
+    update: updateReviewMetadata,
+  } = useReviewMetadataActions()
 
   const [pendingAction, setPendingAction] = useState(null) // 'approved' | 'quarantined' | 'validated_generated'
   const [rejectionError, setRejectionError] = useState(null)
   const [localStatus, setLocalStatus] = useState(null) // optimistic update after action
+  const [localReviewMetadata, setLocalReviewMetadata] = useState(null)
+  const [localCommercialReady, setLocalCommercialReady] = useState(null)
+  const [metadataSaved, setMetadataSaved] = useState(false)
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocalReviewMetadata(null)
+    setLocalCommercialReady(null)
+    setMetadataSaved(false)
+  }, [questionId])
 
   const question = detail?.question
   const body = question?.body ?? {}
   const history = histData?.history ?? []
 
   const currentStatus = localStatus ?? question?.bankStatus
+  const reviewMetadata = localReviewMetadata ?? question?.reviewMetadata ?? body.reviewMetadata ?? {}
+  const commercialReady = localCommercialReady ?? (question?.commercialReady === true)
 
   const options = parseOptions(body)
   const correctLetter = normalizeAnswerLetter(body.correct ?? body.correctAnswer ?? body.correct_answer)
@@ -78,6 +126,28 @@ export default function AdminReviewDetail({ questionId, onBack }) {
       refetchHistory()
     } catch (err) {
       setRejectionError(err)
+    }
+  }
+
+  const handleMetadataSubmit = async (event) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setMetadataSaved(false)
+    try {
+      const result = await updateReviewMetadata(questionId, {
+        reviewStatus: form.get('reviewStatus'),
+        sourceRefs: splitSourceRefs(form.get('sourceRefs')),
+        medicalAccuracyStatus: form.get('medicalAccuracyStatus'),
+        itemWritingStatus: form.get('itemWritingStatus'),
+        difficultyCalibrationStatus: form.get('difficultyCalibrationStatus'),
+        reviewNotes: String(form.get('reviewNotes') || '').trim() || null,
+      })
+      setLocalReviewMetadata(result?.question?.reviewMetadata ?? null)
+      setLocalCommercialReady(Boolean(result?.question?.commercialReady))
+      setMetadataSaved(true)
+      refetchHistory()
+    } catch {
+      // Error state is exposed by useReviewMetadataActions and rendered above the form.
     }
   }
 
@@ -245,6 +315,77 @@ export default function AdminReviewDetail({ questionId, onBack }) {
               <dt>Validator</dt>
               <dd className="adm-dd-muted">{body.validationVersion ?? '-'}</dd>
             </dl>
+          </div>
+
+          <div className="adm-section adm-review-meta">
+            <div className="adm-section-label">Reviewed Content</div>
+            <div className={`adm-ready-card${commercialReady ? ' ready' : ''}`}>
+              <span>{commercialReady ? 'Commercial ready' : 'Not commercial ready'}</span>
+              <small>
+                Requires sources, medical accuracy pass, and the correct review level.
+              </small>
+            </div>
+            {metadataError && (
+              <div className="adm-action-err" role="alert">{metadataError.message}</div>
+            )}
+            {metadataSaved && (
+              <div className="adm-save-ok" role="status">Review metadata saved.</div>
+            )}
+            <form className="adm-review-form" onSubmit={handleMetadataSubmit}>
+              <label>
+                Review status
+                <select name="reviewStatus" defaultValue={reviewMetadata.reviewStatus || 'unreviewed'}>
+                  {REVIEW_STATUS_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Medical accuracy
+                <select name="medicalAccuracyStatus" defaultValue={reviewMetadata.medicalAccuracyStatus || 'unknown'}>
+                  {RUBRIC_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Item writing
+                <select name="itemWritingStatus" defaultValue={reviewMetadata.itemWritingStatus || 'unknown'}>
+                  {RUBRIC_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Difficulty fit
+                <select name="difficultyCalibrationStatus" defaultValue={reviewMetadata.difficultyCalibrationStatus || 'unknown'}>
+                  {RUBRIC_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Source references
+                <textarea
+                  name="sourceRefs"
+                  defaultValue={Array.isArray(reviewMetadata.sourceRefs) ? reviewMetadata.sourceRefs.join('\n') : ''}
+                  rows={3}
+                  placeholder="USMLE Content Outline, Pathoma..."
+                />
+              </label>
+              <label>
+                Review notes
+                <textarea
+                  name="reviewNotes"
+                  defaultValue={reviewMetadata.reviewNotes || ''}
+                  rows={3}
+                  placeholder="What changed, what was checked..."
+                />
+              </label>
+              <button className="adm-btn-review-save" type="submit" disabled={metadataPending}>
+                {metadataPending ? 'Saving...' : 'Save review metadata'}
+              </button>
+            </form>
           </div>
 
           {/* Audit History */}

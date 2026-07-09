@@ -15,6 +15,11 @@ const reviewStatusSchema = z.enum([
 const reviewerDecisionSchema = z.enum(['approved', 'changes_requested', 'rejected', 'quarantined', 'restored', 'retired']);
 const reviewRubricStatusSchema = z.enum(['unknown', 'pass', 'minor_issue', 'major_issue', 'fail']);
 const authorTypeSchema = z.enum(['human', 'ai', 'imported', 'rewritten']);
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === 'true' || value === true) return true;
+  if (value === 'false' || value === false) return false;
+  return value;
+}, z.boolean());
 
 export const generateQuestionsSchema = z.object({
   config: z.object({
@@ -59,11 +64,13 @@ export const skillsGenerateSchema = z.object({
 });
 
 export const generatedQuestionBankReviewQuerySchema = z.object({
-  status: generatedBankStatusSchema.optional(),
-  limit:  z.coerce.number().int().min(1).max(200).optional(),
-  page:   z.coerce.number().int().min(1).max(500).optional(),
-  offset: z.coerce.number().int().min(0).max(10000).optional(),
-  sort:   z.enum(['priority', 'newest', 'score', 'usage']).optional(),
+  status:          generatedBankStatusSchema.optional(),
+  reviewStatus:    reviewStatusSchema.optional(),
+  commercialReady: queryBooleanSchema.optional(),
+  limit:           z.coerce.number().int().min(1).max(200).optional(),
+  page:            z.coerce.number().int().min(1).max(500).optional(),
+  offset:          z.coerce.number().int().min(0).max(10000).optional(),
+  sort:            z.enum(['priority', 'newest', 'score', 'usage']).optional(),
 });
 
 export const generatedQuestionBankStatusUpdateSchema = z.object({

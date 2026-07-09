@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { governance } from '../lib/apiClient'
 
-export function useReviewQueue({ status, sort = 'priority', page = 1, limit = 50 } = {}) {
+export function useReviewQueue({
+  status,
+  reviewStatus,
+  commercialReady,
+  sort = 'priority',
+  page = 1,
+  limit = 50,
+} = {}) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
@@ -9,11 +16,11 @@ export function useReviewQueue({ status, sort = 'priority', page = 1, limit = 50
   const fetch = useCallback(() => {
     setLoading(true)
     setError(null)
-    governance.list({ status, sort, page, limit })
+    governance.list({ status, reviewStatus, commercialReady, sort, page, limit })
       .then(setData)
       .catch(setError)
       .finally(() => setLoading(false))
-  }, [status, sort, page, limit])
+  }, [status, reviewStatus, commercialReady, sort, page, limit])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch() }, [fetch])
@@ -79,4 +86,24 @@ export function useReviewActions() {
   }, [])
 
   return { pending, error, act }
+}
+
+export function useReviewMetadataActions() {
+  const [pending, setPending] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const update = useCallback(async (id, metadata) => {
+    setPending(true)
+    setError(null)
+    try {
+      return await governance.updateReviewMetadata(id, metadata)
+    } catch (err) {
+      setError(err)
+      throw err
+    } finally {
+      setPending(false)
+    }
+  }, [])
+
+  return { pending, error, update }
 }
