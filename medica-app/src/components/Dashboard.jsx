@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { buildAnalyticsData } from '../lib/analyticsEngine'
-import { getLastQuizSession, getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
+import { getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
 import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
 import { useSessionHistory } from '../hooks/useSessionHistory'
 
@@ -88,31 +88,10 @@ function buildRecommendedConfig(ns) {
 /**
  * Build a "similar" prefill config from last saved session or most recent history.
  */
-function buildSimilarConfig(lastSession, sessions) {
-  if (lastSession?.config) {
-    return { ...DEFAULT_CONFIG, ...lastSession.config }
-  }
-  const recent = sessions?.[0]
-  if (!recent) return null
-  const mode    = recent.mode || 'practice'
-  const sysName = recent.systemBreakdown?.[0]?.name
-  const subName = recent.subjectBreakdown?.[0]?.name
-  return {
-    ...DEFAULT_CONFIG,
-    mode,
-    subject:       SUBJECTS.includes(subName) ? subName : 'All Subjects',
-    system:        SYSTEMS.includes(sysName)  ? sysName  : 'All Systems',
-    topic:         '',
-    questionCount: 10,
-    difficulty:    'Balanced',
-  }
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Dashboard({ onNavigate }) {
   const { sessions } = useSessionHistory()
-  const lastSession  = useMemo(() => getLastQuizSession(), [])
   const flashcards   = useMemo(() => getFlashcards(), [])
   const flashcardReviewEvents = useMemo(() => getFlashcardReviewEvents(), [])
   const lastPractice = useMemo(() => getLastPracticeResults(), [])
@@ -127,11 +106,6 @@ export default function Dashboard({ onNavigate }) {
   const flashcardsDue = useMemo(
     () => flashcards.filter(isFlashcardDue).length,
     [flashcards]
-  )
-
-  const similarConfig = useMemo(
-    () => buildSimilarConfig(lastSession, sessions),
-    [lastSession, sessions]
   )
 
   const todayTasks = useMemo(() => {
@@ -189,11 +163,6 @@ export default function Dashboard({ onNavigate }) {
     onNavigate('create-quiz')
   }
 
-  function startSimilar() {
-    if (similarConfig) saveLastQuizConfig(similarConfig)
-    onNavigate('create-quiz')
-  }
-
   function startCustomQuiz() {
     clearLastQuizConfig()
     onNavigate('create-quiz')
@@ -216,22 +185,6 @@ export default function Dashboard({ onNavigate }) {
                 ? `${sessions.length} session${sessions.length !== 1 ? 's' : ''} completed. Keep the momentum going.`
                 : 'Your personalized Step 1 study hub. Start a session to unlock your Medica Score and insights.'}
             </p>
-          </div>
-          <div className="db-welcome-actions">
-            {similarConfig && (
-              <button type="button" className="db-btn db-btn--ghost" onClick={startSimilar}>
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-                  <polygon points="2.5,1.5 10.5,6.5 2.5,11.5" fill="currentColor" />
-                </svg>
-                Create Similar Session
-              </button>
-            )}
-            <button type="button" className="db-btn db-btn--primary" onClick={startCustomQuiz}>
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-                <path d="M6.5 1.5V11.5M1.5 6.5H11.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              Create Quiz
-            </button>
           </div>
         </section>
 
@@ -262,7 +215,7 @@ export default function Dashboard({ onNavigate }) {
                 </svg>
               </button>
               <button type="button" className="db-btn db-btn--ghost" onClick={startCustomQuiz}>
-                Create Custom Quiz
+                Build Custom Block
               </button>
             </div>
           </section>
@@ -277,13 +230,13 @@ export default function Dashboard({ onNavigate }) {
             </div>
             <div className="db-hero-actions">
               <button type="button" className="db-btn db-btn--primary" onClick={startCustomQuiz}>
-                Create First Quiz
+                Build First Block
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
                   <path d="M5 2L10 6.5L5 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
               <button type="button" className="db-btn db-btn--ghost" onClick={() => onNavigate('qbank')}>
-                Build Question Set
+                Browse QBank
               </button>
             </div>
           </section>
@@ -326,44 +279,39 @@ export default function Dashboard({ onNavigate }) {
         </section>
 
         {/* 4 — Quick Actions */}
-        <section className="db-section">
-          <h2 className="db-section-title">Quick Actions</h2>
-          <div className="db-qa-grid">
-            <QuickAction
-              icon={<QuizIcon />}
-              label="Create Quiz"
-              desc="Start a practice, coach, or exam session"
-              color="blue"
-              onClick={startCustomQuiz}
-            />
-            <QuickAction
-              icon={<QBankIcon />}
-              label="Build Question Set"
-              desc="Choose a subject, system, topic, and difficulty"
-              color="purple"
-              onClick={() => onNavigate('qbank')}
-            />
-            <QuickAction
-              icon={<FlashcardsIcon />}
-              label="Reinforce Cards"
-              desc={
-                flashcardsDue > 0
-                  ? `${flashcardsDue} card${flashcardsDue !== 1 ? 's' : ''} due for reinforcement`
-                  : flashcards.length > 0 ? 'All cards up to date' : 'Start clinical reinforcement'
-              }
-              badge={flashcardsDue > 0 ? flashcardsDue : null}
-              color="orange"
-              onClick={() => onNavigate('flashcards')}
-            />
-            <QuickAction
-              icon={<AnalyticsIcon />}
-              label="View Analytics"
-              desc="Track performance and find weak areas"
-              color="green"
-              onClick={() => onNavigate('analytics')}
-            />
-          </div>
-        </section>
+        {hasData && (
+          <section className="db-section">
+            <h2 className="db-section-title">Quick Actions</h2>
+            <div className="db-qa-grid">
+              <QuickAction
+                icon={<QBankIcon />}
+                label="Browse QBank"
+                desc="Choose reviewed questions from the bank"
+                color="purple"
+                onClick={() => onNavigate('qbank')}
+              />
+              <QuickAction
+                icon={<FlashcardsIcon />}
+                label="Reinforce Cards"
+                desc={
+                  flashcardsDue > 0
+                    ? `${flashcardsDue} card${flashcardsDue !== 1 ? 's' : ''} due for reinforcement`
+                    : flashcards.length > 0 ? 'All cards up to date' : 'Start clinical reinforcement'
+                }
+                badge={flashcardsDue > 0 ? flashcardsDue : null}
+                color="orange"
+                onClick={() => onNavigate('flashcards')}
+              />
+              <QuickAction
+                icon={<AnalyticsIcon />}
+                label="View Analytics"
+                desc="Track performance and find weak areas"
+                color="green"
+                onClick={() => onNavigate('analytics')}
+              />
+            </div>
+          </section>
+        )}
 
         {/* 5 — Next Focus (weakness card) */}
         {hasData && (
@@ -557,15 +505,6 @@ function IconMedicaShield() {
       <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white" />
       <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
       <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-    </svg>
-  )
-}
-
-function QuizIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <rect x="3" y="3" width="16" height="16" rx="3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M7 8H15M7 11H13M7 14H11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }

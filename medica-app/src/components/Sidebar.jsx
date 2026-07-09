@@ -87,16 +87,6 @@ export default function Sidebar({ activeNav, onNav, onHome, flashcardsDue, authU
         </div>
       )}
 
-      {/* Footer CTA */}
-      <div className="sb-footer">
-        <button className="btn-new" onClick={() => onNav('create-quiz')}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          Build Block
-        </button>
-      </div>
-
     </aside>
   )
 }

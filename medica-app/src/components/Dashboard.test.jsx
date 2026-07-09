@@ -79,10 +79,25 @@ describe('Dashboard recommended quiz handoff', () => {
     const onNavigate = vi.fn()
     render(<Dashboard onNavigate={onNavigate} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /^Create Custom Quiz$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Build Custom Block$/i }))
 
     expect(clearLastQuizConfig).toHaveBeenCalledOnce()
     expect(saveLastQuizConfig).not.toHaveBeenCalled()
     expect(onNavigate).toHaveBeenCalledWith('create-quiz')
+  })
+
+  it('keeps the first-time dashboard focused on one block-building CTA', () => {
+    buildAnalyticsData.mockReturnValue({
+      empty: true,
+      overview: {},
+      nextSession: null,
+      weaknesses: { critical: [], moderate: [] },
+    })
+
+    render(<Dashboard onNavigate={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: /^Build First Block$/i })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Quick Actions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Build Custom Block$/i })).toBeNull()
   })
 })
