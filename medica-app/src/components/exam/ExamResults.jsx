@@ -215,7 +215,7 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
                   </button>
                 )}
                 <button type="button" className="cr-action-btn cr-action-btn--ghost" onClick={onNewQuiz}>
-                  New Session
+                  Build Another Block
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                     <path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>

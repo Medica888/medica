@@ -43,7 +43,7 @@ export default function PracticeReview({ session, onBack, onNewQuiz }) {
             {questions.length - incorrectCount}/{questions.length}
           </span>
           <button type="button" className="prv-new-btn" onClick={onNewQuiz}>
-            New Session
+            Build Another Set
           </button>
         </div>
       </div>
