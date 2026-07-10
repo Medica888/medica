@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { Pool } from 'pg';
 import { upsertAuthoredQuestions, type AuthoredQuestion } from '../db/seedAuthoredQuestions.js';
+import { PgQuestionsRepository } from '../repositories/pg/QuestionsRepository.js';
 import { createTestPool, truncateAll } from './helpers.js';
 
 function makeQuestion(id: string, overrides: Partial<AuthoredQuestion> = {}): AuthoredQuestion {
@@ -138,5 +141,26 @@ describe('seedAuthoredQuestions — lifecycle protection', () => {
       makeQuestion('q2'),
     ]);
     expect(result).toEqual({ inserted: 1, updated: 0, skipped: 1 });
+  });
+
+  // ─── Real seed data must be visible to students, not just insertable ────────
+  // Regression guard: findStudentCatalog requires commercial-readiness metadata
+  // (source_checked/expert_reviewed + sourceRefs + medicalAccuracyStatus: pass).
+  // A previous version of authoredQuestions.json carried no reviewMetadata at
+  // all, which silently emptied the student catalog despite every seed/insert
+  // test above passing (they only assert on the questions table, never on
+  // findStudentCatalog). This proves the real file — not a synthetic fixture —
+  // actually clears the gate.
+  it('the real authoredQuestions.json seed file is visible in the student catalog after seeding', async () => {
+    const dataPath = join(__dirname, '..', 'db', 'seed-data', 'authoredQuestions.json');
+    const questions: AuthoredQuestion[] = JSON.parse(readFileSync(dataPath, 'utf-8'));
+    expect(questions.length).toBeGreaterThan(0);
+
+    const result = await upsertAuthoredQuestions(pool, questions);
+    expect(result.inserted).toBe(questions.length);
+
+    const repo = new PgQuestionsRepository(pool);
+    const catalog = await repo.findStudentCatalog({ limit: 1 });
+    expect(catalog.total).toBe(questions.length);
   });
 });

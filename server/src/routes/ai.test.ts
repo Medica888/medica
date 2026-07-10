@@ -1254,6 +1254,71 @@ describe('generated question bank', () => {
     expect(res.body.questions[0].bankStatus).toBe('validated_generated');
   });
 
+  it('includes authored questions in the review queue alongside ai questions', async () => {
+    const { fingerprint } = await seedBankQuestion();
+    await getRepositories().questions.upsertByExternalId('q-authored-1', {
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      body: { stem: 'Authored stem', options: [], correct: 'A' },
+      source: 'authored',
+      bankStatus: 'approved',
+    });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    const ids = res.body.questions.map((q: any) => q.externalId);
+    expect(ids).toContain(fingerprint);
+    expect(ids).toContain('q-authored-1');
+  });
+
+  it('resolves and updates review metadata for an authored question (previously 404)', async () => {
+    await getRepositories().questions.upsertByExternalId('q-authored-2', {
+      subject: 'Pathology',
+      system: 'Renal',
+      body: { stem: 'Authored stem', options: [], correct: 'A' },
+      source: 'authored',
+      bankStatus: 'approved',
+    });
+
+    await request(app)
+      .get('/api/generated-question-bank/review/q-authored-2')
+      .set('Authorization', authHeader())
+      .expect(200);
+
+    const res = await request(app)
+      .patch('/api/generated-question-bank/q-authored-2/review-metadata')
+      .set('Authorization', authHeader())
+      .send({
+        reviewStatus: 'source_checked',
+        sourceRefs: ['First Aid 2025'],
+        medicalAccuracyStatus: 'pass',
+      })
+      .expect(200);
+
+    expect(res.body.question.commercialReady).toBe(true);
+  });
+
+  it('allows quarantining an authored question through the same status endpoint as ai questions', async () => {
+    await getRepositories().questions.upsertByExternalId('q-authored-3', {
+      subject: 'Biochemistry',
+      system: 'Endocrine',
+      body: { stem: 'Authored stem', options: [], correct: 'A' },
+      source: 'authored',
+      bankStatus: 'approved',
+    });
+
+    const res = await request(app)
+      .patch('/api/generated-question-bank/q-authored-3/status')
+      .set('Authorization', authHeader())
+      .send({ status: 'quarantined' })
+      .expect(200);
+
+    expect(res.body.question.bankStatus).toBe('quarantined');
+  });
+
   it('returns generated-bank lifecycle metrics', async () => {
     await seedBankQuestion();
     await seedBankQuestion(

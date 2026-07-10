@@ -234,7 +234,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     };
     return [...this.store.entries()]
       .filter(([eid, entry]) => {
-        if (entry.source !== 'ai') return false;
+        if (entry.source !== 'ai' && entry.source !== 'authored') return false;
         if (params.externalId && eid !== params.externalId) return false;
         if (params.status && entry.bankStatus !== params.status) return false;
         const enriched = this.enrichEntry(eid, entry);
@@ -254,7 +254,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     commercialReady?: boolean;
   }): Promise<number> {
     return [...this.store.entries()].filter(([externalId, entry]) => {
-      if (entry.source !== 'ai') return false;
+      if (entry.source !== 'ai' && entry.source !== 'authored') return false;
       if (params.status && entry.bankStatus !== params.status) return false;
       const enriched = this.enrichEntry(externalId, entry);
       const metadata = enriched.reviewMetadata as Record<string, unknown>;
@@ -269,7 +269,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     status: GeneratedBankStatus,
   ): Promise<Record<string, unknown> | null> {
     const entry = this.store.get(externalId);
-    if (!entry || entry.source !== 'ai') return null;
+    if (!entry || (entry.source !== 'ai' && entry.source !== 'authored')) return null;
     const updated = {
       ...entry,
       bankStatus: status,

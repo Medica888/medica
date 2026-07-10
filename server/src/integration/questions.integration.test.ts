@@ -6,6 +6,15 @@ import { PgQuestionsRepository } from '../repositories/pg/QuestionsRepository.js
 import type { IQuestionsRepository } from '../repositories/interfaces.js';
 import { createTestPool, truncateAll } from './helpers.js';
 
+// Commercial-readiness metadata for fixtures that must clear findStudentCatalog's
+// isCommerciallyContentReady gate (see reviewedContentMetadata.ts). Authored questions
+// need this explicitly — bank_status alone is not sufficient since 698e41a.
+const READY_METADATA = {
+  reviewStatus: 'source_checked',
+  sourceRefs: ['USMLE Content Outline'],
+  medicalAccuracyStatus: 'pass',
+};
+
 function makeQuestionData(overrides: Record<string, unknown> = {}) {
   const externalId = `fp-${randomUUID()}`;
   return {
@@ -31,6 +40,7 @@ function makeQuestionData(overrides: Record<string, unknown> = {}) {
       validatedAt?: Date | string | null;
       aiModel?: string | null;
       validatorVersion?: string | null;
+      reviewMetadata?: Record<string, unknown> | null;
     },
   };
 }
@@ -117,6 +127,73 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       expect(count).toBe(2);
     });
 
+    // ─── Authored questions are reviewable through the same governance endpoints ──
+    // (see seedAuthoredQuestions.ts: frozen authored rows are "pending explicit
+    // admin review via the governance endpoints" — this is that review path.)
+
+    it('findGeneratedBankReview includes authored questions alongside ai questions', async () => {
+      const { externalId: authored, data: authoredData } = makeQuestionData({ source: 'authored', bankStatus: 'approved' });
+      const { externalId: aiSourced, data: aiData } = makeQuestionData({ source: 'ai', bankStatus: 'approved' });
+      await repo.upsertByExternalId(authored, authoredData);
+      await repo.upsertByExternalId(aiSourced, aiData);
+
+      const rows = await repo.findGeneratedBankReview({ status: 'approved' });
+      const ids = rows.map((r) => r['externalId']);
+      expect(ids).toContain(authored);
+      expect(ids).toContain(aiSourced);
+    });
+
+    it('findGeneratedBankReview excludes questions from sources other than ai/authored', async () => {
+      const { externalId: legacy, data: legacyData } = makeQuestionData({ source: 'legacy', bankStatus: 'approved' });
+      await repo.upsertByExternalId(legacy, legacyData);
+
+      const rows = await repo.findGeneratedBankReview({ status: 'approved' });
+      expect(rows.map((r) => r['externalId'])).not.toContain(legacy);
+    });
+
+    it('countGeneratedBankReview counts authored questions alongside ai questions', async () => {
+      const { externalId: authored, data: authoredData } = makeQuestionData({ source: 'authored', bankStatus: 'approved' });
+      const { externalId: aiSourced, data: aiData } = makeQuestionData({ source: 'ai', bankStatus: 'approved' });
+      await repo.upsertByExternalId(authored, authoredData);
+      await repo.upsertByExternalId(aiSourced, aiData);
+
+      expect(await repo.countGeneratedBankReview({ status: 'approved' })).toBe(2);
+    });
+
+    it('updateGeneratedBankStatus updates an authored question status', async () => {
+      const { externalId, data } = makeQuestionData({ source: 'authored', bankStatus: 'approved' });
+      await repo.upsertByExternalId(externalId, data);
+
+      const updated = await repo.updateGeneratedBankStatus(externalId, 'quarantined');
+      expect(updated).not.toBeNull();
+      expect(updated!['bankStatus']).toBe('quarantined');
+    });
+
+    it('updateGeneratedBankStatus returns null for a question with an unreviewable source', async () => {
+      const { externalId, data } = makeQuestionData({ source: 'legacy', bankStatus: 'approved' });
+      await repo.upsertByExternalId(externalId, data);
+
+      expect(await repo.updateGeneratedBankStatus(externalId, 'quarantined')).toBeNull();
+    });
+
+    it('updateReviewedContentMetadata can make an authored question commercially ready', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', difficulty: 'Balanced',
+        body: { stem: 'stem', options: [] },
+      });
+      await repo.upsertByExternalId(externalId, data);
+
+      const updated = await repo.updateReviewedContentMetadata(externalId, {
+        reviewStatus: 'source_checked',
+        sourceRefs: ['First Aid 2025'],
+        medicalAccuracyStatus: 'pass',
+      });
+      expect(updated).not.toBeNull();
+
+      const catalog = await repo.findStudentCatalog({});
+      expect(catalog.data.map((q) => q.id)).toContain(externalId);
+    });
+
     it('getGeneratedBankMetrics approvalRate = (approved + restored) / reviewable', async () => {
       const { externalId: e1, data: d1 } = makeQuestionData({ bankStatus: 'approved' });
       const { externalId: e2, data: d2 } = makeQuestionData({ bankStatus: 'restored' });
@@ -162,11 +239,11 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog only returns authored questions with approved/restored status', async () => {
       const { externalId: authored, data: authoredData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'Authored stem', options: [{ letter: 'A', text: 'x' }], correct: 'A' },
       });
       const { externalId: restored, data: restoredData } = makeQuestionData({
-        source: 'authored', bankStatus: 'restored',
+        source: 'authored', bankStatus: 'restored', reviewMetadata: READY_METADATA,
         body: { stem: 'Restored stem', options: [], correct: 'A' },
       });
       const { externalId: pending, data: pendingData } = makeQuestionData({
@@ -195,7 +272,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog strips answer-bearing fields from returned questions', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         subject: 'Cardiology', system: 'Cardiovascular', difficulty: 'Balanced',
         body: {
           stem: 'A patient presents with...',
@@ -221,12 +298,12 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog filters by subject/system/difficulty', async () => {
       const { externalId: match, data: matchData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         subject: 'Anatomy', system: 'Musculoskeletal', difficulty: 'Hard',
         body: { stem: 'match', options: [] },
       });
       const { externalId: other, data: otherData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         subject: 'Anatomy', system: 'Cardiovascular', difficulty: 'Hard',
         body: { stem: 'other', options: [] },
       });
@@ -243,7 +320,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       const entries = await Promise.all(
         Array.from({ length: 5 }, () => {
           const { externalId, data } = makeQuestionData({
-            source: 'authored', bankStatus: 'approved',
+            source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
             body: { stem: 'stem', options: [] },
           });
           return repo.upsertByExternalId(externalId, data);
@@ -262,7 +339,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findByExternalIds returns full bodies only for safe authored questions', async () => {
       const { externalId: authored, data: authoredData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'Authored stem', correct: 'A' },
       });
       const { externalId: aiSourced, data: aiData } = makeQuestionData({
@@ -288,7 +365,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog strips answer-bearing fields from options, keeping only letter/text', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: {
           stem: 'stem', testedConcept: 'concept',
           options: [
@@ -310,7 +387,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog tolerates a malformed (non-array) options value without crashing', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'stem', options: { not: 'an array' } },
       });
       await repo.upsertByExternalId(externalId, data);
@@ -324,11 +401,11 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog excludes rows matching excludeFingerprints, with accurate totals', async () => {
       const { externalId: clean, data: cleanData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'clean stem', testedConcept: 'clean concept', options: [] },
       });
       const { externalId: dirty, data: dirtyData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'dirty stem', testedConcept: 'dirty concept', options: [] },
       });
       await repo.upsertByExternalId(clean, cleanData);
@@ -342,7 +419,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog with an empty excludeFingerprints list excludes nothing', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
         body: { stem: 'stem', options: [] },
       });
       await repo.upsertByExternalId(externalId, data);
@@ -365,7 +442,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog does not exclude a restored row even when its fingerprint is quarantined', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'restored',
+        source: 'authored', bankStatus: 'restored', reviewMetadata: READY_METADATA,
         body: { stem: 'dirty stem', testedConcept: 'dirty concept', options: [] },
       });
       await repo.upsertByExternalId(externalId, data);
@@ -387,7 +464,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findByExternalIds does not exclude a restored row even when its fingerprint is quarantined', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'restored',
+        source: 'authored', bankStatus: 'restored', reviewMetadata: READY_METADATA,
         body: { stem: 'dirty stem', testedConcept: 'dirty concept', correct: 'A' },
       });
       await repo.upsertByExternalId(externalId, data);
@@ -400,15 +477,15 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog search matches stem, testedConcept, topic, subject, and system', async () => {
       const { externalId: byStem, data: byStemData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA, subject: 'Cardiology', system: 'Cardiovascular',
         body: { stem: 'a unique pericarditis vignette', options: [] },
       });
       const { externalId: byConcept, data: byConceptData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA, subject: 'Cardiology', system: 'Cardiovascular',
         body: { stem: 'other stem', testedConcept: 'pericarditis mechanism', options: [] },
       });
       const { externalId: unrelated, data: unrelatedData } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved', subject: 'Cardiology', system: 'Cardiovascular',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA, subject: 'Cardiology', system: 'Cardiovascular',
         body: { stem: 'completely different topic', options: [] },
       });
       await repo.upsertByExternalId(byStem, byStemData);
@@ -421,7 +498,7 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
 
     it('findStudentCatalog search is case-insensitive and matches subject/system', async () => {
       const { externalId, data } = makeQuestionData({
-        source: 'authored', bankStatus: 'approved', subject: 'Nephrology', system: 'Renal',
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA, subject: 'Nephrology', system: 'Renal',
         body: { stem: 'irrelevant stem', options: [] },
       });
       await repo.upsertByExternalId(externalId, data);

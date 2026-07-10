@@ -223,7 +223,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     sort?: 'priority' | 'newest' | 'score' | 'usage';
   }): Promise<Record<string, unknown>[]> {
     const values: unknown[] = [];
-    const clauses = ["source = 'ai'"];
+    const clauses = ["source IN ('ai', 'authored')"];
     if (params.externalId) {
       values.push(params.externalId);
       clauses.push(`external_id = $${values.length}`);
@@ -297,7 +297,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     commercialReady?: boolean;
   }): Promise<number> {
     const values: unknown[] = [];
-    const clauses = ["source = 'ai'"];
+    const clauses = ["source IN ('ai', 'authored')"];
     if (params.status) {
       values.push(params.status);
       clauses.push(`bank_status = $${values.length}`);
@@ -326,7 +326,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
        SET bank_status = $2,
            body = jsonb_set(body, '{bankStatus}', to_jsonb($2::text), true)
        WHERE external_id = $1
-         AND source = 'ai'
+         AND source IN ('ai', 'authored')
        RETURNING external_id AS "externalId",
                  subject,
                  system,
