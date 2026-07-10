@@ -187,7 +187,7 @@ describe('question-report outbox', () => {
     expect(getSessionSyncOutbox(USER_A, 2_000)).toHaveLength(1)
   })
 
-  it('removes a 403 eligibility rejection from the sync queue while preserving local-only status', async () => {
+  it('keeps a 403 eligibility rejection queued for a later retry instead of dropping it', async () => {
     const id = crypto.randomUUID()
     const rpt = reportPayload(id)
     enqueueQuestionReportSync(rpt, id, USER_A, null, 1_000)
@@ -203,7 +203,59 @@ describe('question-report outbox', () => {
     })
     expect(result.failed).toBe(0)
     expect(result.localOnly).toBe(1)
-    expect(getSessionSyncOutbox(USER_A, 2_000)).toHaveLength(0)
+
+    const [entry] = getSessionSyncOutbox(USER_A, 2_000)
+    expect(entry).toBeDefined()
+    expect(entry.status).toBe('pending')
+    expect(entry.attemptCount).toBe(1)
+    expect(entry.nextAttemptAt).toBe(2_000 + SESSION_SYNC_OUTBOX_LIMITS.localOnlyRetryDelayMs)
+  })
+
+  it('syncs a previously-ineligible report once the user becomes eligible and the retry is due', async () => {
+    const id = crypto.randomUUID()
+    const rpt = reportPayload(id)
+    enqueueQuestionReportSync(rpt, id, USER_A, null, 1_000)
+    const ineligible = Object.assign(new Error('not eligible'), {
+      status: 403,
+      code: 'REPORTER_NOT_ELIGIBLE',
+    })
+
+    await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': vi.fn().mockRejectedValue(ineligible) },
+      force: true,
+      now: 2_000,
+    })
+
+    const laterNow = 2_000 + SESSION_SYNC_OUTBOX_LIMITS.localOnlyRetryDelayMs
+    const createReport = vi.fn().mockResolvedValue({ id: 'srv-1' })
+    const result = await drainSessionSyncOutbox(USER_A, {
+      apiCalls: { 'question-report': createReport },
+      now: laterNow,
+    })
+
+    expect(createReport).toHaveBeenCalledTimes(1)
+    expect(result.synced).toBe(1)
+    expect(getSessionSyncOutbox(USER_A, laterNow)).toHaveLength(0)
+  })
+
+  it('never marks a repeated eligibility rejection as failed, no matter how many retries occur', async () => {
+    const id = crypto.randomUUID()
+    enqueueQuestionReportSync(reportPayload(id), id, USER_A, null, 1_000)
+    const ineligible = Object.assign(new Error('not eligible'), {
+      status: 403,
+      code: 'REPORTER_NOT_ELIGIBLE',
+    })
+    const apiCalls = { 'question-report': vi.fn().mockRejectedValue(ineligible) }
+
+    let now = 1_000
+    for (let i = 0; i < SESSION_SYNC_OUTBOX_LIMITS.maxAttempts + 3; i += 1) {
+      now += SESSION_SYNC_OUTBOX_LIMITS.localOnlyRetryDelayMs
+      const result = await drainSessionSyncOutbox(USER_A, { apiCalls, force: true, now })
+      expect(result.failed).toBe(0)
+    }
+
+    const [entry] = getSessionSyncOutbox(USER_A, now)
+    expect(entry.status).toBe('pending')
   })
 
   it('keeps a 429 rate limit response pending with retry backoff', async () => {

@@ -33,15 +33,44 @@ function normalizeNullableDifficulty(value: string | null): string | null {
   return normalizeDifficulty(value);
 }
 
+export type ReporterEligibilityReason = 'email_unverified' | 'account_too_new' | 'eligible';
+
+export interface ReporterEligibility {
+  eligible: boolean;
+  reason: ReporterEligibilityReason;
+  /** ISO timestamp when the account-age gate unlocks, or null if created_at is missing/invalid. */
+  eligibleAt: string | null;
+}
+
+// Single source of truth for reporter eligibility — isEligibleQuestionReporter (the
+// security gate on POST /) and GET /eligibility (the client-facing explanation) must
+// never diverge, so the boolean-only check is a thin wrapper around this.
+export function getReporterEligibility(
+  user: AuthRequest['authenticatedUser'],
+  nowMs = Date.now(),
+  minAccountAgeHours = config.questionReportMinAccountAgeHours,
+): ReporterEligibility {
+  const createdAtMs = user?.created_at ? new Date(user.created_at).getTime() : NaN;
+  const hasValidCreatedAt = Number.isFinite(createdAtMs) && createdAtMs <= nowMs;
+  const eligibleAt = hasValidCreatedAt
+    ? new Date(createdAtMs + minAccountAgeHours * 60 * 60 * 1000).toISOString()
+    : null;
+
+  if (!user?.email_verified || !user.email_verified_at) {
+    return { eligible: false, reason: 'email_unverified', eligibleAt };
+  }
+  if (!hasValidCreatedAt || nowMs - createdAtMs < minAccountAgeHours * 60 * 60 * 1000) {
+    return { eligible: false, reason: 'account_too_new', eligibleAt };
+  }
+  return { eligible: true, reason: 'eligible', eligibleAt };
+}
+
 export function isEligibleQuestionReporter(
   user: AuthRequest['authenticatedUser'],
   nowMs = Date.now(),
   minAccountAgeHours = config.questionReportMinAccountAgeHours,
 ): boolean {
-  if (!user?.email_verified || !user.email_verified_at) return false;
-  const createdAtMs = new Date(user.created_at).getTime();
-  if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return false;
-  return nowMs - createdAtMs >= minAccountAgeHours * 60 * 60 * 1000;
+  return getReporterEligibility(user, nowMs, minAccountAgeHours).eligible;
 }
 
 function requireEligibleQuestionReporter(req: AuthRequest, res: Response, next: NextFunction): void {
@@ -117,6 +146,15 @@ router.post('/', requireAuth, questionReportLimiter, requireEligibleQuestionRepo
   } catch {
     res.status(500).json({ error: 'Failed to save report' });
   }
+});
+
+// ─── GET /api/question-reports/eligibility ────────────────────────────────────
+// Lets the client show exact copy (verify email vs. wait for account age vs.
+// eligible) instead of guessing from email_verified alone. Read-only, no
+// business-rule change — backed by the same check POST / enforces.
+
+router.get('/eligibility', requireAuth, (req: AuthRequest, res: Response) => {
+  res.json(getReporterEligibility(req.authenticatedUser));
 });
 
 // ─── GET /api/question-reports/summary?limit=20 ───────────────────────────────

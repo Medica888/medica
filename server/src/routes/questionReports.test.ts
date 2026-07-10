@@ -6,7 +6,7 @@ import { createInMemoryRepositories, getRepositories, setRepositories } from '..
 import { QuestionReportService, REPORT_REASON_REVALIDATION_MAP } from '../services/QuestionReportService.js';
 import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
 import { InMemoryUsersRepository } from '../repositories/memory/UsersRepository.js';
-import { isEligibleQuestionReporter } from './questionReports.js';
+import { getReporterEligibility, isEligibleQuestionReporter } from './questionReports.js';
 
 const app = createApp();
 let registrationCounter = 0;
@@ -263,6 +263,136 @@ describe('POST /api/question-reports', () => {
       email_verified_at: new Date(now),
       created_at: new Date(now),
     }, now, 0)).toBe(true);
+  });
+
+  describe('getReporterEligibility', () => {
+    const now = Date.now();
+    const baseUser = { id: 'u1', email: 'u@example.com', name: 'U' };
+
+    it('reports email_unverified when the account has never verified', () => {
+      const result = getReporterEligibility({
+        ...baseUser,
+        email_verified: false,
+        email_verified_at: null,
+        created_at: new Date(now - 48 * 60 * 60 * 1000),
+      }, now, 24);
+      expect(result).toEqual({
+        eligible: false,
+        reason: 'email_unverified',
+        eligibleAt: new Date(now - 48 * 60 * 60 * 1000 + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    });
+
+    it('prioritizes email_unverified over account_too_new when both are true', () => {
+      const result = getReporterEligibility({
+        ...baseUser,
+        email_verified: false,
+        email_verified_at: null,
+        created_at: new Date(now),
+      }, now, 24);
+      expect(result.reason).toBe('email_unverified');
+    });
+
+    it('reports account_too_new with the exact unlock timestamp once verified', () => {
+      const createdAt = now - 6 * 60 * 60 * 1000;
+      const result = getReporterEligibility({
+        ...baseUser,
+        email_verified: true,
+        email_verified_at: new Date(createdAt),
+        created_at: new Date(createdAt),
+      }, now, 24);
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toBe('account_too_new');
+      expect(result.eligibleAt).toBe(new Date(createdAt + 24 * 60 * 60 * 1000).toISOString());
+      expect(new Date(result.eligibleAt as string).getTime()).toBeGreaterThan(now);
+    });
+
+    it('reports eligible once both conditions are satisfied', () => {
+      const createdAt = now - 48 * 60 * 60 * 1000;
+      const result = getReporterEligibility({
+        ...baseUser,
+        email_verified: true,
+        email_verified_at: new Date(createdAt),
+        created_at: new Date(createdAt),
+      }, now, 24);
+      expect(result).toEqual({
+        eligible: true,
+        reason: 'eligible',
+        eligibleAt: new Date(createdAt + 24 * 60 * 60 * 1000).toISOString(),
+      });
+      expect(new Date(result.eligibleAt as string).getTime()).toBeLessThanOrEqual(now);
+    });
+
+    it('returns a null eligibleAt when created_at is missing or invalid', () => {
+      const result = getReporterEligibility({
+        ...baseUser,
+        email_verified: false,
+        email_verified_at: null,
+        created_at: null as unknown as Date,
+      }, now, 24);
+      expect(result.eligibleAt).toBeNull();
+    });
+
+    it('stays in lockstep with isEligibleQuestionReporter for the same inputs', () => {
+      const cases = [
+        { verified: false, hoursAgo: 48 },
+        { verified: true, hoursAgo: 1 },
+        { verified: true, hoursAgo: 48 },
+      ];
+      for (const { verified, hoursAgo } of cases) {
+        const createdAt = new Date(now - hoursAgo * 60 * 60 * 1000);
+        const user = {
+          ...baseUser,
+          email_verified: verified,
+          email_verified_at: verified ? createdAt : null,
+          created_at: createdAt,
+        };
+        expect(getReporterEligibility(user, now, 24).eligible).toBe(isEligibleQuestionReporter(user, now, 24));
+      }
+    });
+  });
+
+  describe('GET /api/question-reports/eligibility', () => {
+    it('requires auth', async () => {
+      const res = await request(app).get('/api/question-reports/eligibility');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns email_unverified for an unverified account', async () => {
+      const token = await registerAndGetToken({ verified: false, accountAgeHours: 48 });
+      const res = await request(app)
+        .get('/api/question-reports/eligibility')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.eligible).toBe(false);
+      expect(res.body.reason).toBe('email_unverified');
+      expect(typeof res.body.eligibleAt).toBe('string');
+    });
+
+    it('returns account_too_new with a future eligibleAt for a fresh verified account', async () => {
+      const token = await registerAndGetToken({ verified: true, accountAgeHours: 1 });
+      const res = await request(app)
+        .get('/api/question-reports/eligibility')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.eligible).toBe(false);
+      expect(res.body.reason).toBe('account_too_new');
+      expect(new Date(res.body.eligibleAt).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('returns eligible for a verified, sufficiently-aged account', async () => {
+      const token = await registerAndGetToken({ verified: true, accountAgeHours: 48 });
+      const res = await request(app)
+        .get('/api/question-reports/eligibility')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        eligible: true,
+        reason: 'eligible',
+        eligibleAt: res.body.eligibleAt,
+      });
+      expect(new Date(res.body.eligibleAt).getTime()).toBeLessThanOrEqual(Date.now());
+    });
   });
 
   it('maps camelCase request fields to snake_case repository fields', async () => {

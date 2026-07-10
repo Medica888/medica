@@ -238,6 +238,7 @@ export const generate = {
 // Question Reports
 export const questionReports = {
   create: (payload) => request('POST', '/api/question-reports', payload),
+  getEligibility: () => request('GET', '/api/question-reports/eligibility'),
 };
 
 // Governance (admin)

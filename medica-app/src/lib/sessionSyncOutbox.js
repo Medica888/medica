@@ -15,6 +15,10 @@ const MAX_ATTEMPTS = 6
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const BASE_DELAY_MS = 1_500
 const MAX_DELAY_MS = 5 * 60 * 1000
+// Eligibility rejections (e.g. unverified email) resolve on the user's own timeline,
+// not a transient-failure timeline — retry on a coarse cadence instead of the short
+// exponential backoff, and never count toward MAX_ATTEMPTS/failed.
+const LOCAL_ONLY_RETRY_DELAY_MS = 6 * 60 * 60 * 1000
 
 const VALID_OP_TYPES = new Set(Object.keys(MAX_ENTRIES_PER_TYPE))
 
@@ -201,8 +205,17 @@ export async function drainSessionSyncOutbox(userId, options = {}) {
       } catch (error) {
         const disposition = classifySessionSyncError(error)
         if (disposition === 'local-only') {
-          toRemove.add(current.idempotencyKey)
+          // Not eligible yet (e.g. unverified email) — keep queued and retry later
+          // instead of dropping it, so it still reaches shared review once the
+          // user becomes eligible. attemptCount is intentionally untouched so this
+          // never trips MAX_ATTEMPTS and gets marked 'failed'.
           localOnly += 1
+          toUpdate.set(current.idempotencyKey, {
+            ...current,
+            lastError: sanitizeError(error),
+            status: 'pending',
+            nextAttemptAt: now + LOCAL_ONLY_RETRY_DELAY_MS,
+          })
           continue
         }
         const attemptCount = current.attemptCount + 1
@@ -254,8 +267,9 @@ export function subscribeSessionSyncOutbox(listener) {
 
 export const SESSION_SYNC_OUTBOX_LIMITS = Object.freeze({
   // maxEntries is the per-type limit for the primary session type (backward compat for tests).
-  maxEntries:        MAX_ENTRIES_PER_TYPE['exam-session'],
-  maxEntriesPerType: { ...MAX_ENTRIES_PER_TYPE },
-  maxAttempts:       MAX_ATTEMPTS,
-  maxAgeMs:          MAX_AGE_MS,
+  maxEntries:            MAX_ENTRIES_PER_TYPE['exam-session'],
+  maxEntriesPerType:     { ...MAX_ENTRIES_PER_TYPE },
+  maxAttempts:           MAX_ATTEMPTS,
+  maxAgeMs:              MAX_AGE_MS,
+  localOnlyRetryDelayMs: LOCAL_ONLY_RETRY_DELAY_MS,
 })

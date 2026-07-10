@@ -6,6 +6,10 @@ vi.mock('../../lib/storage', () => ({
   saveQuestionReport: vi.fn(),
 }))
 
+vi.mock('../../context/AuthContext.jsx', () => ({
+  useAuth: () => ({ authUser: { id: 'u1', email_verified: true } }),
+}))
+
 import { saveQuestionReport } from '../../lib/storage'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

@@ -512,10 +512,15 @@ describe('saveQuestionReport — outbox sync', () => {
     saveQuestionReport(q('q-ineligible'), 'wrong_answer', { mode: 'practice' })
     expect(getQuestionReports()).toHaveLength(1)
 
-    // The eligibility rejection is local-only (not a synchronization failure) and is
-    // cleared from the retry queue — but the local report itself is never lost.
+    // The eligibility rejection is local-only (not a synchronization failure), so the
+    // outbox entry stays queued for a later retry — it becomes eligible for sync once
+    // the user verifies their email / the account ages past the minimum — rather than
+    // being dropped. The local report itself is never lost either way.
     await vi.waitFor(() => {
-      expect(getSessionSyncOutbox(eligibilityUser)).toHaveLength(0)
+      const [entry] = getSessionSyncOutbox(eligibilityUser)
+      expect(entry).toBeDefined()
+      expect(entry.status).toBe('pending')
+      expect(entry.nextAttemptAt).toBeGreaterThan(Date.now())
     })
     expect(getQuestionReports()).toHaveLength(1)
     expect(getQuestionReports()[0].questionId).toBe('q-ineligible')
