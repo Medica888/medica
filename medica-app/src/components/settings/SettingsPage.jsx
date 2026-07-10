@@ -16,8 +16,11 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
   const [success,  setSuccess]  = useState(null)
   const [migrationRevision, setMigrationRevision] = useState(0)
   const [migrationMessage, setMigrationMessage] = useState(null)
+  const [verificationStatus, setVerificationStatus] = useState(null)
+  const [verificationLoading, setVerificationLoading] = useState(false)
 
   const isConnected = !!authUser
+  const isEmailVerified = authUser?.email_verified === true
   const migrationNeeded = migrationRevision >= 0
     && !!authUser?.id
     && hasPendingAnonymousDataMigration(authUser.id)
@@ -34,7 +37,9 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
       }
       if (result?.user) {
         onLogin(result.token, result.user)
-        setSuccess(`Connected as ${result.user?.email || email}`)
+        setSuccess(result.user?.email_verified
+          ? `Connected as ${result.user?.email || email}`
+          : `Account created. Check ${result.user?.email || email} to verify your email.`)
         setEmail(''); setPassword(''); setName('')
       }
     } catch (err) {
@@ -64,6 +69,22 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
     setMigrationMessage('Local study data will remain separate and available when signed out.')
   }
 
+  const handleResendVerification = async () => {
+    setVerificationStatus(null)
+    setVerificationLoading(true)
+    try {
+      await auth.resendVerification()
+      setVerificationStatus('Verification email sent. Check your inbox.')
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError
+      setVerificationStatus(isNetworkError
+        ? 'Cannot reach the server. Please check your connection and try again.'
+        : err.message || 'Could not send verification email.')
+    } finally {
+      setVerificationLoading(false)
+    }
+  }
+
   return (
     <div className="stg-page">
       <div className="stg-scroll">
@@ -88,6 +109,23 @@ export default function SettingsPage({ authUser, onLogin, onLogout, onDataMigrat
               <p className="stg-connected-info">
                 Adaptive learning and mastery tracking are active.
               </p>
+              {!isEmailVerified && (
+                <div className="stg-verification" role="status">
+                  <div className="stg-migration-title">Verify your email</div>
+                  <p className="stg-connected-info">
+                    Verification protects report quality and unlocks trusted question-review features.
+                  </p>
+                  <button
+                    type="button"
+                    className="stg-secondary-btn"
+                    onClick={handleResendVerification}
+                    disabled={verificationLoading}
+                  >
+                    {verificationLoading ? 'Sending...' : 'Resend verification email'}
+                  </button>
+                  {verificationStatus && <p className="stg-connected-info">{verificationStatus}</p>}
+                </div>
+              )}
               {migrationNeeded && (
                 <div className="stg-migration" role="status">
                   <div className="stg-migration-title">Local study data found</div>

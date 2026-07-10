@@ -213,6 +213,12 @@
   border: 1px solid var(--status-warn); border-radius: 7px;
   background: var(--card);
 }
+.stg-verification {
+  display: flex; flex-direction: column; gap: 9px;
+  margin-top: 4px; padding: 12px;
+  border: 1px solid var(--status-warn); border-radius: 7px;
+  background: var(--card);
+}
 .stg-migration-title { font-size: 12px; font-weight: 700; color: var(--t1); }
 .stg-migration-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stg-migration-actions .stg-submit-btn { margin-top: 0; padding: 8px 14px; }

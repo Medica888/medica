@@ -28,6 +28,32 @@ describe('POST /api/auth/register', () => {
     expect(res.body.user.email).toBe('test@example.com');
     expect(typeof res.body.token).toBe('string');
     expect(res.body.user).not.toHaveProperty('password_hash');
+    expect(res.body.verificationEmailSent).toBe(true);
+  });
+
+  it('sends a verification email immediately after registration', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'verify-on-register@example.com',
+      name: 'Verify User',
+      password: 'password123',
+    });
+    expect(res.status).toBe(201);
+    expect(emailSender.sent).toHaveLength(1);
+    expect(emailSender.sent[0].to).toBe('verify-on-register@example.com');
+    expect(emailSender.sent[0].text).toContain('/verify-email?token=');
+  });
+
+  it('does not fail registration when verification email delivery fails', async () => {
+    const failSender: IEmailSender = { send: vi.fn().mockRejectedValue(new Error('SMTP down')) };
+    setEmailSender(failSender);
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'signup-smtp-down@example.com',
+      name: 'SMTP Down',
+      password: 'password123',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.user.email).toBe('signup-smtp-down@example.com');
+    expect(res.body.verificationEmailSent).toBe(false);
   });
 
   it('returns 409 when email is already taken', async () => {
@@ -389,6 +415,7 @@ describe('email delivery', () => {
       name: 'Email User',
       password: 'password123',
     });
+    emailSender.sent.length = 0;
     await request(app).post('/api/auth/forgot-password').send({ email: 'emailreset@example.com' });
     expect(emailSender.sent).toHaveLength(1);
     expect(emailSender.sent[0].to).toBe('emailreset@example.com');
@@ -406,6 +433,7 @@ describe('email delivery', () => {
       name: 'Verify User',
       password: 'password123',
     });
+    emailSender.sent.length = 0;
     await request(app)
       .post('/api/auth/resend-verification')
       .set('Authorization', `Bearer ${reg.body.token as string}`);

@@ -4,7 +4,7 @@ import SettingsPage from './SettingsPage.jsx';
 
 vi.mock('../../lib/apiClient.js', async (importOriginal) => {
   const real = await importOriginal();
-  return { ...real, auth: { ...real.auth, register: vi.fn(), login: vi.fn() } };
+  return { ...real, auth: { ...real.auth, register: vi.fn(), login: vi.fn(), resendVerification: vi.fn() } };
 });
 
 import { auth } from '../../lib/apiClient.js';
@@ -30,6 +30,37 @@ describe('SettingsPage auth recovery entry', () => {
       />,
     );
     expect(screen.queryByRole('link', { name: /forgot password/i })).toBeNull();
+  });
+
+  it('shows verification status and can resend verification email', async () => {
+    auth.resendVerification.mockResolvedValueOnce({});
+    render(
+      <SettingsPage
+        authUser={{ id: 'u1', email: 'user@example.com', email_verified: false }}
+        onLogin={() => {}}
+        onLogout={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Verify your email')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /resend verification email/i }));
+
+    await waitFor(() => {
+      expect(auth.resendVerification).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/verification email sent/i)).toBeTruthy();
+    });
+  });
+
+  it('does not show the verification prompt for verified users', () => {
+    render(
+      <SettingsPage
+        authUser={{ id: 'u1', email: 'user@example.com', email_verified: true }}
+        onLogin={() => {}}
+        onLogout={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('Verify your email')).toBeNull();
   });
 
   it('asks before importing anonymous study data and imports on approval', () => {
@@ -88,7 +119,7 @@ describe('SettingsPage form submission', () => {
   }
 
   it('calls auth.register with trimmed fields and invokes onLogin on success', async () => {
-    const user = { id: '1', email: 'alice@example.com', name: 'Alice' };
+    const user = { id: '1', email: 'alice@example.com', name: 'Alice', email_verified: false };
     auth.register.mockResolvedValueOnce({ user, token: 'tok' });
     const onLogin = vi.fn();
 
@@ -99,6 +130,7 @@ describe('SettingsPage form submission', () => {
     await waitFor(() => {
       expect(auth.register).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Password1!');
       expect(onLogin).toHaveBeenCalledWith('tok', user);
+      expect(screen.getByText(/check alice@example.com to verify/i)).toBeTruthy();
     });
   });
 

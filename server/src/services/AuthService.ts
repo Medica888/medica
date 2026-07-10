@@ -28,7 +28,7 @@ export class AuthService {
     private emailSender: IEmailSender,
   ) {}
 
-  async register(email: string, name: string, password: string): Promise<{ user: User; token: string }> {
+  async register(email: string, name: string, password: string): Promise<{ user: User; token: string; verificationEmailSent: boolean }> {
     const normalizedEmail = email.toLowerCase().trim();
     const existing = await this.users.findByEmailIncludingDeleted(normalizedEmail);
     if (existing) throw new Error('EMAIL_TAKEN');
@@ -36,7 +36,14 @@ export class AuthService {
     const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = await this.users.create({ email: normalizedEmail, name, password_hash });
     const token = this.signToken(user.id);
-    return { user, token };
+    let verificationEmailSent = false;
+    try {
+      await this.sendEmailVerification(user.id, user.email);
+      verificationEmailSent = true;
+    } catch (err) {
+      logger.error('[AuthService] verification email failed after registration', { error: String(err), userId: user.id });
+    }
+    return { user, token, verificationEmailSent };
   }
 
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
@@ -108,7 +115,12 @@ export class AuthService {
 
     const user = await this.users.findById(userId);
     if (!user) throw new Error('NOT_FOUND');
+    const rawToken = await this.sendEmailVerification(userId, user.email);
+    if (config.authDevTokensEnabled) return { devToken: rawToken };
+    return {};
+  }
 
+  private async sendEmailVerification(userId: string, email: string): Promise<string> {
     const rawToken = generateRawToken();
     const tokenHash = hashToken(rawToken);
     await this.authTokens.create({
@@ -120,12 +132,11 @@ export class AuthService {
 
     const verifyUrl = `${config.appBaseUrl}/verify-email?token=${rawToken}`;
     await this.emailSender.send({
-      to: user.email,
+      to: email,
       subject: 'Verify your Medica email address',
       text: `Click the link below to verify your email address.\n\n${verifyUrl}\n\nIf you did not create a Medica account, you can ignore this email.`,
     });
-    if (config.authDevTokensEnabled) return { devToken: rawToken };
-    return {};
+    return rawToken;
   }
 
   async verifyEmail(rawToken: string): Promise<void> {
