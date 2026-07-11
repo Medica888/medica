@@ -189,8 +189,13 @@ export default function Dashboard({ onNavigate }) {
         </section>
 
         {/* 2 — Recommended / First Session Hero */}
+        {/* key differentiates the two branches so React fully remounts instead of
+            reconciling shared <section>/<button> positions when hasData flips async
+            (e.g. useSessionHistory resolving) - without it, a click that starts
+            while this section is mid-transition can fire the post-update handler
+            (startRecommended) even though it read the pre-update button. */}
         {hasData && ns ? (
-          <section className="db-hero">
+          <section className="db-hero" key="recommended">
             <div className="db-hero-left">
               <div className="db-hero-eyebrow">Recommended Next Session</div>
               <div className="db-hero-badges">
@@ -220,7 +225,7 @@ export default function Dashboard({ onNavigate }) {
             </div>
           </section>
         ) : (
-          <section className="db-hero db-hero--first">
+          <section className="db-hero db-hero--first" key="first-session">
             <div className="db-hero-left">
               <div className="db-hero-eyebrow">Ready to begin?</div>
               <h2 className="db-hero-topic">Start your first Step 1 session</h2>
