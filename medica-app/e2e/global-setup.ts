@@ -28,6 +28,14 @@ export default async function globalSetup() {
       },
     }).catch(() => null);
 
+    // Registration auto-issues an email-verification token (auth_tokens row),
+    // which has no ON UPDATE CASCADE on user_id. Clear it before reassigning
+    // the shared fixture's id below, or the UPDATE violates the FK.
+    await pool.query(
+      'DELETE FROM auth_tokens WHERE user_id = (SELECT id FROM users WHERE email = $1)',
+      [SHARED_EMAIL],
+    );
+
     await pool.query(
       `UPDATE users
        SET id = $1,
