@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openQuizBuilder } from './helpers/quiz';
 
 /**
  * Step 9: Accessibility checks on critical journeys.
@@ -56,7 +57,7 @@ test.describe('Auth form accessibility', () => {
 
   test('core sidebar buttons have accessible names', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'QBank' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Analytics' })).toBeVisible();
   });
 });
@@ -65,7 +66,7 @@ test.describe('Auth form accessibility', () => {
 test.describe('Quiz builder accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'New Session' }).click();
+    await openQuizBuilder(page);
     await page.waitForSelector('text=Generate Your Personalized');
   });
 

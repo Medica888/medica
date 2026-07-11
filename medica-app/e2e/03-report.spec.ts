@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import pg from 'pg';
+import { openQuizBuilder } from './helpers/quiz';
 
 const E2E_DB_URL = 'postgresql://postgres:postgres@localhost:5432/medica_e2e';
 const BACKEND_URL = 'http://localhost:4001';
@@ -17,7 +18,7 @@ test.describe('Question report to governance trigger', () => {
       message: 'shared E2E user should be authenticated before report tests run',
     }).toMatchObject({ ok: true });
     // Navigate into the quiz so a question + Report button are visible.
-    await page.getByRole('button', { name: 'New Session' }).click();
+    await openQuizBuilder(page);
     await page.getByRole('button', { name: 'Generate Quiz' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
   });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { runQuizToCompletion, getQuestionCount } from './helpers/quiz';
+import { runQuizToCompletion, getQuestionCount, openQuizBuilder } from './helpers/quiz';
 
 // Uses shared storageState (authenticated as SHARED_EMAIL) from global-setup.
 test.describe('Quiz generation and completion', () => {
@@ -7,13 +7,13 @@ test.describe('Quiz generation and completion', () => {
     await page.goto('/');
   });
 
-  test('quiz builder is visible after clicking New Session', async ({ page }) => {
-    await page.getByRole('button', { name: 'New Session' }).click();
+  test('quiz builder is visible after starting a new block', async ({ page }) => {
+    await openQuizBuilder(page);
     await expect(page.locator('text=Generate Your Personalized')).toBeVisible();
   });
 
   test('questions load and are answerable after generation', async ({ page }) => {
-    await page.getByRole('button', { name: 'New Session' }).click();
+    await openQuizBuilder(page);
     await page.getByRole('button', { name: 'Generate Quiz' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
     await expect(page.locator('.exam-opt')).toHaveCount(4);
@@ -45,7 +45,7 @@ test.describe('Quiz generation and completion', () => {
   });
 
   test('question count is shown in the exam header', async ({ page }) => {
-    await page.getByRole('button', { name: 'New Session' }).click();
+    await openQuizBuilder(page);
     await page.getByRole('button', { name: 'Generate Quiz' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
     const total = await getQuestionCount(page);

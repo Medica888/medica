@@ -1,13 +1,24 @@
 import type { Page } from '@playwright/test';
 
 /**
+ * Open the quiz builder from the Dashboard hero CTA. The button reads
+ * "Build First Block" for a user with no session history, or
+ * "Build Custom Block" once they have one (Dashboard.jsx) - both wire to
+ * the same startCustomQuiz handler, so match either label rather than
+ * assuming a fixed history state (the shared E2E user accumulates
+ * sessions as the suite runs).
+ */
+export async function openQuizBuilder(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Build (First Block|Custom Block)$/ }).click();
+}
+
+/**
  * Navigate to the quiz builder, generate a session using the local bank
  * (no API mock needed - the app serves questions from its built-in bank),
  * answer every question, submit, and wait for the score badge.
  */
 export async function runQuizToCompletion(page: Page): Promise<void> {
-  // Open the QuizBuilder from the sidebar footer.
-  await page.getByRole('button', { name: 'New Session' }).click();
+  await openQuizBuilder(page);
   await page.waitForSelector('text=Generate Your Personalized');
 
   // Trigger generation (uses local bank - no API call needed).
