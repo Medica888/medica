@@ -115,7 +115,14 @@ export class AuthService {
 
     const user = await this.users.findById(userId);
     if (!user) throw new Error('NOT_FOUND');
-    const rawToken = await this.sendEmailVerification(userId, user.email);
+
+    let rawToken: string;
+    try {
+      rawToken = await this.sendEmailVerification(userId, user.email);
+    } catch (err) {
+      logger.error('[AuthService] resend verification email failed', { error: String(err), userId });
+      throw new Error('EMAIL_SEND_FAILED');
+    }
     if (config.authDevTokensEnabled) return { devToken: rawToken };
     return {};
   }

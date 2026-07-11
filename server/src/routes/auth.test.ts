@@ -300,6 +300,22 @@ describe('POST /api/auth/resend-verification', () => {
     expect(res.status).toBe(200);
     expect(typeof res.body.devToken).toBe('string');
   });
+
+  it('reports failure honestly (not a false success) when email delivery fails', async () => {
+    const reg = await request(app).post('/api/auth/register').send({
+      email: 'resend-smtp-down@example.com',
+      name: 'User',
+      password: 'password123',
+    });
+    const failSender: IEmailSender = { send: vi.fn().mockRejectedValue(new Error('SMTP down')) };
+    setEmailSender(failSender);
+    const res = await request(app)
+      .post('/api/auth/resend-verification')
+      .set('Authorization', `Bearer ${reg.body.token}`);
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('EMAIL_SEND_FAILED');
+    expect(res.body.error).not.toMatch(/sent/i);
+  });
 });
 
 describe('DELETE /api/auth/account', () => {

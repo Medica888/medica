@@ -128,6 +128,8 @@ router.post('/resend-verification', requireAuth, async (req: AuthRequest, res: R
     const msg = err instanceof Error ? err.message : 'UNKNOWN';
     if (msg === 'NOT_FOUND') {
       res.status(404).json({ error: 'User not found' });
+    } else if (msg === 'EMAIL_SEND_FAILED') {
+      res.status(503).json({ error: 'Could not send verification email right now. Please try again shortly.', code: 'EMAIL_SEND_FAILED' });
     } else {
       res.status(500).json({ error: 'Internal server error' });
     }
