@@ -1822,7 +1822,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
   if (!needsReview) {
     mrSkipped += normalized.length;  // rule passers + failers all skipped MR
     for (const { q, validation } of rulePassers) {
-      results.push({ ...q, ...validation.quality, id: randomUUID() });
+      results.push({ ...q, ...validation.quality, id: computeQuestionFingerprint(q.stem || '', q.testedConcept || '') });
       passCount++;
     }
   } else {
@@ -1835,7 +1835,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
       mrRequested++;
       if (review.pass) {
         mrPassed++;
-        results.push({ ...q, ...validation.quality, id: randomUUID() });
+        results.push({ ...q, ...validation.quality, id: computeQuestionFingerprint(q.stem || '', q.testedConcept || '') });
         passCount++;
       } else {
         mrRejected++;
@@ -1897,7 +1897,7 @@ async function generateBatch(config: Record<string, any>, count: number, offset:
           ...repairedNorm,
           ...repairedValidation.quality,
           validationStatus: 'repaired',
-          id: randomUUID(),
+          id: computeQuestionFingerprint(repairedNorm.stem || '', repairedNorm.testedConcept || ''),
         });
         repairCount++;
         disposition = 'repair-passed';

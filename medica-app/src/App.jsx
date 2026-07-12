@@ -9,7 +9,7 @@ import { shuffleQuestionOptions } from './lib/questionNormalizer'
 import { enrichSessionWithTopicMetadata } from './lib/topicIntelligence'
 import { normalizeGenerationConfig } from './lib/generationScope'
 import { buildSeenState, validateUniqueQuestions } from './lib/questionDedup'
-import { qbank } from './lib/apiClient'
+import { qbank, exams, isBackendSyncEnabled } from './lib/apiClient'
 import { useSessionHistory } from './hooks/useSessionHistory'
 import { useAuth } from './context/AuthContext'
 import {
@@ -103,6 +103,33 @@ function buildAISession(config, questions, seenState) {
     excludedPreviousQuestionCount: seenState ? seenState.seenIds.size : 0,
   }
   return enrichSessionWithTopicMetadata(session, config)
+}
+
+const RESERVATION_TIMEOUT_MS = 5000
+
+// Attempts a server-side snapshot reservation before the quiz starts, for
+// authenticated backend-connected sessions only. Never blocks or fails the
+// quiz: a network error, timeout, or reserved:false (e.g. purely local/offline
+// content that never touched the backend) all fall through to the existing
+// client-trusted-at-completion behavior unchanged. The server independently
+// re-verifies via its own reservation lookup at completion regardless of what
+// this client-side flag claims.
+async function reserveServerSnapshot(session) {
+  if (!isBackendSyncEnabled()) return session
+
+  const controller = new AbortController()
+  const timeoutId  = setTimeout(() => controller.abort(), RESERVATION_TIMEOUT_MS)
+  try {
+    const result = await exams.reserve(
+      { clientSessionId: session.clientSessionId, questionIds: session.questions.map(q => q.id) },
+      { signal: controller.signal },
+    )
+    return result?.reserved ? { ...session, serverReserved: true } : session
+  } catch {
+    return session
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export default function App() {
@@ -242,7 +269,8 @@ export default function App() {
 
     try {
       const questions = await aiModule.generateAIQuestions(config, seenState)
-      setQuizSession(buildAISession(config, questions, seenState))
+      const session   = await reserveServerSnapshot(buildAISession(config, questions, seenState))
+      setQuizSession(session)
       return
     } catch (aiErr) {
       aiGenerationError = aiErr

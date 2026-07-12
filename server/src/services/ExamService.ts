@@ -1,8 +1,14 @@
 import { createHash } from 'crypto';
 import { withTransaction } from '../config/db.js';
-import type { IExamSessionsRepository, IQuestionAttemptsRepository, IQuestionsRepository } from '../repositories/interfaces.js';
+import type {
+  IExamSessionsRepository,
+  IExamSessionReservationsRepository,
+  IQuestionAttemptsRepository,
+  IQuestionsRepository,
+  IQuestionReportsRepository,
+} from '../repositories/interfaces.js';
 import type { ExamSession, Question, SubjectStats, PaginationParams, PaginatedResult } from '../types/index.js';
-import type { CreateSessionInput } from '../schemas/exam.js';
+import type { CreateSessionInput, ReserveSessionInput } from '../schemas/exam.js';
 import type { ConceptMappingService } from './ConceptMappingService.js';
 import type { ConceptMasteryService } from './ConceptMasteryService.js';
 import { normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
@@ -77,25 +83,133 @@ function normalizeQuestionTaxonomy(question: Question): Question {
   };
 }
 
-function normalizeStatsKeys<T extends SubjectStats>(
-  stats: Record<string, T>,
-  normalizer: (value: unknown) => string | null,
-): Record<string, T> {
-  const normalized: Record<string, T> = {};
-  for (const [key, value] of Object.entries(stats || {})) {
-    const normalizedKey = normalizer(key) ?? key;
-    const existing = normalized[normalizedKey];
-    normalized[normalizedKey] = existing
-      ? {
-          total: existing.total + value.total,
-          correct: existing.correct + value.correct,
-          percentage: existing.total + value.total > 0
-            ? Math.round(((existing.correct + value.correct) / (existing.total + value.total)) * 100)
-            : 0,
-        } as T
-      : value;
+function normalizeOptionsFromBody(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  const options = value
+    .map((option) => {
+      if (typeof option === 'string') return option;
+      if (option && typeof option === 'object' && 'text' in option) return String((option as { text: unknown }).text ?? '');
+      return '';
+    })
+    .map((option) => option.trim())
+    .filter(Boolean);
+  return options.length > 0 ? options : fallback;
+}
+
+function questionFromAuthoritativeBody(id: string, body: Record<string, unknown>, fallback: Question): Question {
+  return normalizeQuestionTaxonomy({
+    ...fallback,
+    ...body,
+    id,
+    text: String(body.text ?? body.stem ?? fallback.text ?? ''),
+    options: normalizeOptionsFromBody(body.options, fallback.options),
+    correct_answer: String(body.correct_answer ?? body.correct ?? body.correctAnswer ?? fallback.correct_answer ?? ''),
+  } as Question);
+}
+
+function optionLettersFor(question: Question): string[] {
+  return question.options
+    .map((_, index) => ANSWER_LETTERS[index])
+    .filter((letter): letter is typeof ANSWER_LETTERS[number] => Boolean(letter));
+}
+
+function optionTextToLetter(value: unknown, question: Question): string {
+  if (value === null || value === undefined) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const normalizedRaw = raw.toLowerCase().replace(/\s+/g, ' ');
+  const optionIndex = question.options.findIndex((option) => (
+    String(option ?? '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedRaw
+  ));
+  if (optionIndex >= 0) return ANSWER_LETTERS[optionIndex] ?? '';
+
+  const letter = _normalizeAnswerLetter(value);
+  return optionLettersFor(question).includes(letter as typeof ANSWER_LETTERS[number]) ? letter : '';
+}
+
+function correctLetterFor(question: Question): string {
+  return optionTextToLetter(_getCorrectAnswer(question as unknown as Record<string, unknown>), question);
+}
+
+function isCorrect(question: Question, answers: Record<string, string>): boolean {
+  const selected = optionTextToLetter(answers[question.id], question);
+  return selected !== '' && selected === correctLetterFor(question);
+}
+
+function buildStats(questions: Question[], answers: Record<string, string>, key: 'subject' | 'system'): Record<string, SubjectStats> {
+  const stats: Record<string, SubjectStats> = {};
+  for (const q of questions) {
+    const label = q[key] || 'Unknown';
+    const existing = stats[label] ?? { total: 0, correct: 0, percentage: 0 };
+    existing.total += 1;
+    if (isCorrect(q, answers)) existing.correct += 1;
+    existing.percentage = existing.total > 0 ? Math.round((existing.correct / existing.total) * 100) : 0;
+    stats[label] = existing;
   }
-  return normalized;
+  return stats;
+}
+
+function difficultyWeight(question: Question, sessionDifficulty: string): number {
+  const difficulty = question.difficulty || sessionDifficulty;
+  const weights: Record<string, number> = {
+    'More Easy': 0.5,
+    Balanced: 1,
+    'More Hard': 1.3,
+    'NBME Difficult': 1.6,
+    'UWorld Challenge': 2,
+  };
+  return weights[difficulty] ?? 1;
+}
+
+function readinessLabel(score: number): string {
+  if (score >= 80) return 'Strong';
+  if (score >= 65) return 'Ready';
+  if (score >= 50) return 'Borderline';
+  if (score >= 35) return 'Building';
+  return 'Needs Foundation';
+}
+
+function computeCanonicalSessionResult(
+  questions: Question[],
+  submittedAnswers: Record<string, string>,
+  sessionDifficulty: string,
+) {
+  const answers: Record<string, string> = {};
+  let correct = 0;
+  let answered = 0;
+  let weightedCorrect = 0;
+  let weightedTotal = 0;
+
+  for (const q of questions) {
+    const selected = optionTextToLetter(submittedAnswers[q.id], q);
+    const questionCorrect = selected !== '' && selected === correctLetterFor(q);
+    answers[q.id] = selected;
+    if (selected) answered += 1;
+    if (questionCorrect) correct += 1;
+
+    const weight = difficultyWeight(q, sessionDifficulty);
+    weightedTotal += weight;
+    if (questionCorrect) weightedCorrect += weight;
+  }
+
+  const total = questions.length;
+  const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
+  const difficultyBonus = weightedTotal > 0 ? Math.round((weightedCorrect / weightedTotal) * 100) : 0;
+  const completionRate = total > 0 ? answered / total : 0;
+  const rawMedicaScore = (percentage * 0.7) + (difficultyBonus * 0.2) + (completionRate * 100 * 0.1);
+  const medicaScore = Math.min(100, Math.max(0, Math.round(rawMedicaScore)));
+
+  return {
+    answers,
+    score: correct,
+    percentage,
+    medicaScore,
+    readinessLabel: readinessLabel(medicaScore),
+    subjectBreakdown: buildStats(questions, answers, 'subject'),
+    systemBreakdown: buildStats(questions, answers, 'system'),
+    missedQuestions: questions.filter((q) => !isCorrect(q, answers)),
+  };
 }
 
 export class ExamService {
@@ -105,7 +219,57 @@ export class ExamService {
     private questions?: IQuestionsRepository,
     private conceptMapping?: ConceptMappingService,
     private conceptMastery?: ConceptMasteryService,
+    private reservations?: IExamSessionReservationsRepository,
+    private questionReports?: IQuestionReportsRepository,
   ) {}
+
+  private async resolveAuthoritativeQuestions(questions: Question[]): Promise<Question[]> {
+    if (!this.questions) return questions;
+    const rows = await this.questions.findAuthoritativeQuestionsByIds(questions.map((q) => q.id), []);
+    if (rows.length === 0) return questions;
+
+    const byExternalId = new Map(rows.map((row) => [row.id, row.body]));
+    return questions.map((q) => {
+      const body = byExternalId.get(q.id);
+      return body ? questionFromAuthoritativeBody(q.id, body, q) : q;
+    });
+  }
+
+  /**
+   * Reserves an immutable server-side snapshot of the exact question set for a
+   * quiz attempt, before the user starts answering. IDs only — bodies are
+   * resolved authoritatively from storage, never trusted from the caller.
+   * Idempotent by (userId, clientSessionId): retrying an existing reservation
+   * returns { reserved: true } without altering the original snapshot.
+   * Returns { reserved: false } (never throws) when the questions repo/reservations
+   * repo isn't wired, or when not every id resolves to a legitimate stored question
+   * (e.g. purely local/offline content that never touched the backend) — that
+   * session simply has no snapshot and falls back to existing behavior at completion.
+   */
+  async reserveSession(userId: string, input: ReserveSessionInput): Promise<{ reserved: boolean; clientSessionId: string }> {
+    const clientSessionId = input.clientSessionId;
+    if (!this.reservations || !this.questions) return { reserved: false, clientSessionId };
+
+    const existing = await this.reservations.findByClientSessionId(userId, clientSessionId);
+    if (existing) return { reserved: true, clientSessionId };
+
+    const trimmedIds = [...new Set(input.questionIds.map((id) => String(id || '').trim()).filter(Boolean))];
+    if (trimmedIds.length === 0) return { reserved: false, clientSessionId };
+
+    const quarantined = this.questionReports ? await this.questionReports.getQuarantinedFingerprints() : new Set<string>();
+    const found = await this.questions.findAuthoritativeQuestionsByIds(trimmedIds, [...quarantined]);
+    if (found.length !== trimmedIds.length) return { reserved: false, clientSessionId };
+
+    const byId = new Map(found.map((row) => [row.id, row.body]));
+    const questions = trimmedIds.map((id) => questionFromAuthoritativeBody(
+      id,
+      byId.get(id)!,
+      { id, text: '', options: [], correct_answer: '' },
+    ));
+
+    await this.reservations.create({ userId, clientSessionId, questions });
+    return { reserved: true, clientSessionId };
+  }
 
   async createSession(userId: string, input: CreateSessionInput): Promise<ExamSession> {
     // Idempotent retry: if the client supplied a UUID, check for an existing session.
@@ -123,24 +287,41 @@ export class ExamService {
       }
     }
 
-    const normalizedQuestions = input.questions.map(normalizeQuestionTaxonomy);
-    const normalizedMissedQuestions = input.missed_questions.map(normalizeQuestionTaxonomy);
-    const normalizedSubjectBreakdown = normalizeStatsKeys(input.subject_breakdown, normalizeSubject);
-    const normalizedSystemBreakdown = normalizeStatsKeys(input.system_breakdown, normalizeSystem);
+    // If the client reserved a snapshot before answering, the submitted question set
+    // must exactly match it (order-independent) and scoring uses ONLY the reserved
+    // bodies — submitted text/options/correct_answer/explanation are ignored entirely,
+    // even if a question was quarantined after the reservation was made.
+    let snapshotQuestions: Question[] | null = null;
+    if (input.clientSessionId && this.reservations) {
+      const reservation = await this.reservations.findByClientSessionId(userId, input.clientSessionId);
+      if (reservation) {
+        const submittedIds = new Set(input.questions.map((q) => q.id));
+        const snapshotIds = new Set(reservation.questions.map((q) => q.id));
+        const setsMatch = submittedIds.size === snapshotIds.size
+          && [...submittedIds].every((id) => snapshotIds.has(id));
+        if (!setsMatch) throw new Error('SNAPSHOT_MISMATCH');
+        snapshotQuestions = reservation.questions;
+      }
+    }
+
+    const normalizedQuestions = snapshotQuestions
+      ? snapshotQuestions.map(normalizeQuestionTaxonomy)
+      : await this.resolveAuthoritativeQuestions(input.questions.map(normalizeQuestionTaxonomy));
+    const canonicalResult = computeCanonicalSessionResult(normalizedQuestions, input.answers, input.difficulty);
 
     const sessionData = {
       ...(resolvedClientId && { id: resolvedClientId }),
       user_id: userId,
       mode: input.mode,
       questions: normalizedQuestions as Question[],
-      answers: input.answers,
-      score: input.score,
-      percentage: input.percentage,
-      medica_score: input.medica_score,
-      readiness_label: input.readiness_label,
-      subject_breakdown: normalizedSubjectBreakdown as Record<string, SubjectStats>,
-      system_breakdown: normalizedSystemBreakdown as Record<string, SubjectStats>,
-      missed_questions: normalizedMissedQuestions as Question[],
+      answers: canonicalResult.answers,
+      score: canonicalResult.score,
+      percentage: canonicalResult.percentage,
+      medica_score: canonicalResult.medicaScore,
+      readiness_label: canonicalResult.readinessLabel,
+      subject_breakdown: canonicalResult.subjectBreakdown as Record<string, SubjectStats>,
+      system_breakdown: canonicalResult.systemBreakdown as Record<string, SubjectStats>,
+      missed_questions: canonicalResult.missedQuestions as Question[],
       completed_at: new Date(input.completed_at),
       duration_seconds: input.duration_seconds,
       difficulty: input.difficulty,
@@ -187,7 +368,7 @@ export class ExamService {
         const answered = normalizedQuestions
           .map((q) => ({
             questionDbId:      questionRefMap.get(q.id) ?? '',
-            isCorrect:         _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
+            isCorrect:         isCorrect(q, canonicalResult.answers),
             canonicalConcepts: q.canonicalConcepts,
           }))
           .filter((x) => x.questionDbId !== '');
@@ -207,8 +388,8 @@ export class ExamService {
         user_id:            userId,
         session_id:         s.id,
         question_id:        q.id,
-        selected_answer:    input.answers[q.id] ?? '',
-        is_correct:         _normalizeAnswerLetter(input.answers[q.id]) === _normalizeAnswerLetter(_getCorrectAnswer(q as unknown as Record<string, unknown>)),
+        selected_answer:    canonicalResult.answers[q.id] ?? '',
+        is_correct:         isCorrect(q, canonicalResult.answers),
         time_spent_seconds: input.time_spent?.[q.id] ?? 0,
         attempted_at:       new Date(input.completed_at),
         question_ref_id:    questionRefMap.get(q.id),

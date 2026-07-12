@@ -656,6 +656,45 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     });
   }
 
+  async findAuthoritativeQuestionsByIds(
+    ids: string[],
+    excludeFingerprints: string[] = [],
+  ): Promise<Array<{ id: string; body: Record<string, unknown> }>> {
+    if (ids.length === 0) return [];
+    const safe = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+    const res = await this.pool.query<{
+      id: string;
+      body: Record<string, unknown>;
+      source: string;
+      bankStatus: string;
+      aiModel: string | null;
+      validatorVersion: string | null;
+      reviewMetadata: Record<string, unknown>;
+    }>(
+      `SELECT external_id AS id, body, source, bank_status AS "bankStatus",
+              ai_model AS "aiModel", validator_version AS "validatorVersion", review_metadata AS "reviewMetadata"
+       FROM questions
+       WHERE external_id = ANY($1::text[])
+         AND source IN ('authored', 'ai')
+         AND bank_status NOT IN ('quarantined', 'validation_failed', 'rejected')
+         AND (bank_status = 'restored' OR fingerprint <> ALL($2::text[]))`,
+      [safe, excludeFingerprints],
+    );
+    return res.rows.map((row) => {
+      const reviewMetadata = normalizeReviewedContentMetadata(row.reviewMetadata, {
+        bankStatus: row.bankStatus,
+        source: row.source,
+        aiModel: row.aiModel,
+        validatorVersion: row.validatorVersion,
+        body: row.body,
+      });
+      return {
+        id: row.id,
+        body: mergeReviewedContentMetadataIntoBody(row.body, reviewMetadata),
+      };
+    });
+  }
+
   async getConceptCoverage(): Promise<Array<{ concept: string; count: number }>> {
     // CTE pre-filters to array-typed canonicalConcepts before the SRF runs,
     // preventing jsonb_array_elements_text from crashing on scalar values.

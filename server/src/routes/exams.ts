@@ -7,7 +7,7 @@ import { ConceptMasteryService } from '../services/ConceptMasteryService.js';
 import { ProgressTrackingService } from '../services/ProgressTrackingService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { createSessionSchema } from '../schemas/exam.js';
+import { createSessionSchema, reserveSessionSchema } from '../schemas/exam.js';
 import { getRepositories } from '../repositories/index.js';
 import { logger } from '../lib/logger.js';
 
@@ -16,13 +16,28 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const router = Router();
 
 function getService(): ExamService {
-  const { examSessions, questionAttempts, questions, concepts, questionConcepts, userConceptMastery } = getRepositories();
+  const {
+    examSessions, examSessionReservations, questionAttempts, questions,
+    concepts, questionConcepts, userConceptMastery, questionReports,
+  } = getRepositories();
   const conceptMapping = new ConceptMappingService(concepts, questionConcepts);
   const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts, concepts);
-  return new ExamService(examSessions, questionAttempts, questions, conceptMapping, conceptMastery);
+  return new ExamService(
+    examSessions, questionAttempts, questions, conceptMapping, conceptMastery,
+    examSessionReservations, questionReports,
+  );
 }
 
 router.use(requireAuth);
+
+router.post('/reservations', validate(reserveSessionSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await getService().reserveSession(req.userId!, req.body);
+    res.status(201).json(result);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Response) => {
   try {
@@ -37,8 +52,13 @@ router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Re
       .takeSnapshot(req.userId!, session.id)
       .catch((err) => logger.error('[progress] snapshot failed', { error: (err as Error).message }));
     res.status(201).json({ session });
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg === 'SNAPSHOT_MISMATCH') {
+      res.status(409).json({ error: 'Submitted questions do not match the reserved session', code: 'SNAPSHOT_MISMATCH' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

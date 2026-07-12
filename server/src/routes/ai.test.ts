@@ -2141,6 +2141,38 @@ describe('hybrid question bank fill', () => {
     expect(res.body.questions).toHaveLength(2);
   });
 
+  it('assigns the client-visible question id as its content fingerprint, matching the persisted bank row (Phase 2 exam-integrity ID bridge)', async () => {
+    const aiQuestion = makePromotableQuestion({
+      testedConcept: 'calcium channel blocker vascular relaxation mechanism',
+      stem: 'A 52-year-old woman with essential hypertension is started on amlodipine 5 mg daily. After four weeks her systolic blood pressure decreases by 18 mmHg. Which mechanism accounts for the blood pressure reduction with this drug?',
+      topic: 'Calcium channel blockers',
+      questionAngle: 'hemodynamics',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([aiQuestion]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.questions).toHaveLength(1);
+    const returnedId = res.body.questions[0].id;
+    // Not a randomUUID — the id IS the content fingerprint (readable stem||concept text), so it
+    // resolves directly against the questions table's external_id at exam-completion time.
+    expect(returnedId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(returnedId).toBe(fingerprintOf(aiQuestion));
+
+    // A second identical request reuses the bank row keyed by that exact id — proving the
+    // client-visible id and the persisted external_id are the same value.
+    const secondRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
+    expect(secondRes.body.source).toBe('generated-bank');
+    expect(secondRes.body.questions[0].id).toBe(returnedId);
+  });
+
   it('corrects AI-generated Cardiology subject into Cardiovascular system before saving to bank', async () => {
     const aiQuestion = makePromotableQuestion({
       subject: 'Cardiology',

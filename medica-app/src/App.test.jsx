@@ -1,9 +1,10 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App, { shouldEnterLocalFallback, shouldUseValidatedLocalFallback } from './App.jsx'
 import { useSessionHistory } from './hooks/useSessionHistory'
 import { generateAIQuestions } from './lib/ai/generateAIQuestions'
 import { saveSession as persistSession } from './lib/dataProvider'
+import { exams, isBackendSyncEnabled } from './lib/apiClient'
 
 vi.mock('./hooks/useSessionHistory', () => ({
   useSessionHistory: vi.fn(() => ({
@@ -260,6 +261,7 @@ vi.mock('./lib/dataProvider', () => ({
 
 vi.mock('./lib/apiClient', () => ({
   isAuthenticated: vi.fn(() => false),
+  isBackendSyncEnabled: vi.fn(() => false),
   setAuthenticated: vi.fn(),
   setCurrentUserId: vi.fn(),
   setAuthRestoring: vi.fn(),
@@ -274,6 +276,9 @@ vi.mock('./lib/apiClient', () => ({
     createSession: vi.fn(ids => Promise.resolve({
       questions: ids.map(id => ({ id, body: { ...makeQuestions('qbank')[0], id } })),
     })),
+  },
+  exams: {
+    reserve: vi.fn(() => Promise.resolve({ reserved: false, clientSessionId: '00000000-0000-4000-8000-000000000001' })),
   },
 }))
 
@@ -613,6 +618,50 @@ describe('App quiz phase routing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Exit Session Mock' }))
 
     await waitFor(() => expect(screen.getByText('Quiz Builder Mock')).toBeInTheDocument())
+  })
+})
+
+describe('App — Phase 2 server-side session reservation', () => {
+  afterEach(() => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(false)
+    vi.mocked(exams.reserve).mockResolvedValue({ reserved: false, clientSessionId: '00000000-0000-4000-8000-000000000001' })
+  })
+
+  it('does not attempt a reservation for anonymous/offline sessions', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
+
+    expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
+    expect(exams.reserve).not.toHaveBeenCalled()
+  })
+
+  it('awaits a reservation before starting an authenticated backend-connected quiz', async () => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(true)
+    vi.mocked(exams.reserve).mockResolvedValue({ reserved: true, clientSessionId: '00000000-0000-4000-8000-000000000001' })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
+
+    expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
+    expect(exams.reserve).toHaveBeenCalledTimes(1)
+    const [payload] = vi.mocked(exams.reserve).mock.calls[0]
+    expect(payload).toEqual(expect.objectContaining({
+      clientSessionId: expect.any(String),
+      questionIds: expect.any(Array),
+    }))
+  })
+
+  it('continues into the quiz unblocked when the reservation call fails', async () => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(true)
+    vi.mocked(exams.reserve).mockRejectedValue(new Error('network error'))
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
+
+    expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
   })
 })
 

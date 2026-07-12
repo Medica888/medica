@@ -4,6 +4,8 @@ import type {
   AuthToken,
   AuthTokenType,
   ExamSession,
+  ExamSessionReservation,
+  Question,
   QuestionAttempt,
   Flashcard,
   AnalyticsSnapshot,
@@ -65,6 +67,15 @@ export interface IExamSessionsRepository {
     links: { questionId: string; position: number }[],
     tx?: unknown,
   ): Promise<void>;
+}
+
+export interface IExamSessionReservationsRepository {
+  /** Idempotent by (userId, clientSessionId) — callers should check findByClientSessionId first. */
+  create(
+    reservation: { userId: string; clientSessionId: string; questions: Question[] },
+    tx?: unknown,
+  ): Promise<ExamSessionReservation>;
+  findByClientSessionId(userId: string, clientSessionId: string): Promise<ExamSessionReservation | null>;
 }
 
 export interface IQuestionAttemptsRepository {
@@ -201,6 +212,19 @@ export interface IQuestionsRepository {
    * Used by POST /api/qbank/sessions to serve full question data for a session.
    */
   findByExternalIds(
+    ids: string[],
+    excludeFingerprints?: string[],
+  ): Promise<Array<{ id: string; body: Record<string, unknown> }>>;
+  /**
+   * Resolves a list of external IDs to their full question bodies (with answers),
+   * for both authored and AI-generated content — excluding only quarantined,
+   * validation_failed, or rejected rows. Unlike findByExternalIds, this does NOT
+   * require commercial-readiness/reviewed-content metadata (that gate is about
+   * catalog reuse-readiness, not "did the server generate this exact content").
+   * Internal use only (exam-integrity answer-key resolution and session
+   * reservations) — never expose question bodies from this lookup via a route response.
+   */
+  findAuthoritativeQuestionsByIds(
     ids: string[],
     excludeFingerprints?: string[],
   ): Promise<Array<{ id: string; body: Record<string, unknown> }>>;

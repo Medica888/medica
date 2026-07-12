@@ -40,8 +40,11 @@ async function registerAndGetToken(): Promise<string> {
   return res.body.token as string;
 }
 
+let repos: ReturnType<typeof createInMemoryRepositories>;
+
 beforeEach(() => {
-  setRepositories(createInMemoryRepositories());
+  repos = createInMemoryRepositories();
+  setRepositories(repos);
 });
 
 describe('POST /api/exams', () => {
@@ -56,9 +59,154 @@ describe('POST /api/exams', () => {
     expect(res.body.session.id).toBeDefined();
   });
 
+  it('returns backend-computed results instead of trusting client score fields', async () => {
+    const token = await registerAndGetToken();
+    const res = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...sampleSession,
+        answers: { q1: 'B' },
+        score: 1,
+        percentage: 100,
+        medica_score: 100,
+        readiness_label: 'Strong',
+        missed_questions: [],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.session.score).toBe(0);
+    expect(res.body.session.percentage).toBe(0);
+    expect(res.body.session.readiness_label).toBe('Needs Foundation');
+    expect(res.body.session.missed_questions).toHaveLength(1);
+  });
+
+  it('rejects duplicate question ids before persistence', async () => {
+    const token = await registerAndGetToken();
+    const res = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...sampleSession,
+        questions: [sampleSession.questions[0], { ...sampleSession.questions[0] }],
+      });
+
+    expect(res.status).toBe(400);
+  });
+
   it('returns 401 without token', async () => {
     const res = await request(app).post('/api/exams').send(sampleSession);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/exams/reservations', () => {
+  const aiQuestionId = 'ai-fp-route-test';
+
+  async function seedAiQuestion() {
+    await repos.questions.upsertByExternalId(aiQuestionId, {
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      body: {
+        id: aiQuestionId,
+        subject: 'Cardiology',
+        system: 'Cardiovascular',
+        stem: 'Authoritative AI stem',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct' },
+        ],
+        correct: 'B',
+      },
+    });
+  }
+
+  it('reserves a snapshot and the response contains only { reserved, clientSessionId }', async () => {
+    const token = await registerAndGetToken();
+    await seedAiQuestion();
+    const clientSessionId = '11111111-2222-4333-8444-555555555555';
+
+    const res = await request(app)
+      .post('/api/exams/reservations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientSessionId, questionIds: [aiQuestionId] });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ reserved: true, clientSessionId });
+  });
+
+  it('returns reserved:false (not an error) when a question id does not resolve', async () => {
+    const token = await registerAndGetToken();
+    const clientSessionId = '22222222-3333-4444-8555-666666666666';
+
+    const res = await request(app)
+      .post('/api/exams/reservations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientSessionId, questionIds: ['never-seeded-id'] });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ reserved: false, clientSessionId });
+  });
+
+  it('returns 401 without a token', async () => {
+    const res = await request(app)
+      .post('/api/exams/reservations')
+      .send({ clientSessionId: '33333333-4444-4555-8666-777777777777', questionIds: ['x'] });
+    expect(res.status).toBe(401);
+  });
+
+  it('completion rejects with 409 SNAPSHOT_MISMATCH when submitted questions differ from the reservation', async () => {
+    const token = await registerAndGetToken();
+    await seedAiQuestion();
+    const clientSessionId = '44444444-5555-4666-8777-888888888888';
+    await request(app)
+      .post('/api/exams/reservations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientSessionId, questionIds: [aiQuestionId] });
+
+    const res = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...sampleSession,
+        clientSessionId,
+        questions: [{ ...sampleSession.questions[0], id: 'different-id' }],
+        answers: { 'different-id': 'A' },
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('SNAPSHOT_MISMATCH');
+  });
+
+  it('completion scores from the reserved snapshot, ignoring a tampered submitted correct_answer', async () => {
+    const token = await registerAndGetToken();
+    await seedAiQuestion();
+    const clientSessionId = '55555555-6666-4777-8888-999999999999';
+    await request(app)
+      .post('/api/exams/reservations')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ clientSessionId, questionIds: [aiQuestionId] });
+
+    const res = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...sampleSession,
+        clientSessionId,
+        questions: [{
+          ...sampleSession.questions[0],
+          id: aiQuestionId,
+          text: 'Tampered stem',
+          correct_answer: 'A',
+        }],
+        answers: { [aiQuestionId]: 'B' },
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.session.questions[0].text).toBe('Authoritative AI stem');
+    expect(res.body.session.score).toBe(1);
   });
 });
 

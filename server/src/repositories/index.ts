@@ -3,6 +3,7 @@ import { getPool } from '../config/db.js';
 import { InMemoryUsersRepository } from './memory/UsersRepository.js';
 import { InMemoryAuthTokensRepository } from './memory/AuthTokensRepository.js';
 import { InMemoryExamSessionsRepository } from './memory/ExamSessionsRepository.js';
+import { InMemoryExamSessionReservationsRepository } from './memory/ExamSessionReservationsRepository.js';
 import { InMemoryQuestionAttemptsRepository } from './memory/QuestionAttemptsRepository.js';
 import { InMemoryFlashcardsRepository } from './memory/FlashcardsRepository.js';
 import { InMemoryAnalyticsRepository } from './memory/AnalyticsRepository.js';
@@ -21,6 +22,7 @@ import { InMemoryAIUsageBudgetRepository } from './memory/AIUsageBudgetRepositor
 import { PgUsersRepository } from './pg/UsersRepository.js';
 import { PgAuthTokensRepository } from './pg/AuthTokensRepository.js';
 import { PgExamSessionsRepository } from './pg/ExamSessionsRepository.js';
+import { PgExamSessionReservationsRepository } from './pg/ExamSessionReservationsRepository.js';
 import { PgQuestionAttemptsRepository } from './pg/QuestionAttemptsRepository.js';
 import { PgFlashcardsRepository } from './pg/FlashcardsRepository.js';
 import { PgAnalyticsRepository } from './pg/AnalyticsRepository.js';
@@ -39,6 +41,7 @@ import { PgAIUsageBudgetRepository } from './pg/AIUsageBudgetRepository.js';
 import type { IUsersRepository } from './interfaces.js';
 import type { IAuthTokensRepository } from './interfaces.js';
 import type { IExamSessionsRepository } from './interfaces.js';
+import type { IExamSessionReservationsRepository } from './interfaces.js';
 import type { IQuestionAttemptsRepository } from './interfaces.js';
 import type { IFlashcardsRepository } from './interfaces.js';
 import type { IAnalyticsRepository } from './interfaces.js';
@@ -60,6 +63,7 @@ export interface Repositories {
   users: IUsersRepository;
   authTokens: IAuthTokensRepository;
   examSessions: IExamSessionsRepository;
+  examSessionReservations: IExamSessionReservationsRepository;
   questionAttempts: IQuestionAttemptsRepository;
   flashcards: IFlashcardsRepository;
   analytics: IAnalyticsRepository;
@@ -92,6 +96,7 @@ export function createInMemoryRepositories(): Repositories {
     users:              new InMemoryUsersRepository(),
     authTokens:         new InMemoryAuthTokensRepository(),
     examSessions:       new InMemoryExamSessionsRepository(),
+    examSessionReservations: new InMemoryExamSessionReservationsRepository(),
     questionAttempts:   new InMemoryQuestionAttemptsRepository(),
     flashcards:         new InMemoryFlashcardsRepository(),
     analytics:          new InMemoryAnalyticsRepository(),
@@ -116,6 +121,7 @@ export function createPgRepositories(): Repositories {
     users:              new PgUsersRepository(pool),
     authTokens:         new PgAuthTokensRepository(pool),
     examSessions:       new PgExamSessionsRepository(pool),
+    examSessionReservations: new PgExamSessionReservationsRepository(pool),
     questionAttempts:   new PgQuestionAttemptsRepository(pool),
     flashcards:         new PgFlashcardsRepository(pool),
     analytics:          new PgAnalyticsRepository(pool),

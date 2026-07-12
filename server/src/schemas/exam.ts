@@ -48,6 +48,28 @@ export const createSessionSchema = z.object({
   // Client-generated UUID enables idempotent retries: the server uses this as the
   // session's primary key. Duplicate requests with the same key return the existing session.
   clientSessionId: z.string().uuid().optional(),
+}).superRefine((data, ctx) => {
+  const seen = new Set<string>();
+  data.questions.forEach((question, index) => {
+    if (seen.has(question.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['questions', index, 'id'],
+        message: 'Duplicate question id in submitted session',
+      });
+    }
+    seen.add(question.id);
+  });
 });
 
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+
+// IDs only — never question bodies/answers. A reservation endpoint that accepted
+// client-submitted bodies would just move the tamper point earlier instead of
+// closing it; the server resolves authoritative bodies itself from stored IDs.
+export const reserveSessionSchema = z.object({
+  clientSessionId: z.string().uuid(),
+  questionIds: z.array(z.string()).min(1).max(280),
+});
+
+export type ReserveSessionInput = z.infer<typeof reserveSessionSchema>;

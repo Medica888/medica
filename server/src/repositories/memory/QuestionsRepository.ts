@@ -477,6 +477,24 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     });
   }
 
+  async findAuthoritativeQuestionsByIds(
+    ids: string[],
+    excludeFingerprints: string[] = [],
+  ): Promise<Array<{ id: string; body: Record<string, unknown> }>> {
+    if (ids.length === 0) return [];
+    const safe = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+    const excluded = new Set(excludeFingerprints);
+    const blockedStatuses = new Set(['quarantined', 'validation_failed', 'rejected']);
+    return safe.flatMap(externalId => {
+      const e = this.store.get(externalId);
+      if (!e) return [];
+      if (e.source !== 'authored' && e.source !== 'ai') return [];
+      if (blockedStatuses.has(e.bankStatus)) return [];
+      if (e.bankStatus !== 'restored' && excluded.has(this.entryFingerprint(e.body))) return [];
+      return [{ id: externalId, body: e.body as Record<string, unknown> }];
+    });
+  }
+
   _getEntry(externalId: string): { id: string; subject: string; system: string; body: Record<string, unknown>; usageCount?: number; lastUsedAt?: Date | null } | undefined {
     return this.store.get(externalId);
   }

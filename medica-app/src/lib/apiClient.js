@@ -145,6 +145,8 @@ export const auth = {
 export const exams = {
   create: (session) => request('POST', '/api/exams', session),
 
+  reserve: (payload, options) => request('POST', '/api/exams/reservations', payload, options),
+
   list: (page = 1, limit = 20) =>
     request('GET', `/api/exams?page=${page}&limit=${limit}`),
 

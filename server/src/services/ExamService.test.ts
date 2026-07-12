@@ -6,6 +6,8 @@ import { InMemoryQuestionsRepository } from '../repositories/memory/QuestionsRep
 import { InMemoryConceptsRepository } from '../repositories/memory/ConceptsRepository.js';
 import { InMemoryQuestionConceptsRepository } from '../repositories/memory/QuestionConceptsRepository.js';
 import { InMemoryUserConceptMasteryRepository } from '../repositories/memory/UserConceptMasteryRepository.js';
+import { InMemoryExamSessionReservationsRepository } from '../repositories/memory/ExamSessionReservationsRepository.js';
+import { InMemoryQuestionReportsRepository } from '../repositories/memory/QuestionReportsRepository.js';
 import { ConceptMappingService } from './ConceptMappingService.js';
 import { ConceptMasteryService } from './ConceptMasteryService.js';
 
@@ -180,8 +182,13 @@ describe('ExamService — Phase 1 question bank', () => {
   });
 
   it('normalizes system_breakdown aliases before saving a session', async () => {
+    const renalQuestion = {
+      ...sampleQuestion,
+      id: 'q-renal-001',
+      system: 'Renal',
+    };
     const input = {
-      ...makeInput(),
+      ...makeInput([renalQuestion], { 'q-renal-001': 'Acute inferior MI' }),
       system_breakdown: { Renal: { total: 1, correct: 1, percentage: 100 } },
     };
 
@@ -297,7 +304,7 @@ describe('ExamService — normalized answer comparison', () => {
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
     expect(attempts[0]!.is_correct).toBe(true);
-    expect(attempts[0]!.selected_answer).toBe('c'); // raw preserved
+    expect(attempts[0]!.selected_answer).toBe('C');
   });
 
   it('marks attempt correct when user sends "C. option text" and correct_answer is "C"', async () => {
@@ -305,7 +312,7 @@ describe('ExamService — normalized answer comparison', () => {
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
     expect(attempts[0]!.is_correct).toBe(true);
-    expect(attempts[0]!.selected_answer).toBe('C. Some option text');
+    expect(attempts[0]!.selected_answer).toBe('C');
   });
 
   it('marks attempt correct when user answer has surrounding whitespace', async () => {
@@ -329,16 +336,21 @@ describe('ExamService — normalized answer comparison', () => {
     expect(attempts[0]!.is_correct).toBe(false);
   });
 
-  it('keeps selected_answer raw and does not mutate it', async () => {
+  it('stores selected_answer as the canonical answer letter', async () => {
     const raw = 'c. Some option text';
     const input = makeInput([letterQuestion], { 'q-norm-001': raw });
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
-    expect(attempts[0]!.selected_answer).toBe(raw);
+    expect(attempts[0]!.selected_answer).toBe('C');
   });
 
   it('marks attempt correct for a matching extended-matching letter beyond D (5+ option question)', async () => {
-    const extendedQuestion = { ...sampleQuestion, id: 'q-norm-e', correct_answer: 'E' };
+    const extendedQuestion = {
+      ...sampleQuestion,
+      id: 'q-norm-e',
+      options: ['Aortic dissection', 'Pulmonary embolism', 'Pericarditis', 'GERD', 'Acute inferior MI'],
+      correct_answer: 'E',
+    };
     const input = makeInput([extendedQuestion], { 'q-norm-e': 'E' });
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
@@ -346,7 +358,12 @@ describe('ExamService — normalized answer comparison', () => {
   });
 
   it('marks attempt correct for letter L (12-option ceiling)', async () => {
-    const extendedQuestion = { ...sampleQuestion, id: 'q-norm-l', correct_answer: 'L' };
+    const extendedQuestion = {
+      ...sampleQuestion,
+      id: 'q-norm-l',
+      options: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L option'],
+      correct_answer: 'L',
+    };
     const input = makeInput([extendedQuestion], { 'q-norm-l': 'l' });
     const session = await service.createSession('user-1', input);
     const attempts = await attemptsRepo.findBySessionId(session.id);
@@ -362,6 +379,169 @@ describe('ExamService — normalized answer comparison', () => {
 });
 
 // ── _getCorrectAnswer alias fallback ─────────────────────────────────────────
+
+describe('ExamService - backend-owned result calculation', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let service: ExamService;
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    service = new ExamService(sessionsRepo, attemptsRepo, questionsRepo);
+  });
+
+  it('overrides a fake perfect client score when the submitted answer is wrong', async () => {
+    const input = {
+      ...makeInput([sampleQuestion], { 'q-uuid-001': 'A' }),
+      score: 1,
+      percentage: 100,
+      medica_score: 100,
+      readiness_label: 'Strong',
+      missed_questions: [],
+    };
+
+    const session = await service.createSession('user-1', input);
+    const loaded = await sessionsRepo.findById(session.id);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+
+    expect(loaded!.score).toBe(0);
+    expect(loaded!.percentage).toBe(0);
+    expect(loaded!.medica_score).toBe(10);
+    expect(loaded!.readiness_label).toBe('Needs Foundation');
+    expect(loaded!.missed_questions).toHaveLength(1);
+    expect(loaded!.answers).toEqual({ 'q-uuid-001': 'A' });
+    expect(loaded!.system_breakdown['Cardiovascular']).toEqual({ total: 1, correct: 0, percentage: 0 });
+    expect(attempts[0]!.selected_answer).toBe('A');
+    expect(attempts[0]!.is_correct).toBe(false);
+  });
+
+  it('overrides a fake zero client score when the submitted answer is correct', async () => {
+    const input = {
+      ...makeInput([sampleQuestion], { 'q-uuid-001': 'Acute inferior MI' }),
+      score: 0,
+      percentage: 0,
+      medica_score: 0,
+      readiness_label: 'Needs Foundation',
+      missed_questions: [sampleQuestion],
+    };
+
+    const session = await service.createSession('user-1', input);
+    const loaded = await sessionsRepo.findById(session.id);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+
+    expect(loaded!.score).toBe(1);
+    expect(loaded!.percentage).toBe(100);
+    expect(loaded!.medica_score).toBe(100);
+    expect(loaded!.readiness_label).toBe('Strong');
+    expect(loaded!.missed_questions).toHaveLength(0);
+    expect(loaded!.answers).toEqual({ 'q-uuid-001': 'C' });
+    expect(attempts[0]!.selected_answer).toBe('C');
+    expect(attempts[0]!.is_correct).toBe(true);
+  });
+
+  it('ignores foreign answer ids and never persists them into the session summary', async () => {
+    const input = makeInput([sampleQuestion], {
+      'q-uuid-001': 'C',
+      'question-from-another-session': 'A',
+    });
+
+    const session = await service.createSession('user-1', input);
+    const loaded = await sessionsRepo.findById(session.id);
+
+    expect(loaded!.answers).toEqual({ 'q-uuid-001': 'C' });
+    expect(loaded!.score).toBe(1);
+    expect(loaded!.percentage).toBe(100);
+  });
+
+  it('treats an out-of-option-range answer as unanswered, not as a correct answer', async () => {
+    const input = makeInput([sampleQuestion], { 'q-uuid-001': 'E' });
+
+    const session = await service.createSession('user-1', input);
+    const loaded = await sessionsRepo.findById(session.id);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+
+    expect(loaded!.answers).toEqual({ 'q-uuid-001': '' });
+    expect(loaded!.score).toBe(0);
+    expect(loaded!.percentage).toBe(0);
+    expect(loaded!.medica_score).toBe(0);
+    expect(attempts[0]!.selected_answer).toBe('');
+    expect(attempts[0]!.is_correct).toBe(false);
+  });
+
+  it('idempotent retries keep the first canonical result and ignore changed resubmissions', async () => {
+    const clientId = '44444444-4444-4444-8444-444444444444';
+    const first = await service.createSession('user-1', {
+      ...makeInput([sampleQuestion], { 'q-uuid-001': 'A' }),
+      clientSessionId: clientId,
+    });
+    const second = await service.createSession('user-1', {
+      ...makeInput([sampleQuestion], { 'q-uuid-001': 'C' }),
+      clientSessionId: clientId,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.score).toBe(0);
+    expect(second.answers).toEqual({ 'q-uuid-001': 'A' });
+    const attempts = await attemptsRepo.findBySessionId(first.id);
+    expect(attempts).toHaveLength(1);
+  });
+
+  it('uses DB-owned QBank question bodies instead of trusting a tampered submitted body', async () => {
+    await questionsRepo.upsertByExternalId('bank-q1', {
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      source: 'authored',
+      bankStatus: 'approved',
+      body: {
+        id: 'bank-q1',
+        subject: 'Pathology',
+        system: 'Cardiovascular',
+        difficulty: 'Balanced',
+        stem: 'Authoritative bank stem',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct DB answer' },
+        ],
+        correct: 'B',
+        reviewMetadata: {
+          reviewStatus: 'source_checked',
+          sourceRefs: ['USMLE Content Outline'],
+          medicalAccuracyStatus: 'pass',
+        },
+      },
+    });
+
+    const tamperedQuestion = {
+      ...sampleQuestion,
+      id: 'bank-q1',
+      text: 'Client tampered stem',
+      options: ['Correct DB answer', 'Distractor'],
+      correct_answer: 'A',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+    };
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([tamperedQuestion], { 'bank-q1': 'A' }),
+      score: 1,
+      percentage: 100,
+      medica_score: 100,
+      readiness_label: 'Strong',
+    });
+    const loaded = await sessionsRepo.findById(session.id);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+
+    expect(loaded!.questions[0]!.text).toBe('Authoritative bank stem');
+    expect(loaded!.questions[0]!.correct_answer).toBe('B');
+    expect(loaded!.score).toBe(0);
+    expect(loaded!.percentage).toBe(0);
+    expect(attempts[0]!.selected_answer).toBe('A');
+    expect(attempts[0]!.is_correct).toBe(false);
+  });
+});
 
 describe('_getCorrectAnswer', () => {
   it('returns correct_answer when present', () => {
@@ -554,5 +734,271 @@ describe('ExamService — clientSessionId idempotency', () => {
   it('creates a normal session (server-generated id) when clientSessionId is omitted', async () => {
     const session = await service.createSession('user-1', makeInput());
     expect(session.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  });
+});
+
+// ── Phase 2: backend-owned exam integrity (reservations) ──────────────────────
+
+describe('ExamService — Phase 2 backend-owned exam integrity', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let reservationsRepo: InMemoryExamSessionReservationsRepository;
+  let questionReportsRepo: InMemoryQuestionReportsRepository;
+  let service: ExamService;
+
+  const aiQuestionId = 'ai-fp-cardiac-mi';
+  const aiSecondQuestionId = 'ai-fp-pulm-pe';
+
+  async function seedAiQuestion(externalId: string, overrides: Record<string, unknown> = {}) {
+    await questionsRepo.upsertByExternalId(externalId, {
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      body: {
+        id: externalId,
+        subject: 'Cardiology',
+        system: 'Cardiovascular',
+        difficulty: 'Balanced',
+        stem: 'Authoritative AI-generated stem',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct AI answer' },
+        ],
+        correct: 'B',
+        ...overrides,
+      },
+    });
+  }
+
+  function tamperedSubmission(id: string) {
+    return {
+      ...sampleQuestion,
+      id,
+      text: 'Client tampered AI stem',
+      options: ['Correct AI answer', 'Distractor'],
+      correct_answer: 'A',
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+    };
+  }
+
+  beforeEach(async () => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    reservationsRepo = new InMemoryExamSessionReservationsRepository();
+    questionReportsRepo = new InMemoryQuestionReportsRepository();
+    service = new ExamService(
+      sessionsRepo, attemptsRepo, questionsRepo, undefined, undefined,
+      reservationsRepo, questionReportsRepo,
+    );
+    await seedAiQuestion(aiQuestionId);
+  });
+
+  it('overrides a tampered AI-origin correct_answer even with no reservation present (Part 2 alone)', async () => {
+    const session = await service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'A' }),
+      score: 1,
+      percentage: 100,
+      medica_score: 100,
+      readiness_label: 'Strong',
+    });
+    const loaded = await sessionsRepo.findById(session.id);
+
+    expect(loaded!.questions[0]!.text).toBe('Authoritative AI-generated stem');
+    expect(loaded!.questions[0]!.correct_answer).toBe('B');
+    expect(loaded!.score).toBe(0);
+    expect(loaded!.percentage).toBe(0);
+  });
+
+  it('reserveSession persists a snapshot when every id resolves', async () => {
+    const clientSessionId = '55555555-5555-4555-a555-555555555555';
+    const result = await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    expect(result).toEqual({ reserved: true, clientSessionId });
+    const stored = await reservationsRepo.findByClientSessionId('user-1', clientSessionId);
+    expect(stored).not.toBeNull();
+    expect(stored!.questions).toHaveLength(1);
+    expect(stored!.questions[0]!.id).toBe(aiQuestionId);
+    expect(stored!.questions[0]!.correct_answer).toBe('B');
+  });
+
+  it('reserveSession returns reserved:false (no-reservation fallback) when not every id resolves', async () => {
+    const clientSessionId = '66666666-6666-4666-a666-666666666666';
+    const result = await service.reserveSession('user-1', {
+      clientSessionId,
+      questionIds: [aiQuestionId, 'purely-local-id-never-synced'],
+    });
+
+    expect(result).toEqual({ reserved: false, clientSessionId });
+    expect(await reservationsRepo.findByClientSessionId('user-1', clientSessionId)).toBeNull();
+  });
+
+  it('reserveSession is idempotent — retrying returns reserved:true without altering the snapshot', async () => {
+    const clientSessionId = '77777777-7777-4777-a777-777777777777';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+    const retry = await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    expect(retry).toEqual({ reserved: true, clientSessionId });
+    const stored = await reservationsRepo.findByClientSessionId('user-1', clientSessionId);
+    expect(stored!.questions).toHaveLength(1);
+  });
+
+  it('scores from the reserved snapshot and ignores a tampered submitted correct_answer/options', async () => {
+    const clientSessionId = '88888888-8888-4888-a888-888888888888';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'A' }),
+      clientSessionId,
+      score: 1,
+      percentage: 100,
+      medica_score: 100,
+      readiness_label: 'Strong',
+    });
+
+    expect(session.questions[0]!.text).toBe('Authoritative AI-generated stem');
+    expect(session.questions[0]!.correct_answer).toBe('B');
+    expect(session.score).toBe(0);
+    expect(session.percentage).toBe(0);
+  });
+
+  it('rejects completion with SNAPSHOT_MISMATCH when a reserved question is missing from the submission', async () => {
+    const clientSessionId = '99999999-9999-4999-a999-999999999999';
+    await seedAiQuestion(aiSecondQuestionId);
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId, aiSecondQuestionId] });
+
+    await expect(service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'A' }),
+      clientSessionId,
+    })).rejects.toThrow('SNAPSHOT_MISMATCH');
+  });
+
+  it('rejects completion with SNAPSHOT_MISMATCH when an extra question is submitted beyond the reservation', async () => {
+    const clientSessionId = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    const extraQuestion = { ...sampleQuestion2, id: 'not-reserved-id' };
+    await expect(service.createSession('user-1', {
+      ...makeInput(
+        [tamperedSubmission(aiQuestionId), extraQuestion],
+        { [aiQuestionId]: 'A', 'not-reserved-id': 'CT pulmonary angiography' },
+      ),
+      clientSessionId,
+    })).rejects.toThrow('SNAPSHOT_MISMATCH');
+  });
+
+  it('accepts a reordered-but-complete submission against the reservation', async () => {
+    const clientSessionId = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb';
+    await seedAiQuestion(aiSecondQuestionId, { stem: 'Second authoritative stem' });
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId, aiSecondQuestionId] });
+
+    // Submitted in reverse order relative to the reservation — set comparison, not array order.
+    const session = await service.createSession('user-1', {
+      ...makeInput(
+        [tamperedSubmission(aiSecondQuestionId), tamperedSubmission(aiQuestionId)],
+        { [aiQuestionId]: 'B', [aiSecondQuestionId]: 'B' },
+      ),
+      clientSessionId,
+    });
+
+    expect(session.questions).toHaveLength(2);
+    expect(session.score).toBe(2);
+  });
+
+  it('duplicate completion with a reservation present returns the same already-scored session (idempotent)', async () => {
+    const clientSessionId = 'cccccccc-cccc-4ccc-accc-cccccccccccc';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    const first = await service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'B' }),
+      clientSessionId,
+    });
+    const second = await service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'A' }), // different answer on retry
+      clientSessionId,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.score).toBe(first.score);
+    expect(second.answers).toEqual(first.answers);
+  });
+
+  it('falls back to existing behavior when clientSessionId has no reservation on file (local/offline-equivalent)', async () => {
+    const clientSessionId = 'dddddddd-dddd-4ddd-addd-dddddddddddd';
+    // No reserveSession call — this session never touched the reservation flow.
+    const session = await service.createSession('user-1', {
+      ...makeInput([sampleQuestion], { 'q-uuid-001': 'Acute inferior MI' }),
+      clientSessionId,
+    });
+
+    expect(session.id).toBe(clientSessionId);
+    expect(session.score).toBe(1);
+  });
+
+  it('scores from the snapshot even if the question is quarantined after the reservation was made', async () => {
+    const clientSessionId = 'eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    // Quarantine happens after the reservation — the stored snapshot must not be affected.
+    await questionsRepo.upsertByExternalId(aiQuestionId, {
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      source: 'ai',
+      bankStatus: 'quarantined',
+      body: { id: aiQuestionId, subject: 'Cardiology', system: 'Cardiovascular', stem: 'Authoritative AI-generated stem' },
+    });
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'B' }),
+      clientSessionId,
+    });
+
+    expect(session.questions[0]!.text).toBe('Authoritative AI-generated stem');
+    expect(session.score).toBe(1);
+  });
+
+  it('uses DB-owned QBank question bodies unchanged (findByExternalIds path untouched by Phase 2)', async () => {
+    await questionsRepo.upsertByExternalId('bank-q-phase2', {
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      source: 'authored',
+      bankStatus: 'approved',
+      body: {
+        id: 'bank-q-phase2',
+        subject: 'Pathology',
+        system: 'Cardiovascular',
+        stem: 'Authoritative bank stem',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct DB answer' },
+        ],
+        correct: 'B',
+        reviewMetadata: {
+          reviewStatus: 'source_checked',
+          sourceRefs: ['USMLE Content Outline'],
+          medicalAccuracyStatus: 'pass',
+        },
+      },
+    });
+
+    const tampered = {
+      ...sampleQuestion,
+      id: 'bank-q-phase2',
+      text: 'Client tampered stem',
+      options: ['Correct DB answer', 'Distractor'],
+      correct_answer: 'A',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+    };
+
+    const session = await service.createSession('user-1', makeInput([tampered], { 'bank-q-phase2': 'A' }));
+    const loaded = await sessionsRepo.findById(session.id);
+
+    expect(loaded!.questions[0]!.text).toBe('Authoritative bank stem');
+    expect(loaded!.questions[0]!.correct_answer).toBe('B');
+    expect(loaded!.score).toBe(0);
   });
 });

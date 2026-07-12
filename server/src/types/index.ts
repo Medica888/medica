@@ -42,6 +42,21 @@ export interface ExamSession {
   difficulty: string;
 }
 
+/**
+ * Immutable server-issued snapshot of the exact question set reserved for a
+ * quiz attempt, captured before the user starts answering. Stored bodies are
+ * authoritative — completion scoring reads them directly and never re-queries
+ * the questions table, so a question quarantined after reservation still
+ * scores from the snapshot as originally reserved.
+ */
+export interface ExamSessionReservation {
+  id: string;
+  user_id: string;
+  client_session_id: string;
+  questions: Question[];
+  created_at: Date;
+}
+
 export interface Question {
   id: string;
   text: string;
