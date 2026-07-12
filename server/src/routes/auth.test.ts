@@ -574,7 +574,10 @@ describe('config production guards', () => {
       process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/db';
       process.env.ALLOWED_ORIGINS = 'https://app.medica.com';
       delete process.env.AUTH_DEV_TOKENS_ENABLED;
-      delete process.env.SMTP_HOST;
+      // Empty string, not delete: dotenv.config() re-runs on the resetModules() re-import
+      // below and would otherwise refill SMTP_HOST from a real server/.env (e.g. local
+      // Mailpit config) since dotenv only skips already-defined keys, not deleted ones.
+      process.env.SMTP_HOST = '';
       vi.resetModules();
       await expect(import('../config.js')).rejects.toThrow('SMTP_HOST');
     } finally {

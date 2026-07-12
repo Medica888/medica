@@ -53,6 +53,39 @@ docker compose up -d redis  # start Redis on :6379
 # REDIS_URL=redis://localhost:6379
 ```
 
+### Email (local dev — Mailpit)
+Password-reset and email-verification links are sent over real SMTP (`SmtpEmailSender` in
+`server/src/lib/email.ts`) in every environment, including dev — there is no dev-only mock
+mailer. Without an SMTP server configured, `SMTP_HOST` defaults to `localhost:587`, which
+just fails with `ECONNREFUSED` (registration and resend-verification degrade gracefully but
+no email is ever actually sent or visible). Mailpit gives you a real local inbox to test
+against instead of standing up a production relay.
+
+```bash
+docker compose up -d mailpit   # SMTP on :1025, web UI on :8025
+```
+
+Add to `server/.env`:
+```
+SMTP_HOST=localhost
+SMTP_PORT=1025
+EMAIL_FROM=no-reply@medica.local
+```
+
+Mailbox UI: **http://localhost:8025** — every email the backend sends lands here instead of
+a real inbox; nothing leaves your machine.
+
+**Testing email verification end-to-end:**
+1. Register a new user in the app (Sidebar → Settings → Register tab).
+2. Open http://localhost:8025 — the verification email appears immediately.
+3. Open it and click the verify link (`{APP_BASE_URL}/verify-email?token=...`) — it opens
+   the frontend's verify-email page and marks the account verified.
+4. Back in Settings, the "Verify your email" prompt is gone.
+
+This only affects local dev — production still requires a real `SMTP_HOST` (`config.ts`
+throws at startup if unset when `NODE_ENV=production`), and Mailpit is never referenced by
+production code or config defaults.
+
 ---
 
 ## Backend Architecture

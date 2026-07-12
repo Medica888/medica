@@ -50,6 +50,16 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit
+    container_name: medica-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP — point server/.env's SMTP_HOST/SMTP_PORT here
+      - "8025:8025" # Web UI — view caught auth emails at http://localhost:8025
+    networks:
+      - medica-net
+
 volumes:
   postgres_data:
   pgadmin_data:
