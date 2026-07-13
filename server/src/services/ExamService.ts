@@ -132,6 +132,39 @@ function correctLetterFor(question: Question): string {
   return optionTextToLetter(_getCorrectAnswer(question as unknown as Record<string, unknown>), question);
 }
 
+// Strict — unlike _normalizeAnswerLetter, this must NOT match multi-character text
+// that happens to start with a letter (e.g. 'Aortic dissection').
+const BARE_LETTER_RE = /^[A-L]$/i;
+
+/**
+ * A submitted answer letter (e.g. 'A') is positional relative to the option order
+ * the CLIENT actually displayed, which can be shuffled and therefore differ from
+ * the server's authoritative question body used for scoring. Translating the
+ * letter into its option TEXT from the client's own submitted question — before
+ * scoring — lets optionTextToLetter's existing text-match path resolve it
+ * correctly against the authoritative options regardless of shuffle order.
+ * The answer key stays 100% server-owned: this only changes which option a bare
+ * letter is understood to refer to, never what counts as correct.
+ */
+function resolveAnswersAgainstClientOptions(
+  clientQuestions: Question[],
+  answers: Record<string, string>,
+): Record<string, string> {
+  const clientById = new Map(clientQuestions.map((q) => [q.id, q]));
+  const resolved: Record<string, string> = {};
+  for (const [questionId, rawAnswer] of Object.entries(answers)) {
+    const trimmed = typeof rawAnswer === 'string' ? rawAnswer.trim() : '';
+    if (BARE_LETTER_RE.test(trimmed)) {
+      const index = ANSWER_LETTERS.indexOf(trimmed.toUpperCase() as typeof ANSWER_LETTERS[number]);
+      const text = clientById.get(questionId)?.options?.[index];
+      resolved[questionId] = (typeof text === 'string' && text.trim()) ? text : rawAnswer;
+    } else {
+      resolved[questionId] = rawAnswer;
+    }
+  }
+  return resolved;
+}
+
 function isCorrect(question: Question, answers: Record<string, string>): boolean {
   const selected = optionTextToLetter(answers[question.id], question);
   return selected !== '' && selected === correctLetterFor(question);
@@ -307,7 +340,12 @@ export class ExamService {
     const normalizedQuestions = snapshotQuestions
       ? snapshotQuestions.map(normalizeQuestionTaxonomy)
       : await this.resolveAuthoritativeQuestions(input.questions.map(normalizeQuestionTaxonomy));
-    const canonicalResult = computeCanonicalSessionResult(normalizedQuestions, input.answers, input.difficulty);
+
+    // Answers arrive keyed to the client's own (possibly shuffled) option order;
+    // resolve bare letters against that order before scoring against the
+    // authoritative (possibly differently-ordered) question bodies above.
+    const resolvedAnswers = resolveAnswersAgainstClientOptions(input.questions, input.answers);
+    const canonicalResult = computeCanonicalSessionResult(normalizedQuestions, resolvedAnswers, input.difficulty);
 
     const sessionData = {
       ...(resolvedClientId && { id: resolvedClientId }),

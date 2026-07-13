@@ -514,6 +514,12 @@ describe('ExamService - backend-owned result calculation', () => {
       },
     });
 
+    // Client displays these two options in the OPPOSITE order from the DB row
+    // (as a shuffled UI naturally would). Submitted letter 'A' is positional
+    // relative to THIS array, where index 0 is 'Correct DB answer' — the actual
+    // right answer, just not under the DB's own letter for it. The tampered
+    // stem/correct_answer claim is still fully ignored either way: correctness
+    // is decided from the DB body's own key, never from the client's fields.
     const tamperedQuestion = {
       ...sampleQuestion,
       id: 'bank-q1',
@@ -536,6 +542,62 @@ describe('ExamService - backend-owned result calculation', () => {
 
     expect(loaded!.questions[0]!.text).toBe('Authoritative bank stem');
     expect(loaded!.questions[0]!.correct_answer).toBe('B');
+    // The user actually selected the right option ('Correct DB answer'), just
+    // labeled 'A' under their own (shuffled) view instead of the DB's 'B'.
+    // Scoring resolves it by TEXT against the authoritative array, so it is
+    // correctly marked correct — see resolveAnswersAgainstClientOptions.
+    expect(loaded!.score).toBe(1);
+    expect(loaded!.percentage).toBe(100);
+    expect(attempts[0]!.selected_answer).toBe('B');
+    expect(attempts[0]!.is_correct).toBe(true);
+  });
+
+  it('still rejects a tampered correct_answer claim when the client-selected option is actually wrong', async () => {
+    await questionsRepo.upsertByExternalId('bank-q2', {
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+      source: 'authored',
+      bankStatus: 'approved',
+      body: {
+        id: 'bank-q2',
+        subject: 'Pathology',
+        system: 'Cardiovascular',
+        difficulty: 'Balanced',
+        stem: 'Authoritative bank stem 2',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct DB answer' },
+        ],
+        correct: 'B',
+      },
+    });
+
+    // Same shuffled client order as above (client A = 'Correct DB answer', client
+    // B = 'Distractor'), but this time the user actually clicked their letter
+    // 'B' — the Distractor — and the client also falsely claims 'B' is correct.
+    const tamperedQuestion = {
+      ...sampleQuestion,
+      id: 'bank-q2',
+      text: 'Client tampered stem',
+      options: ['Correct DB answer', 'Distractor'],
+      correct_answer: 'B',
+      subject: 'Pathology',
+      system: 'Cardiovascular',
+    };
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([tamperedQuestion], { 'bank-q2': 'B' }),
+      score: 1,
+      percentage: 100,
+      medica_score: 100,
+      readiness_label: 'Strong',
+    });
+    const loaded = await sessionsRepo.findById(session.id);
+    const attempts = await attemptsRepo.findBySessionId(session.id);
+
+    // Client's letter 'B' (Distractor) resolves against the DB's own letter 'A'.
+    // The tampered correct_answer: 'B' claim is ignored — DB says 'B' is
+    // 'Correct DB answer', so the actual Distractor selection still scores wrong.
     expect(loaded!.score).toBe(0);
     expect(loaded!.percentage).toBe(0);
     expect(attempts[0]!.selected_answer).toBe('A');
@@ -809,6 +871,22 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
 
     expect(loaded!.questions[0]!.text).toBe('Authoritative AI-generated stem');
     expect(loaded!.questions[0]!.correct_answer).toBe('B');
+    // Client letter 'A' is index 0 of tamperedSubmission's own options
+    // ('Correct AI answer'/'Distractor') — the actual right answer, just under
+    // a different letter than the DB's. Resolved by text, so it scores correct.
+    expect(loaded!.score).toBe(1);
+    expect(loaded!.percentage).toBe(100);
+  });
+
+  it('Part 2 alone still rejects a tampered correct_answer claim when the client-selected option is actually wrong', async () => {
+    const session = await service.createSession('user-1', {
+      // Client letter 'B' is index 1 of tamperedSubmission's options ('Distractor'),
+      // and the submission dishonestly claims correct_answer: 'A' regardless.
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'B' }),
+    });
+    const loaded = await sessionsRepo.findById(session.id);
+
+    expect(loaded!.questions[0]!.correct_answer).toBe('B');
     expect(loaded!.score).toBe(0);
     expect(loaded!.percentage).toBe(0);
   });
@@ -861,6 +939,23 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
 
     expect(session.questions[0]!.text).toBe('Authoritative AI-generated stem');
     expect(session.questions[0]!.correct_answer).toBe('B');
+    // Client letter 'A' is the actual right answer under the client's own
+    // (shuffled) option order — resolved by text against the reserved snapshot.
+    expect(session.score).toBe(1);
+    expect(session.percentage).toBe(100);
+  });
+
+  it('with a reservation present, still rejects a tampered correct_answer claim when the client-selected option is actually wrong', async () => {
+    const clientSessionId = 'ffffffff-ffff-4fff-afff-ffffffffffff';
+    await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId] });
+
+    const session = await service.createSession('user-1', {
+      // Client letter 'B' is the Distractor under the client's own option order.
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'B' }),
+      clientSessionId,
+    });
+
+    expect(session.questions[0]!.correct_answer).toBe('B');
     expect(session.score).toBe(0);
     expect(session.percentage).toBe(0);
   });
@@ -896,10 +991,12 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
     await service.reserveSession('user-1', { clientSessionId, questionIds: [aiQuestionId, aiSecondQuestionId] });
 
     // Submitted in reverse order relative to the reservation — set comparison, not array order.
+    // Client letter 'A' is the actual right answer under tamperedSubmission's own
+    // option order for both questions.
     const session = await service.createSession('user-1', {
       ...makeInput(
         [tamperedSubmission(aiSecondQuestionId), tamperedSubmission(aiQuestionId)],
-        { [aiQuestionId]: 'B', [aiSecondQuestionId]: 'B' },
+        { [aiQuestionId]: 'A', [aiSecondQuestionId]: 'A' },
       ),
       clientSessionId,
     });
@@ -951,8 +1048,9 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
       body: { id: aiQuestionId, subject: 'Cardiology', system: 'Cardiovascular', stem: 'Authoritative AI-generated stem' },
     });
 
+    // Client letter 'A' is the actual right answer under tamperedSubmission's own option order.
     const session = await service.createSession('user-1', {
-      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'B' }),
+      ...makeInput([tamperedSubmission(aiQuestionId)], { [aiQuestionId]: 'A' }),
       clientSessionId,
     });
 
@@ -999,6 +1097,8 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
 
     expect(loaded!.questions[0]!.text).toBe('Authoritative bank stem');
     expect(loaded!.questions[0]!.correct_answer).toBe('B');
-    expect(loaded!.score).toBe(0);
+    // Client letter 'A' is index 0 of the tampered options ('Correct DB answer') —
+    // the actual right answer under the client's own (shuffled) order.
+    expect(loaded!.score).toBe(1);
   });
 });
