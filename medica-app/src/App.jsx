@@ -427,7 +427,17 @@ export default function App() {
   const handleExamComplete = useCallback((results, sessionWithAnswers) => {
     showSyncStatus('saving')
     persistSession(results, sessionWithAnswers)
-      .then(({ backendSynced, syncState }) => showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only')))
+      .then(({ backendSynced, syncState, backendResults }) => {
+        if (backendResults) {
+          setExamResults(prev => ({
+            ...prev,
+            ...backendResults,
+            weakAreas: prev?.weakAreas ?? [],
+            recommendation: prev?.recommendation ?? '',
+          }))
+        }
+        showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only'))
+      })
       .catch(() => showSyncStatus('failed'))
       .finally(refreshHistory)
     setExamResults(results)

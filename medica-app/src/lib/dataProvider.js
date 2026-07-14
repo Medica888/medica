@@ -11,7 +11,7 @@
 import * as api from './apiClient.js';
 import { getQuestionCorrectLetter, normalizeAnswerLetter } from './answerNormalize.js';
 import { normalizeQuestionTaxonomyFields } from './usmleTaxonomy.js';
-import { fetchAllBackendSessions } from './sessionNormalizer.js';
+import { fetchAllBackendSessions, normalizeBackendSession } from './sessionNormalizer.js';
 import {
   classifySessionSyncError,
   drainSessionSyncOutbox,
@@ -114,8 +114,14 @@ export async function saveSession(results, sessionWithAnswers) {
   const syncUserId = api.getCurrentUserId?.();
 
   try {
-    await api.exams.create(apiPayload);
-    return { backendSynced: true, syncState: 'synced' };
+    const response = await api.exams.create(apiPayload);
+    const backendSession = response?.session ?? null;
+    return {
+      backendSynced: true,
+      syncState: 'synced',
+      backendSession,
+      backendResults: backendSession ? normalizeBackendSession(backendSession) : null,
+    };
   } catch (error) {
     if (classifySessionSyncError(error) === 'permanent') {
       console.warn('[dataProvider] Backend rejected session save:', error.message);

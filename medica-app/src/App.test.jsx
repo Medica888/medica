@@ -193,9 +193,10 @@ vi.mock('./components/coach/CoachInterface', () => ({
 }))
 
 vi.mock('./components/exam/ExamResults', () => ({
-  default: ({ onReview, onNewQuiz }) => (
+  default: ({ results, onReview, onNewQuiz }) => (
     <div>
       <div>Exam Results Mock</div>
+      <div data-testid="exam-results-score">{results.correct}/{results.total}</div>
       <button type="button" onClick={() => onReview('all')}>Review Exam Mock</button>
       <button type="button" onClick={onNewQuiz}>New Exam Mock</button>
     </div>
@@ -533,6 +534,30 @@ describe('App quiz phase routing', () => {
     fireEvent.click(await screen.findByRole('button', { name: finishLabel }))
 
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+  })
+
+  it('updates exam results from the backend canonical score after a synced save', async () => {
+    vi.mocked(persistSession).mockResolvedValue({
+      backendSynced: true,
+      syncState: 'synced',
+      backendResults: {
+        ...makeResults(),
+        correct: 0,
+        percentage: 0,
+        medicaScore: 0,
+        readinessLabel: 'Needs Foundation',
+        subjectBreakdown: [],
+        systemBreakdown: [],
+      },
+    })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit Exam Mock' }))
+
+    await waitFor(() => expect(screen.getByTestId('exam-results-score')).toHaveTextContent('0/1'))
   })
 
   it('opens the working quiz builder in Coach mode from AI Coach navigation', async () => {

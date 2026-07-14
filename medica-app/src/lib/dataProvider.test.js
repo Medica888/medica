@@ -142,6 +142,48 @@ describe('saveSession', () => {
     expect(payload.answers).toEqual({ q1: 'A' });
   });
 
+  it('returns normalized backend canonical results when the backend save succeeds', async () => {
+    api.exams.create.mockResolvedValueOnce({
+      session: {
+        id: 'server-session-1',
+        mode: 'exam',
+        questions: [{
+          id: 'q1',
+          text: 'Server canonical stem',
+          options: ['STEMI', 'NSTEMI', 'Angina', 'PE'],
+          correct_answer: 'B',
+          subject: 'Cardiology',
+          system: 'Cardiovascular',
+        }],
+        answers: { q1: 'B' },
+        score: 1,
+        percentage: 100,
+        medica_score: 98,
+        readiness_label: 'Strong',
+        subject_breakdown: { Cardiology: { total: 1, correct: 1, percentage: 100 } },
+        system_breakdown: { Cardiovascular: { total: 1, correct: 1, percentage: 100 } },
+        missed_questions: [],
+        completed_at: '2026-07-14T00:00:00.000Z',
+        difficulty: 'Balanced',
+      },
+    });
+
+    const result = await saveSession({ ...results, mode: 'exam' }, sessionWithAnswers);
+
+    expect(result.backendSynced).toBe(true);
+    expect(result.syncState).toBe('synced');
+    expect(result.backendSession.id).toBe('server-session-1');
+    expect(result.backendResults).toMatchObject({
+      id: 'server-session-1',
+      mode: 'exam',
+      total: 1,
+      correct: 1,
+      percentage: 100,
+      medicaScore: 98,
+      readinessLabel: 'Strong',
+    });
+  });
+
   it('maps missed_questions correctly — unanswered or incorrect', async () => {
     const swAnswers = { ...sessionWithAnswers, answers: { q1: 'B' } };
     await saveSession(results, swAnswers);
