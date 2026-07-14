@@ -1102,3 +1102,115 @@ describe('ExamService — Phase 2 backend-owned exam integrity', () => {
     expect(loaded!.score).toBe(1);
   });
 });
+
+// ── reserveGeneratedExamSnapshot (exam-mode generation-time reservation) ───────
+
+describe('ExamService — reserveGeneratedExamSnapshot', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let reservationsRepo: InMemoryExamSessionReservationsRepository;
+  let service: ExamService;
+
+  const shuffledQuestion = {
+    id: 'ai-fp-generation-time',
+    text: 'Authoritative AI stem, shuffled for this session',
+    options: ['Correct AI answer', 'Distractor'],
+    correct_answer: 'A',
+    subject: 'Cardiology',
+    system: 'Cardiovascular',
+  };
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    reservationsRepo = new InMemoryExamSessionReservationsRepository();
+    service = new ExamService(sessionsRepo, attemptsRepo, questionsRepo, undefined, undefined, reservationsRepo);
+  });
+
+  it('persists the exact bodies passed in, including their shuffled option order', async () => {
+    const clientSessionId = 'f1111111-1111-4111-8111-111111111111';
+    const result = await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [shuffledQuestion]);
+
+    expect(result.reserved).toBe(true);
+    expect(result.clientSessionId).toBe(clientSessionId);
+    expect(result.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+    expect(result.questions[0]!.correct_answer).toBe('A');
+    const stored = await reservationsRepo.findByClientSessionId('user-1', clientSessionId);
+    expect(stored!.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+    expect(stored!.questions[0]!.correct_answer).toBe('A');
+  });
+
+  it('is idempotent — a retry with the same clientSessionId returns the original snapshot unchanged', async () => {
+    const clientSessionId = 'f2222222-2222-4222-8222-222222222222';
+    await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [shuffledQuestion]);
+
+    const differentShuffle = { ...shuffledQuestion, options: ['Distractor', 'Correct AI answer'], correct_answer: 'B' };
+    const retry = await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [differentShuffle]);
+
+    // The retry's OWN return value must reflect the original snapshot, not the
+    // fresh (different) shuffle just passed in — callers build their response
+    // directly from this return value, so it must never diverge from storage.
+    expect(retry.reserved).toBe(true);
+    expect(retry.clientSessionId).toBe(clientSessionId);
+    expect(retry.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+    expect(retry.questions[0]!.correct_answer).toBe('A');
+    const stored = await reservationsRepo.findByClientSessionId('user-1', clientSessionId);
+    expect(stored!.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+  });
+
+  it('is not clobbered by a subsequent ID-based reserveSession call for the same clientSessionId', async () => {
+    // Bank-canonical (unshuffled) order — what an ID-based lookup would resolve to.
+    await questionsRepo.upsertByExternalId('ai-fp-generation-time', {
+      subject: 'Cardiology',
+      system: 'Cardiovascular',
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      body: {
+        id: 'ai-fp-generation-time',
+        stem: 'Authoritative AI stem, shuffled for this session',
+        options: [
+          { letter: 'A', text: 'Distractor' },
+          { letter: 'B', text: 'Correct AI answer' },
+        ],
+        correct: 'B',
+      },
+    });
+
+    const clientSessionId = 'f3333333-3333-4333-8333-333333333333';
+    await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [shuffledQuestion]);
+
+    // Mirrors the frontend's existing pre-quiz reserveServerSnapshot() call, which
+    // fires an ID-based reserveSession() after generation-time reservation already ran.
+    const idBasedResult = await service.reserveSession('user-1', {
+      clientSessionId,
+      questionIds: ['ai-fp-generation-time'],
+    });
+
+    expect(idBasedResult).toEqual({ reserved: true, clientSessionId });
+    const stored = await reservationsRepo.findByClientSessionId('user-1', clientSessionId);
+    // Still the generation-time shuffled order — NOT the bank's canonical order.
+    expect(stored!.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+    expect(stored!.questions[0]!.correct_answer).toBe('A');
+  });
+
+  it('scores correctly from the generation-time shuffled snapshot at completion', async () => {
+    const clientSessionId = 'f4444444-4444-4444-8444-444444444444';
+    await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [shuffledQuestion]);
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([{ ...shuffledQuestion }], { 'ai-fp-generation-time': 'A' }),
+      clientSessionId,
+    });
+
+    expect(session.questions[0]!.options).toEqual(['Correct AI answer', 'Distractor']);
+    expect(session.score).toBe(1);
+    expect(session.percentage).toBe(100);
+  });
+
+  it('returns reserved:false without throwing when there are no questions to store', async () => {
+    const result = await service.reserveGeneratedExamSnapshot('user-1', 'f5555555-5555-4555-8555-555555555555', []);
+    expect(result.reserved).toBe(false);
+  });
+});

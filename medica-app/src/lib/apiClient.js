@@ -230,10 +230,11 @@ export const generate = {
     streamRequest('/api/generate', payload, options),
   flashcards: (count = 10, config = {}) =>
     request('POST', '/api/generate-flashcards', { config: { count, ...config } }),
-  questions: ({ config, exclude } = {}, options = {}) =>
+  questions: ({ config, exclude, clientSessionId } = {}, options = {}) =>
     request('POST', '/api/generate-questions', {
       config,
       ...(exclude ? { exclude } : {}),
+      ...(clientSessionId ? { clientSessionId } : {}),
     }, options),
 };
 

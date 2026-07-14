@@ -213,6 +213,48 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     return res.rows.map(r => r.body);
   }
 
+  async findReviewedAuthoredQuestions(params: {
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    limit?: number;
+  }): Promise<Record<string, unknown>[]> {
+    const values: unknown[] = [];
+    const clauses = ["source = 'authored'", this.commercialReadySql()];
+
+    const addTaxonomyFilter = (
+      column: string,
+      value: string | undefined,
+      labelsForValue: (v: unknown) => string[],
+      allLabels: string[] = [],
+    ) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed || allLabels.includes(trimmed) || isBroadTaxonomyValue(trimmed)) return;
+      const labels = labelsForValue(trimmed);
+      const searchLabels = labels.length > 0 ? labels : [trimmed];
+      values.push(searchLabels);
+      clauses.push(`${column} = ANY($${values.length}::text[])`);
+    };
+
+    addTaxonomyFilter('subject', params.subject, subjectSearchLabels, ['All Subjects']);
+    addTaxonomyFilter('system', params.system, systemSearchLabels, ['Mixed / All Systems', 'All Systems']);
+    addTaxonomyFilter('difficulty', params.difficulty, difficultySearchLabels);
+    // No mode filter — authored content is seeded mode-agnostic (mode='').
+
+    const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
+    values.push(limit);
+
+    const res = await this.pool.query<{ body: Record<string, unknown> }>(
+      `SELECT body
+       FROM questions
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY RANDOM()
+       LIMIT $${values.length}`,
+      values,
+    );
+    return res.rows.map(r => r.body);
+  }
+
   async findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;

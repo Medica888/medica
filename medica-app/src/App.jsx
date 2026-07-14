@@ -77,16 +77,21 @@ function getValidatedLocalFallbackReason(aiErr) {
   return 'live_ai_unavailable'
 }
 
-function buildAISession(config, questions, seenState) {
+function buildAISession(config, questions, seenState, clientSessionId) {
   const validation = validateUniqueQuestions(questions)
   const telemetry  = questions.generationTelemetry ?? null
   const qSource    = telemetry?.source ?? 'ai'
+  // Server-owned Exam student-view questions already have their per-session
+  // display order decided (and answer keys stripped) on the backend — the
+  // client must never reshuffle them, since that would desync the letter the
+  // student sees from the order the reservation snapshot was scored against.
+  const studentView = Boolean(telemetry?.studentView)
   const session = {
     id:             `session_${Date.now()}`,
-    clientSessionId: crypto.randomUUID(),  // stable UUID for idempotent backend retry
+    clientSessionId: clientSessionId ?? crypto.randomUUID(),  // stable UUID for idempotent backend retry
     mode:  config.mode,
     config,
-    questions: questions.map(shuffleQuestionOptions),
+    questions: studentView ? questions : questions.map(shuffleQuestionOptions),
     answers:   {},
     currentIndex: 0,
     startedAt:    new Date().toISOString(),
@@ -103,6 +108,56 @@ function buildAISession(config, questions, seenState) {
     excludedPreviousQuestionCount: seenState ? seenState.seenIds.size : 0,
   }
   return enrichSessionWithTopicMetadata(session, config)
+}
+
+const EXAM_REVEAL_FIELDS = new Set([
+  'correct',
+  'correctAnswer',
+  'correct_answer',
+  'explanation',
+  'pearl',
+  'highYieldPearl',
+  'memoryAnchor',
+  'commonTrap',
+  'optionExplanations',
+  'wrongAnswerExplanations',
+])
+
+function concealQuestionForActiveExam(question) {
+  return Object.fromEntries(
+    Object.entries(question || {}).filter(([key]) => !EXAM_REVEAL_FIELDS.has(key)),
+  )
+}
+
+function concealReservedExamSession(session) {
+  if (session?.mode !== 'exam' || !session?.serverReserved) return session
+  return {
+    ...session,
+    questions: (session.questions || []).map(concealQuestionForActiveExam),
+  }
+}
+
+function normalizeReviewQuestionFromBackend(question) {
+  return {
+    ...question,
+    stem: question?.stem ?? question?.text ?? '',
+    correct: question?.correct ?? question?.correct_answer ?? question?.correctAnswer ?? '',
+  }
+}
+
+function buildSyncedReviewSession(currentSession, backendSession) {
+  if (!backendSession || !Array.isArray(backendSession.questions)) return currentSession
+  const answers = backendSession.answers && typeof backendSession.answers === 'object'
+    ? backendSession.answers
+    : currentSession?.answers
+  return {
+    ...currentSession,
+    id: backendSession.id || currentSession?.id,
+    questions: backendSession.questions.map(normalizeReviewQuestionFromBackend),
+    answers,
+    completedAt: backendSession.completed_at ?? currentSession?.completedAt,
+    backendSynced: true,
+  }
 }
 
 const RESERVATION_TIMEOUT_MS = 5000
@@ -124,7 +179,9 @@ async function reserveServerSnapshot(session) {
       { clientSessionId: session.clientSessionId, questionIds: session.questions.map(q => q.id) },
       { signal: controller.signal },
     )
-    return result?.reserved ? { ...session, serverReserved: true } : session
+    return result?.reserved
+      ? concealReservedExamSession({ ...session, serverReserved: true })
+      : session
   } catch {
     return session
   } finally {
@@ -258,6 +315,10 @@ export default function App() {
     const IS_40Q_BLOCK   = config.questionCount === 40 && config.mode === 'exam'
     const seenState      = buildSeenState(getSessionHistory())
     const aiModule       = await import('./lib/ai/generateAIQuestions')
+    // Minted once and reused for both the generation request and the session
+    // itself — Exam mode's server-owned reservation is keyed by this exact id,
+    // so generation-time and pre-quiz reservation must agree on it.
+    const clientSessionId = crypto.randomUUID()
 
     setQuizConfig(config)
     setQuizSession(null)
@@ -268,8 +329,8 @@ export default function App() {
     let useValidatedLocalFallback
 
     try {
-      const questions = await aiModule.generateAIQuestions(config, seenState)
-      const session   = await reserveServerSnapshot(buildAISession(config, questions, seenState))
+      const questions = await aiModule.generateAIQuestions(config, seenState, clientSessionId)
+      const session   = await reserveServerSnapshot(buildAISession(config, questions, seenState, clientSessionId))
       setQuizSession(session)
       return
     } catch (aiErr) {
@@ -427,7 +488,7 @@ export default function App() {
   const handleExamComplete = useCallback((results, sessionWithAnswers) => {
     showSyncStatus('saving')
     persistSession(results, sessionWithAnswers)
-      .then(({ backendSynced, syncState, backendResults }) => {
+      .then(({ backendSynced, syncState, backendResults, backendSession }) => {
         if (backendResults) {
           setExamResults(prev => ({
             ...prev,
@@ -435,6 +496,9 @@ export default function App() {
             weakAreas: prev?.weakAreas ?? [],
             recommendation: prev?.recommendation ?? '',
           }))
+        }
+        if (backendSession) {
+          setQuizSession(prev => buildSyncedReviewSession(prev || sessionWithAnswers, backendSession))
         }
         showSyncStatus(syncState || (backendSynced ? 'synced' : 'local-only'))
       })

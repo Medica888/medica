@@ -18,9 +18,11 @@ import { getBankQuestionsForConfig, selectStandardizedStep1Questions } from '../
  *
  * @param {import('../quizTypes').QuizConfig} config
  * @param {{ seenIds: Set<string>, seenBaseIds: Set<string>, seenFingerprints: Set<string> } | null} seenState
+ * @param {string | null} clientSessionId Exam mode only — reserves the server-owned,
+ *   answer-stripped snapshot under this id. Ignored for practice/coach.
  * @returns {Promise<import('../quizTypes').QuizQuestion[]>}
  */
-export async function generateAIQuestions(config, seenState = null) {
+export async function generateAIQuestions(config, seenState = null, clientSessionId = null) {
   const normalizedConfig = normalizeQuizConfigForGeneration(config)
 
   if (import.meta.env.VITE_USE_BACKEND_API !== 'true') {
@@ -40,12 +42,26 @@ export async function generateAIQuestions(config, seenState = null) {
   // Declared outside try so the catch block can fall back to whatever bank candidates
   // were collected before an AI failure.
   let bankCandidates = []
+  // Declared outside try so the catch block can gate the local-bank fallback the same
+  // way the success path does — an authenticated Exam session must never fall back to
+  // the answer-bearing local bank, even on a backend error the try block never handles.
+  let examMustUseServer = false
 
   try {
     // ── Step 1: bank-first — static bank + trusted AI questions ─────────────
     bankCandidates = _getBankCandidates(normalizedConfig, seenState)
 
-    if (bankCandidates.length >= normalizedConfig.questionCount) {
+    // The local static bank ships inside the JS bundle — its answer keys are
+    // technically visible to anyone who inspects the app. That's an accepted
+    // risk for Practice/Coach (which reveal answers immediately anyway) and
+    // for anonymous/offline Exam use (no authenticated backend round-trip is
+    // possible there regardless). But an authenticated, backend-connected Exam
+    // session must never be satisfied purely from local bank content, even
+    // when the bank already has enough questions — it always routes to the
+    // backend's server-owned, answer-stripped, reservation-backed path instead.
+    examMustUseServer = normalizedConfig.mode === 'exam' && isAuthenticated()
+
+    if (bankCandidates.length >= normalizedConfig.questionCount && !examMustUseServer) {
       const questions = isStandardized40QuestionBlock(normalizedConfig)
         ? selectStandardizedStep1Questions(bankCandidates, normalizedConfig.questionCount)
         : bankCandidates.slice(0, normalizedConfig.questionCount)
@@ -69,12 +85,51 @@ export async function generateAIQuestions(config, seenState = null) {
       )
     }
 
-    // ── Step 2: AI fill for remaining count ──────────────────────────────────
-    const remainingCount  = Math.max(1, normalizedConfig.questionCount - bankCandidates.length)
+    // ── Step 2: AI fill ──────────────────────────────────────────────────────
+    // Exam mode always comes back from the backend as a server-owned student
+    // view (see the studentView check below) regardless of whether a
+    // clientSessionId was sent — so bank-discard must be gated the same way,
+    // on mode alone, not on clientSessionId presence. Requesting just the
+    // bank shortfall and then splicing in local bankCandidates client-side
+    // would submit an id set the reservation never saw, which throws
+    // SNAPSHOT_MISMATCH at completion even though nothing was tampered with.
+    // Request the FULL count from the backend instead so one reservation
+    // covers the entire session, and never mix local-bank ids into it. This
+    // also covers examMustUseServer with FULL local coverage (the case just
+    // above skipped its early return): request the whole count from the
+    // server-owned pool rather than mixing in any local bank content.
+    const hasPartialBankCoverage = bankCandidates.length > 0 && bankCandidates.length < normalizedConfig.questionCount
+    const skipLocalBankMixing    = normalizedConfig.mode === 'exam' && (hasPartialBankCoverage || examMustUseServer)
+
+    const remainingCount  = skipLocalBankMixing
+      ? normalizedConfig.questionCount
+      : Math.max(1, normalizedConfig.questionCount - bankCandidates.length)
     const remainingConfig = { ...normalizedConfig, questionCount: remainingCount }
 
-    const raw = await _attempt(remainingConfig, exclude, controller.signal)
+    const raw = await _attempt(remainingConfig, exclude, controller.signal, clientSessionId)
     const telemetry = raw.generationTelemetry ?? null
+    // Exam-mode student-view questions arrive pre-shuffled, answer-stripped,
+    // deduped, and validated by the server — already reserved (when a
+    // clientSessionId was sent) under this exact set before the response was
+    // built. Any client-side filter that could drop or reorder a question
+    // (dedup/seen/reported/structural-validation/standardized-reselection)
+    // would submit a set the reservation never saw → SNAPSHOT_MISMATCH at
+    // completion. Submit the server's set verbatim; only per-question
+    // metadata enrichment (which never changes the id set) still runs.
+    const studentView = Boolean(telemetry?.studentView)
+
+    if (studentView) {
+      const enriched = raw.map(q => enrichQuestionWithUsmleTaxonomy(q, normalizedConfig))
+      const checked  = _checkCount(enriched, normalizedConfig)
+      attachGenerationTelemetry(checked, {
+        ...telemetry,
+        source:      'ai',
+        bankUsed:    0,
+        aiUsed:      checked.length,
+        aiRequested: remainingCount,
+      })
+      return checked
+    }
 
     const { unique, filtered } = _dedupQuestions(raw)
     if (filtered > 0) {
@@ -124,15 +179,23 @@ export async function generateAIQuestions(config, seenState = null) {
       )
     }
     if (err?.code === 'AUTH_REQUIRED_FOR_LIVE_AI') throw err
-    // AI failed but bank has partial coverage: use what we have for non-40Q configs
+    // AI failed but bank has partial coverage: use what we have for non-40Q configs.
+    // An authenticated Exam session must never take this path — falling back here
+    // would serve the answer-bearing local bank instead of failing the request
+    // closed, exactly what server-owned Exam delivery exists to prevent.
     const isStrictBlock = isStandardized40QuestionBlock(normalizedConfig)
       || (normalizedConfig.questionCount === 40 && normalizedConfig.mode === 'exam')
+      || examMustUseServer
     if (bankCandidates.length > 0 && !isStrictBlock) {
-      console.warn(`[generateAIQuestions] AI failed (${err?.code ?? err?.message}), falling back to ${bankCandidates.length} bank question(s)`)
-      const checked = _checkCount(bankCandidates, normalizedConfig)
+      // _checkCount validates count but does not slice — bankCandidates can hold
+      // far more than what was requested (the full scope-matched local pool), so
+      // slice to the requested count the same way the bank-first early return does.
+      const fallbackQuestions = bankCandidates.slice(0, normalizedConfig.questionCount)
+      console.warn(`[generateAIQuestions] AI failed (${err?.code ?? err?.message}), falling back to ${fallbackQuestions.length} bank question(s)`)
+      const checked = _checkCount(fallbackQuestions, normalizedConfig)
       attachGenerationTelemetry(checked, {
         source:       'fallback-bank',
-        bankUsed:     bankCandidates.length,
+        bankUsed:     checked.length,
         aiUsed:       0,
         aiError:      err?.code || 'AI_ERROR',
       })
@@ -182,11 +245,17 @@ export function formatGenerationErrorMessage(err, config) {
   if (err?.code === 'AI_INSUFFICIENT_COUNT' && isHardMedicalReviewGeneration(config)) {
     return `Challenge generation returned ${err.returned ?? 'fewer than requested'} medically approved questions out of ${err.requested ?? config.questionCount}. Try fewer questions or use the validated local Challenge bank while live generation is busy.`
   }
+  if (err?.code === 'AI_INSUFFICIENT_COUNT' && config?.mode === 'exam') {
+    return `Not enough validated questions were available to start this Exam block (${err.returned ?? 'fewer than requested'} of ${err.requested ?? config.questionCount}). Try fewer questions, a different subject/system, or again shortly.`
+  }
+  if (err?.code === 'CLIENT_SESSION_ID_REQUIRED' || err?.code === 'RESERVATION_FAILED') {
+    return 'Could not start a secure Exam session. Please try again.'
+  }
   return `Question generation failed: ${err?.message || 'Unknown error'}`
 }
 
-async function _attempt(config, exclude, signal) {
-  const data = await generate.questions({ config, exclude }, { signal })
+async function _attempt(config, exclude, signal, clientSessionId) {
+  const data = await generate.questions({ config, exclude, clientSessionId }, { signal })
   if (!Array.isArray(data.questions) || data.questions.length === 0) {
     throw new Error('Server returned empty question array')
   }

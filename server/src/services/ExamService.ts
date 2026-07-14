@@ -7,10 +7,11 @@ import type {
   IQuestionsRepository,
   IQuestionReportsRepository,
 } from '../repositories/interfaces.js';
+import { getRepositories } from '../repositories/index.js';
 import type { ExamSession, Question, SubjectStats, PaginationParams, PaginatedResult } from '../types/index.js';
 import type { CreateSessionInput, ReserveSessionInput } from '../schemas/exam.js';
-import type { ConceptMappingService } from './ConceptMappingService.js';
-import type { ConceptMasteryService } from './ConceptMasteryService.js';
+import { ConceptMappingService } from './ConceptMappingService.js';
+import { ConceptMasteryService } from './ConceptMasteryService.js';
 import { normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
 
 // A–L covers the USMLE Step 1 extended-matching ceiling (up to 12 options).
@@ -96,7 +97,15 @@ function normalizeOptionsFromBody(value: unknown, fallback: string[]): string[] 
   return options.length > 0 ? options : fallback;
 }
 
-function questionFromAuthoritativeBody(id: string, body: Record<string, unknown>, fallback: Question): Question {
+/**
+ * Converts a raw stored/generated question body (any shape — options as
+ * string[] or {letter,text}[], correct answer under correct/correctAnswer/
+ * correct_answer) into the canonical Question shape used for scoring and
+ * reservation storage. Exported so callers that already hold a full,
+ * server-produced body (e.g. the exam-mode generation-time reservation path
+ * in routes/ai.ts) can build a Question[] without a redundant DB round-trip.
+ */
+export function questionFromAuthoritativeBody(id: string, body: Record<string, unknown>, fallback: Question): Question {
   return normalizeQuestionTaxonomy({
     ...fallback,
     ...body,
@@ -304,6 +313,39 @@ export class ExamService {
     return { reserved: true, clientSessionId };
   }
 
+  /**
+   * Reserves an immutable per-session snapshot from question bodies the caller
+   * has already generated/resolved and shuffled into their final per-session
+   * display order (see routes/ai.ts's exam-mode generation path). Unlike
+   * reserveSession, this never re-resolves bodies from storage by id — the
+   * caller already holds server-produced, just-validated bodies, and a
+   * re-fetch would silently discard the caller's shuffle in favor of the
+   * bank's canonical (unshuffled, reusable-across-sessions) option order.
+   *
+   * Idempotent by (userId, clientSessionId), matching reserveSession — a
+   * later ID-based reserveSession call for the same clientSessionId (e.g. the
+   * frontend's existing pre-quiz reservation call) finds this snapshot first
+   * and returns it unchanged rather than overwriting it.
+   *
+   * Always returns the questions actually stored, not merely the ones passed
+   * in: on a retry (same clientSessionId, e.g. the caller re-shuffled), the
+   * repository's create() is itself idempotent and hands back the ORIGINAL
+   * snapshot's bodies. Callers (routes/ai.ts's applyExamStudentView) must
+   * build their HTTP response from this return value, never from the input
+   * `questions` array, or a retried response can diverge from what was
+   * actually reserved and scored against.
+   */
+  async reserveGeneratedExamSnapshot(
+    userId: string,
+    clientSessionId: string,
+    questions: Question[],
+  ): Promise<{ reserved: boolean; clientSessionId: string; questions: Question[] }> {
+    if (!this.reservations || questions.length === 0) return { reserved: false, clientSessionId, questions: [] };
+
+    const stored = await this.reservations.create({ userId, clientSessionId, questions });
+    return { reserved: true, clientSessionId, questions: stored.questions };
+  }
+
   async createSession(userId: string, input: CreateSessionInput): Promise<ExamSession> {
     // Idempotent retry: if the client supplied a UUID, check for an existing session.
     // Same user → return it immediately (duplicate retry deduplication).
@@ -458,4 +500,23 @@ export class ExamService {
     if (session.user_id !== userId) throw new Error('FORBIDDEN');
     await this.sessions.delete(id);
   }
+}
+
+/**
+ * Shared wiring for constructing an ExamService from the repository registry.
+ * Used by routes/exams.ts (session completion/reservation) and routes/ai.ts
+ * (exam-mode generation-time reservation) so both build the exact same
+ * dependency graph instead of duplicating it.
+ */
+export function createExamService(): ExamService {
+  const {
+    examSessions, examSessionReservations, questionAttempts, questions,
+    concepts, questionConcepts, userConceptMastery, questionReports,
+  } = getRepositories();
+  const conceptMapping = new ConceptMappingService(concepts, questionConcepts);
+  const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts, concepts);
+  return new ExamService(
+    examSessions, questionAttempts, questions, conceptMapping, conceptMastery,
+    examSessionReservations, questionReports,
+  );
 }

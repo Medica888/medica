@@ -204,6 +204,46 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       .slice(0, limit);
   }
 
+  async findReviewedAuthoredQuestions(params: {
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    limit?: number;
+  }): Promise<Record<string, unknown>[]> {
+    const matchesTaxonomy = (
+      requested: string | undefined,
+      actual: unknown,
+      labelsForValue: (v: unknown) => string[],
+      allLabels: string[],
+    ) => {
+      const value = String(requested || '').trim();
+      if (!value || allLabels.includes(value) || isBroadTaxonomyValue(value)) return true;
+      const labels = labelsForValue(value);
+      const searchLabels = labels.length > 0 ? labels : [value];
+      return searchLabels.includes(String(actual || ''));
+    };
+    const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
+    const matches = [...this.store.values()].filter(entry =>
+      entry.source === 'authored'
+      && isCommerciallyContentReady({
+        bankStatus: entry.bankStatus,
+        difficulty: entry.difficulty,
+        source: entry.source,
+        aiModel: entry.aiModel,
+        validatorVersion: entry.validatorVersion,
+        body: entry.body,
+        reviewMetadata: entry.reviewMetadata,
+      })
+      && matchesTaxonomy(params.subject, entry.subject, subjectSearchLabels, ['All Subjects'])
+      && matchesTaxonomy(params.system, entry.system, systemSearchLabels, ['Mixed / All Systems', 'All Systems'])
+      && matchesTaxonomy(params.difficulty, entry.difficulty, difficultySearchLabels, []),
+      // No mode filter — authored content is seeded mode-agnostic (mode='').
+    );
+    // Shuffle for variety across a small fixed pool, mirroring the PG ORDER BY RANDOM().
+    const shuffled = [...matches].sort(() => Math.random() - 0.5);
+    return shuffled.map(entry => this.enrichEntry('', entry).body as Record<string, unknown>).slice(0, limit);
+  }
+
   async findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;

@@ -441,6 +441,213 @@ describe('generateAIQuestions - trusted generated question bank', () => {
   })
 })
 
+// ── Server-owned Exam student-view flow ─────────────────────────────────────────
+
+const makeStudentViewQuestion = (i, overrides = {}) => ({
+  id:            `fp-${i}`,
+  stem:          `A ${30 + i}-year-old patient presents to clinic with a unique complaint number ${i} requiring clinical reasoning.`,
+  testedConcept: `Unique Concept ${i}`,
+  options:       [
+    { letter: 'A', text: `Mechanism A ${i}` },
+    { letter: 'B', text: `Mechanism B ${i}` },
+    { letter: 'C', text: `Mechanism C ${i}` },
+    { letter: 'D', text: `Mechanism D ${i}` },
+  ],
+  subject: 'Pharmacology',
+  system: 'Cardiovascular',
+  ...overrides,
+  // No correct/explanation/optionExplanations/pearl/etc — this mirrors exactly
+  // what toStudentExamQuestion() on the backend returns.
+})
+
+const makeStudentViewQuestions = (n, offset = 0) => Array.from({ length: n }, (_, i) => makeStudentViewQuestion(i + offset))
+
+const examConfig = { questionCount: 3, mode: 'exam' }
+
+describe('generateAIQuestions - exam-mode server-owned student view', () => {
+  it('sends clientSessionId in the generation request body', async () => {
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return { ok: true, json: async () => ({ questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } }) }
+    }))
+
+    await generateAIQuestions(examConfig, null, '11111111-1111-4111-8111-111111111111')
+
+    expect(bodies[0].clientSessionId).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('omits clientSessionId from the request body when none is provided', async () => {
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return { ok: true, json: async () => ({ questions: makeQuestions(3) }) }
+    }))
+
+    await generateAIQuestions(baseConfig)
+
+    expect(bodies[0]).not.toHaveProperty('clientSessionId')
+  })
+
+  it('accepts student-view questions with no correct field instead of rejecting them as invalid', async () => {
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } },
+    }]))
+
+    const result = await generateAIQuestions(examConfig)
+
+    expect(result).toHaveLength(3)
+    expect(result[0]).not.toHaveProperty('correct')
+  })
+
+  it('propagates the studentView and reserved flags onto the returned array telemetry', async () => {
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true, source: 'ai' } },
+    }]))
+
+    const result = await generateAIQuestions(examConfig)
+
+    expect(result.generationTelemetry.studentView).toBe(true)
+    expect(result.generationTelemetry.reserved).toBe(true)
+  })
+
+  it('does not cache answer-stripped student-view questions into the trusted-reuse pool', async () => {
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } },
+    }]))
+
+    await generateAIQuestions(examConfig)
+
+    const trusted = getTrustedGeneratedQuestions()
+    expect(trusted).toHaveLength(0)
+  })
+
+  it('still caches normal (non-student-view) exam-mode questions that carry a correct field', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions: makeQuestions(3) } }]))
+
+    await generateAIQuestions(examConfig)
+
+    const trusted = getTrustedGeneratedQuestions()
+    expect(trusted).toHaveLength(3)
+  })
+
+  it('practice mode is unaffected — still rejects a question with a missing correct field', async () => {
+    const noAnswerKey = makeStudentViewQuestion(0)
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: [noAnswerKey, ...makeQuestions(4, 1)] },
+    }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    // Practice mode never sets studentView, so the answer-less question is
+    // correctly rejected by structural validation rather than silently passed.
+    expect(result.find(q => q.id === noAnswerKey.id)).toBeUndefined()
+    expect(result).toHaveLength(4)
+  })
+})
+
+// ── Hybrid local-bank + AI-fill reservation safety ───────────────────────────
+
+describe('generateAIQuestions - exam-mode hybrid local-bank + AI-fill reservation safety', () => {
+  const makeHybridBankQuestion = (i) => ({
+    ...makeQuestion(i + 500),
+    usmleContentArea: 'Cardiovascular System',
+    physicianTask:    'Patient Care: Diagnosis',
+    source:           'bank',
+  })
+
+  it('requests the full count from the backend instead of the bank shortfall, so one reservation covers the entire session', async () => {
+    const bank = [makeHybridBankQuestion(0), makeHybridBankQuestion(1)] // 2 of 3
+    getBankQuestionsForConfig.mockReturnValue(bank)
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return { ok: true, json: async () => ({ questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } }) }
+    }))
+
+    const result = await generateAIQuestions(examConfig, null, 'cs-hybrid-full-count')
+
+    // Full requested count, not the 1-question shortfall the bank-first math
+    // would otherwise ask for.
+    expect(bodies[0].config.questionCount).toBe(3)
+    expect(result).toHaveLength(3)
+    // No local-bank id made it into the final set — the submitted session is
+    // 100% the server's reserved response, so it can never diverge from it.
+    const bankIds = new Set(bank.map(q => q.id))
+    expect(result.every(q => !bankIds.has(q.id))).toBe(true)
+    expect(result.generationTelemetry.bankUsed).toBe(0)
+  })
+
+  it('the returned set has exactly the ids the server reserved — no local-bank splice, no dropped questions', async () => {
+    const bank = [makeHybridBankQuestion(0)] // 1 of 3
+    getBankQuestionsForConfig.mockReturnValue(bank)
+    const serverQuestions = makeStudentViewQuestions(3)
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: serverQuestions, telemetry: { studentView: true, reserved: true } },
+    }]))
+
+    const result = await generateAIQuestions(examConfig, null, 'cs-hybrid-exact-ids')
+
+    expect(result.map(q => q.id).sort()).toEqual(serverQuestions.map(q => q.id).sort())
+  })
+
+  it('does not filter a previously-seen id out of a server-reserved exam response, since that would submit fewer ids than were reserved', async () => {
+    const seenState = {
+      seenIds:          new Set(['fp-0']),
+      seenBaseIds:      new Set(['fp-0']),
+      seenFingerprints: new Set(),
+    }
+    vi.stubGlobal('fetch', mockFetch([{
+      body: { questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } },
+    }]))
+
+    const result = await generateAIQuestions(examConfig, seenState, 'cs-hybrid-no-shrink')
+
+    // The backend already reserved this exact 3-question set — filtering fp-0
+    // out here would submit only 2 ids against a 3-id reservation, throwing
+    // SNAPSHOT_MISMATCH at completion even without any hybrid bank mixing.
+    expect(result).toHaveLength(3)
+    expect(result.find(q => q.id === 'fp-0')).toBeDefined()
+  })
+
+  it('authenticated exam mode routes to the backend even when local bank alone fully covers the request', async () => {
+    // The local static bank ships inside the JS bundle with its answer keys —
+    // an authenticated, backend-connected Exam session must never be satisfied
+    // purely from it, even when the bank has plenty of matching questions.
+    const bank = [makeHybridBankQuestion(0), makeHybridBankQuestion(1), makeHybridBankQuestion(2)] // full 3
+    getBankQuestionsForConfig.mockReturnValue(bank)
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return {
+        ok: true,
+        json: async () => ({ questions: makeStudentViewQuestions(3), telemetry: { studentView: true, reserved: true } }),
+      }
+    }))
+
+    const result = await generateAIQuestions(examConfig, null, 'cs-hybrid-bank-full')
+
+    expect(bodies[0].config.questionCount).toBe(3)
+    expect(result).toHaveLength(3)
+    const bankIds = new Set(bank.map(q => q.id))
+    expect(result.every(q => !bankIds.has(q.id))).toBe(true)
+    expect(result.generationTelemetry.bankUsed).toBe(0)
+  })
+
+  it('anonymous exam mode still uses local bank alone when it fully covers the request (explicit local fallback)', async () => {
+    setAuthSession('anonymous')
+    const bank = [makeHybridBankQuestion(0), makeHybridBankQuestion(1), makeHybridBankQuestion(2)] // full 3
+    getBankQuestionsForConfig.mockReturnValue(bank)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await generateAIQuestions(examConfig, null, 'cs-hybrid-bank-full-anon')
+
+    expect(result).toHaveLength(3)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe('generateAIQuestions - reported question filtering', () => {
   it('filters reported questions by id before returning a session', async () => {
     const reported = makeQuestion(0)
@@ -747,7 +954,12 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     expect(result.find(q => q.id === 'uuid-0')).toBeUndefined()
   })
 
-  it('migrates the legacy standardized preset to the current 20Q bank-first block', async () => {
+  it('migrates the legacy standardized preset to the current 20Q bank-first block (anonymous local fallback)', async () => {
+    // Anonymous users have no authenticated backend path at all, so full local
+    // bank coverage is still served directly — this test verifies the config
+    // migration itself, independent of the authenticated exam-mode server-owned
+    // gate exercised separately below.
+    setAuthSession('anonymous')
     const config = {
       questionCount: 40,
       mode: 'exam',
@@ -772,7 +984,38 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     )
   })
 
-  it('does not call fetch when bank has enough NBME Difficult questions', async () => {
+  it('authenticated Step 1 Standard Block routes to the server-owned path even when local bank fully covers the migrated 20Q request', async () => {
+    const config = {
+      questionCount: 40,
+      mode: 'exam',
+      difficulty: 'standardized',
+      blockType: STANDARDIZED_40Q_BLOCK,
+    }
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(20))
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return {
+        ok: true,
+        json: async () => ({ questions: makeStudentViewQuestions(20), telemetry: { studentView: true, reserved: true } }),
+      }
+    }))
+
+    const result = await generateAIQuestions(config, null, 'cs-standardized-block-server-owned')
+
+    // Migration to the current 20Q bank-first block happens before routing —
+    // the server request reflects the migrated config, not the legacy 40Q one.
+    expect(bodies[0].config.blockType).toBe(STANDARDIZED_STEP1_BLOCK)
+    expect(bodies[0].config.questionCount).toBe(20)
+    expect(result).toHaveLength(20)
+    expect(result.generationTelemetry.bankUsed).toBe(0)
+  })
+
+  it('does not call fetch when bank has enough NBME Difficult questions (anonymous local fallback)', async () => {
+    // Anonymous users have no authenticated backend path — full local bank
+    // coverage for hard-mode content is still served directly (see the
+    // authenticated counterpart below, which now routes to the backend).
+    setAuthSession('anonymous')
     const nbmeConfig = { questionCount: 5, mode: 'exam', difficulty: 'NBME Difficult' }
     getBankQuestionsForConfig.mockReturnValue(
       makeBankQuestions(5, 0).map(q => ({ ...q, difficulty: 'NBME Difficult' })),
@@ -782,6 +1025,31 @@ describe('generateAIQuestions — bank-first: no AI call when bank has enough', 
     const result = await generateAIQuestions(nbmeConfig)
     expect(result).toHaveLength(5)
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('authenticated exam mode routes to the backend for hard-mode difficulty too, even with full local bank coverage', async () => {
+    const nbmeConfig = { questionCount: 5, mode: 'exam', difficulty: 'NBME Difficult' }
+    getBankQuestionsForConfig.mockReturnValue(
+      makeBankQuestions(5, 0).map(q => ({ ...q, difficulty: 'NBME Difficult' })),
+    )
+    const bodies = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return {
+        ok: true,
+        json: async () => ({
+          questions: makeStudentViewQuestions(5),
+          telemetry: { studentView: true, reserved: true },
+        }),
+      }
+    }))
+
+    const result = await generateAIQuestions(nbmeConfig, null, 'cs-hard-mode-server-owned')
+
+    expect(bodies[0].config.questionCount).toBe(5)
+    expect(bodies[0].config.difficulty).toBe('NBME Difficult')
+    expect(result).toHaveLength(5)
+    expect(result.generationTelemetry.bankUsed).toBe(0)
   })
 
   it('telemetry shows source=validated-local-bank and aiUsed=0 when bank covers all', async () => {
@@ -881,11 +1149,35 @@ describe('generateAIQuestions — bank-first: AI failure handling', () => {
     await expect(generateAIQuestions(baseConfig)).rejects.toThrow('Service unavailable')
   })
 
+  it('slices the fallback-bank result to the requested count, even when the local pool holds far more', async () => {
+    // _checkCount validates count but does not slice — the fallback path must
+    // slice itself, or an exam with a small requested count could silently
+    // receive the entire scope-matched local pool (e.g. tens of questions)
+    // whenever the AI call fails and bank coverage is generous.
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(12))
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable' } }]))
+    const result = await generateAIQuestions(baseConfig) // baseConfig.questionCount === 5
+    expect(result).toHaveLength(5)
+    expect(result.generationTelemetry?.bankUsed).toBe(5)
+  })
+
   it('throws AI_INSUFFICIENT_COUNT for 40Q block even when bank has partial questions', async () => {
     const config40Q = { questionCount: 40, mode: 'exam' }
     getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(30))
     vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable' } }]))
     await expect(generateAIQuestions(config40Q)).rejects.toThrow()
+  })
+
+  it('does not fall back to the answer-bearing local bank for an authenticated Exam session, even at a non-40Q count', async () => {
+    // examMustUseServer forces this request through the backend regardless of
+    // local bank coverage — a backend error here must surface as an error, not
+    // silently serve local bank content the way Practice/Coach are allowed to.
+    const examConfig = { questionCount: 5, mode: 'exam' }
+    setAuthSession('authenticated', 'test-user')
+    getBankQuestionsForConfig.mockReturnValue(makeBankQuestions(3))
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'Service unavailable', code: 'AI_INSUFFICIENT_COUNT', returned: 3, requested: 5 } }]))
+
+    await expect(generateAIQuestions(examConfig)).rejects.toMatchObject({ code: 'AI_INSUFFICIENT_COUNT' })
   })
 })
 
@@ -930,5 +1222,27 @@ describe('generateAIQuestions — formatGenerationErrorMessage INSUFFICIENT_QUES
     const msg = formatGenerationErrorMessage(err, baseConfig)
     expect(msg).toContain('Broaden your filters')
     expect(msg).toContain('reduce the question count')
+  })
+})
+
+describe('generateAIQuestions — formatGenerationErrorMessage Exam fail-closed codes', () => {
+  const examConfig = { questionCount: 5, mode: 'exam' }
+
+  it('returns a clear message for AI_INSUFFICIENT_COUNT on a Balanced Exam block', () => {
+    const err = Object.assign(new Error('short'), { code: 'AI_INSUFFICIENT_COUNT', returned: 3, requested: 5 })
+    const msg = formatGenerationErrorMessage(err, examConfig)
+    expect(msg).toContain('Not enough validated questions')
+    expect(msg).toContain('3')
+    expect(msg).toContain('5')
+  })
+
+  it('returns a clear message for CLIENT_SESSION_ID_REQUIRED', () => {
+    const err = Object.assign(new Error('missing session id'), { code: 'CLIENT_SESSION_ID_REQUIRED' })
+    expect(formatGenerationErrorMessage(err, examConfig)).toContain('Could not start a secure Exam session')
+  })
+
+  it('returns a clear message for RESERVATION_FAILED', () => {
+    const err = Object.assign(new Error('reservation failed'), { code: 'RESERVATION_FAILED' })
+    expect(formatGenerationErrorMessage(err, examConfig)).toContain('Could not start a secure Exam session')
   })
 })

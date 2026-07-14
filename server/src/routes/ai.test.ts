@@ -2340,6 +2340,852 @@ describe('hybrid question bank fill', () => {
   });
 });
 
+// ── Exam-mode server-owned answer-key flow ─────────────────────────────────────
+// Exam mode must never send correct/explanation/rationale fields to the browser
+// before submit. clientSessionId reserves the exact per-session shuffled snapshot
+// server-side; the response returns only student-view (sanitized) questions.
+
+describe('exam-mode server-owned student view', () => {
+  let app: ReturnType<typeof createApp>;
+
+  const REVEAL_FIELDS = [
+    'correct', 'correctAnswer', 'correct_answer', 'explanation',
+    'optionExplanations', 'wrongAnswerExplanations',
+    'pearl', 'highYieldPearl', 'memoryAnchor', 'commonTrap',
+  ];
+
+  function fingerprintOf(q: Record<string, any>): string {
+    const s = (q.stem || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const c = (q.testedConcept || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return `${s}||${c}`;
+  }
+
+  async function seedBankQuestion(overrides: Record<string, any> = {}, mode = 'exam') {
+    const q = makePromotableQuestion(overrides);
+    const fingerprint = fingerprintOf(q);
+    await getRepositories().questions.upsertByExternalId(fingerprint, {
+      subject: String(q.subject || ''),
+      system:  String(q.system  || ''),
+      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'validated_generated', mode, difficulty: q.difficulty || 'Balanced' },
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      mode,
+      difficulty: String(q.difficulty || 'Balanced'),
+    });
+    return { question: q, fingerprint };
+  }
+
+  function aiResponseWith(questions: Record<string, any>[]) {
+    return { content: [{ type: 'text', text: JSON.stringify({ questions }) }], stop_reason: 'end_turn' };
+  }
+
+  function expectNoRevealFields(question: Record<string, any>) {
+    for (const field of REVEAL_FIELDS) {
+      expect(question).not.toHaveProperty(field);
+    }
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
+    process.env.ANTHROPIC_API_KEY = 'test-key-exam-student-view';
+    mockMessagesCreate.mockReset();
+    app = createApp();
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('generated-bank reuse path (bank fully covers request) returns student-view questions with no reveal fields', async () => {
+    await seedBankQuestion({
+      testedConcept: 'bank-reuse-exam-concept',
+      topic: 'Bank Reuse Exam Topic',
+      questionAngle: 'bank-reuse',
+    });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    expect(res.body.source).toBe('generated-bank');
+    expect(res.body.questions).toHaveLength(1);
+    expectNoRevealFields(res.body.questions[0]);
+    expect(res.body.telemetry.studentView).toBe(true);
+  });
+
+  it('live-AI path returns student-view questions with no reveal fields', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'live-ai-exam-concept',
+      topic: 'Live AI Exam Topic',
+      questionAngle: 'live-ai',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(1);
+    expectNoRevealFields(res.body.questions[0]);
+    expect(res.body.telemetry.studentView).toBe(true);
+  });
+
+  it('practice mode still returns full answer/explanation fields', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'practice-mode-full-fields',
+      topic: 'Practice Full Fields',
+      questionAngle: 'practice-full',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.questions[0]).toHaveProperty('correct');
+    expect(res.body.questions[0]).toHaveProperty('explanation');
+    expect(res.body.questions[0]).toHaveProperty('optionExplanations');
+    expect(res.body.telemetry.studentView).toBe(false);
+  });
+
+  it('coach mode still returns full answer/explanation fields', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'coach-mode-full-fields',
+      topic: 'Coach Full Fields',
+      questionAngle: 'coach-full',
+      optionExplanations: {
+        A: 'Correct: full coach-mode rationale for A.',
+        B: 'Incorrect — rationale for B.',
+        C: 'Incorrect — rationale for C.',
+        D: 'Incorrect — rationale for D.',
+      },
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'coach', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(res.body.questions[0]).toHaveProperty('correct');
+    expect(res.body.questions[0]).toHaveProperty('optionExplanations');
+  });
+
+  it('creates a reservation snapshot with the full answer-bearing question', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'reservation-snapshot-concept',
+      topic: 'Reservation Snapshot Topic',
+      questionAngle: 'reservation-snapshot',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    expect(res.body.reserved ?? res.body.telemetry.reserved).toBe(true);
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(reservation).not.toBeNull();
+    expect(reservation!.questions).toHaveLength(1);
+    expect(reservation!.questions[0]!.correct_answer).toBeTruthy();
+    expect(reservation!.questions[0]!.options.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('repeated clientSessionId remains idempotent — second generation call does not re-reserve', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'idempotent-reservation-concept',
+      topic: 'Idempotent Reservation Topic',
+      questionAngle: 'idempotent-reservation',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const firstReservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const firstOptions = firstReservation!.questions[0]!.options;
+
+    // A second call with the same clientSessionId (e.g. a retry) must not disturb the snapshot,
+    // even though a fresh shuffle would very likely produce a different option order.
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const secondReservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(secondReservation!.questions[0]!.options).toEqual(firstOptions);
+  });
+
+  it('repeated clientSessionId returns an HTTP response that never diverges from the reservation — response equals response, and both equal storage', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'idempotent-response-concept',
+      topic: 'Idempotent Response Topic',
+      questionAngle: 'idempotent-response',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    const firstRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+    const firstQuestion = firstRes.body.questions[0];
+
+    // Retry with the same clientSessionId. This is the exact bug: shuffling
+    // before checking for an existing reservation would build this response
+    // from a FRESH shuffle while the (unchanged) reservation still holds the
+    // first shuffle — desyncing what the student sees from what gets scored.
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const secondRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+    const secondQuestion = secondRes.body.questions[0];
+
+    // Requirement 1: identical option order across both responses.
+    expect(secondQuestion.id).toBe(firstQuestion.id);
+    expect(secondQuestion.options).toEqual(firstQuestion.options);
+
+    // Requirement 2: the second response matches exam_session_reservations.questions
+    // exactly (letter i in the stored plain string[] === letter i in the response).
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const storedTexts = reservation!.questions[0]!.options;
+    expect(secondQuestion.options.map((o: any) => o.text)).toEqual(storedTexts);
+  });
+
+  it('submitting after a retried (idempotent) generation call still scores correctly', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'idempotent-then-submit-concept',
+      topic: 'Idempotent Then Submit Topic',
+      questionAngle: 'idempotent-then-submit',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    // Retry — the student answers using THIS second response, not the first.
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const retryRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const studentQuestion = retryRes.body.questions[0];
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const stored = reservation!.questions[0]!;
+    const correctLetter = stored.correct_answer;
+
+    const submitRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', authHeader())
+      .send({
+        mode: 'exam',
+        questions: [{
+          id: studentQuestion.id,
+          text: studentQuestion.stem,
+          options: studentQuestion.options.map((o: any) => o.text),
+          correct_answer: correctLetter,
+          subject: studentQuestion.subject,
+          system: studentQuestion.system,
+        }],
+        answers: { [studentQuestion.id]: correctLetter },
+        score: 999, percentage: 100, medica_score: 100, readiness_label: 'Strong',
+        subject_breakdown: {}, system_breakdown: {}, missed_questions: [],
+        completed_at: new Date().toISOString(), duration_seconds: 30, difficulty: 'Balanced',
+        clientSessionId,
+      })
+      .expect(201);
+
+    expect(submitRes.body.session.score).toBe(1);
+    expect(submitRes.body.session.percentage).toBe(100);
+  });
+
+  it('scores correctly from the exact per-session option order shown to the student, despite a tampered correct_answer claim', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'end-to-end-scoring-concept',
+      topic: 'End To End Scoring Topic',
+      questionAngle: 'end-to-end-scoring',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    const genRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const studentQuestion = genRes.body.questions[0];
+    expectNoRevealFields(studentQuestion);
+
+    // The test doesn't know the random shuffle outcome in advance — read the
+    // reservation directly (as only the server can) to find the true correct
+    // position, then confirm it lines up with what was actually displayed.
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const stored = reservation!.questions[0]!;
+    const correctLetter = stored.correct_answer;
+    const correctIndex = correctLetter.charCodeAt(0) - 'A'.charCodeAt(0);
+    const correctText = stored.options[correctIndex];
+    const wrongLetter = studentQuestion.options[(correctIndex + 1) % studentQuestion.options.length].letter;
+
+    // Display order matches scoring order exactly.
+    expect(studentQuestion.options[correctIndex].text).toBe(correctText);
+
+    const submitRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', authHeader())
+      .send({
+        mode: 'exam',
+        questions: [{
+          id: studentQuestion.id,
+          text: studentQuestion.stem,
+          options: studentQuestion.options.map((o: any) => o.text),
+          // Tampered: client falsely claims a different option is correct.
+          correct_answer: wrongLetter,
+          subject: studentQuestion.subject,
+          system: studentQuestion.system,
+        }],
+        answers: { [studentQuestion.id]: correctLetter },
+        score: 999, percentage: 100, medica_score: 100, readiness_label: 'Strong',
+        subject_breakdown: {}, system_breakdown: {}, missed_questions: [],
+        completed_at: new Date().toISOString(), duration_seconds: 30, difficulty: 'Balanced',
+        clientSessionId,
+      })
+      .expect(201);
+
+    // Selecting the actual correct option scores correct despite the tampered claim.
+    expect(submitRes.body.session.score).toBe(1);
+    expect(submitRes.body.session.percentage).toBe(100);
+  });
+
+  it('a genuinely wrong selection still scores wrong, even paired with a tampered correct_answer claim', async () => {
+    const q = makePromotableQuestion({
+      testedConcept: 'tamper-resistance-concept',
+      topic: 'Tamper Resistance Topic',
+      questionAngle: 'tamper-resistance',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    const clientSessionId = randomUUID();
+
+    const genRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const studentQuestion = genRes.body.questions[0];
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const stored = reservation!.questions[0]!;
+    const correctIndex = stored.correct_answer.charCodeAt(0) - 'A'.charCodeAt(0);
+    const wrongLetter = studentQuestion.options[(correctIndex + 1) % studentQuestion.options.length].letter;
+
+    const submitRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', authHeader())
+      .send({
+        mode: 'exam',
+        questions: [{
+          id: studentQuestion.id,
+          text: studentQuestion.stem,
+          options: studentQuestion.options.map((o: any) => o.text),
+          correct_answer: wrongLetter, // client dishonestly claims its own wrong pick is correct
+          subject: studentQuestion.subject,
+          system: studentQuestion.system,
+        }],
+        answers: { [studentQuestion.id]: wrongLetter },
+        score: 999, percentage: 100, medica_score: 100, readiness_label: 'Strong',
+        subject_breakdown: {}, system_breakdown: {}, missed_questions: [],
+        completed_at: new Date().toISOString(), duration_seconds: 30, difficulty: 'Balanced',
+        clientSessionId,
+      })
+      .expect(201);
+
+    expect(submitRes.body.session.score).toBe(0);
+  });
+});
+
+// ── Exam mode: reviewed authored QBank content in the server-owned bank pool ───
+
+describe('exam mode serves reviewed authored QBank content as student-view', () => {
+  let app: ReturnType<typeof createApp>;
+
+  const REVEAL_FIELDS = [
+    'correct', 'correctAnswer', 'correct_answer', 'explanation',
+    'optionExplanations', 'wrongAnswerExplanations',
+    'pearl', 'highYieldPearl', 'memoryAnchor', 'commonTrap',
+  ];
+
+  function expectNoRevealFields(question: Record<string, any>) {
+    for (const field of REVEAL_FIELDS) {
+      expect(question).not.toHaveProperty(field);
+    }
+  }
+
+  function makeAuthoredQuestion(overrides: Record<string, any> = {}) {
+    return {
+      id: `authored-${randomUUID()}`,
+      subject: 'Pharmacology',
+      system: 'Cardiovascular',
+      topic: 'ACE inhibitors',
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      difficulty: 'Balanced',
+      stem: 'A 58-year-old man with hypertension and proteinuria starts lisinopril. Two weeks later he develops a persistent dry nonproductive cough without fever, wheezing, or abnormal chest radiograph findings. Which mechanism best explains this adverse effect?',
+      options: [
+        { letter: 'A', text: 'Accumulation of bradykinin due to angiotensin-converting enzyme inhibition' },
+        { letter: 'B', text: 'Direct activation of beta-2 adrenergic receptors in bronchial smooth muscle' },
+        { letter: 'C', text: 'Inhibition of cyclooxygenase causing excess leukotriene production' },
+        { letter: 'D', text: 'Increased aldosterone secretion causing airway mucosal edema' },
+      ],
+      correct: 'A',
+      explanation: 'ACE inhibitors block angiotensin-converting enzyme, which normally degrades bradykinin. Accumulation of bradykinin can cause a persistent dry cough.',
+      optionExplanations: {
+        A: 'Correct: ACE inhibition increases bradykinin, producing cough.',
+        B: 'Beta-2 activation causes bronchodilation, not ACE inhibitor cough.',
+        C: 'Leukotriene excess is associated with aspirin-exacerbated respiratory disease.',
+        D: 'ACE inhibitors reduce aldosterone rather than increase it.',
+      },
+      ...overrides,
+    };
+  }
+
+  const HEALTHY_REVIEW_METADATA = {
+    reviewStatus: 'source_checked',
+    sourceRefs: ['USMLE Content Outline'],
+    medicalAccuracyStatus: 'pass',
+    itemWritingStatus: 'pass',
+    difficultyCalibrationStatus: 'pass',
+  };
+
+  async function seedAuthoredQuestion(overrides: Record<string, any> = {}, seedOptions: {
+    bankStatus?: string;
+    reviewMetadata?: Record<string, any> | null;
+  } = {}) {
+    const q = makeAuthoredQuestion(overrides);
+    const externalId = String(q.id);
+    const bankStatus = seedOptions.bankStatus ?? 'approved';
+    const reviewMetadata = seedOptions.reviewMetadata === undefined ? HEALTHY_REVIEW_METADATA : seedOptions.reviewMetadata;
+    await getRepositories().questions.upsertByExternalId(externalId, {
+      subject: String(q.subject || ''),
+      system: String(q.system || ''),
+      body: { ...q, id: externalId, source: 'authored', bankStatus, mode: '', difficulty: q.difficulty || 'Balanced' },
+      source: 'authored',
+      bankStatus,
+      mode: '',
+      difficulty: String(q.difficulty || 'Balanced'),
+      ...(reviewMetadata !== null ? { reviewMetadata } : {}),
+    });
+    return { question: q, externalId };
+  }
+
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+    seedAuthUsers();
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  // 1 & 2. Reviewed server QBank can serve Exam student-view questions, with no reveal fields.
+  it('serves a reviewed authored QBank question as a student-view Exam question with no reveal fields', async () => {
+    await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(1);
+    expectNoRevealFields(res.body.questions[0]);
+    expect(res.body.telemetry.studentView).toBe(true);
+  });
+
+  // 3. Full reservation is created for a server QBank Exam session.
+  it('creates a full answer-bearing reservation for an authored-QBank-sourced exam session', async () => {
+    const { externalId } = await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+    const clientSessionId = randomUUID();
+
+    await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(reservation).not.toBeNull();
+    expect(reservation!.questions).toHaveLength(1);
+    expect(reservation!.questions[0]!.id).toBe(externalId);
+    expect(reservation!.questions[0]!.correct_answer).toBeTruthy();
+    expect(reservation!.questions[0]!.options.length).toBeGreaterThanOrEqual(4);
+  });
+
+  // 4. Retry returns the same order from the reservation.
+  it('retry with the same clientSessionId returns the same student-view order as the reservation', async () => {
+    await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+    const clientSessionId = randomUUID();
+    const body = {
+      config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+      clientSessionId,
+    };
+
+    const firstRes = await request(app).post('/api/generate-questions').set('Authorization', authHeader()).send(body).expect(200);
+    const secondRes = await request(app).post('/api/generate-questions').set('Authorization', authHeader()).send(body).expect(200);
+
+    expect(secondRes.body.questions[0].id).toBe(firstRes.body.questions[0].id);
+    expect(secondRes.body.questions[0].options).toEqual(firstRes.body.questions[0].options);
+
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(secondRes.body.questions[0].options.map((o: any) => o.text)).toEqual(reservation!.questions[0]!.options);
+  });
+
+  // 5 & 6. Submit scores correctly from the reservation; a tampered client claim does not affect the score.
+  it('scores correctly from the reservation and ignores a tampered correct_answer claim', async () => {
+    await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+    const clientSessionId = randomUUID();
+
+    const genRes = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(200);
+    const studentQuestion = genRes.body.questions[0];
+
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const stored = reservation!.questions[0]!;
+    const correctLetter = stored.correct_answer;
+    const correctIndex = correctLetter.charCodeAt(0) - 'A'.charCodeAt(0);
+    const wrongLetter = studentQuestion.options[(correctIndex + 1) % studentQuestion.options.length].letter;
+
+    const submitRes = await request(app)
+      .post('/api/exams')
+      .set('Authorization', authHeader())
+      .send({
+        mode: 'exam',
+        questions: [{
+          id: studentQuestion.id,
+          text: studentQuestion.stem,
+          options: studentQuestion.options.map((o: any) => o.text),
+          correct_answer: wrongLetter, // tampered: client claims a wrong option is correct
+          subject: studentQuestion.subject,
+          system: studentQuestion.system,
+        }],
+        answers: { [studentQuestion.id]: correctLetter }, // student actually selected the true correct option
+        score: 999, percentage: 100, medica_score: 100, readiness_label: 'Strong',
+        subject_breakdown: {}, system_breakdown: {}, missed_questions: [],
+        completed_at: new Date().toISOString(), duration_seconds: 30, difficulty: 'Balanced',
+        clientSessionId,
+      })
+      .expect(201);
+
+    expect(submitRes.body.session.score).toBe(1);
+    expect(submitRes.body.session.percentage).toBe(100);
+  });
+
+  // 7. Quarantined/rejected/unreviewed authored questions are not served.
+  it('does not serve a quarantined, rejected, or unreviewed authored question in the exam pool', async () => {
+    await seedAuthoredQuestion({ id: 'authored-quarantined', subject: 'Pharmacology', system: 'Cardiovascular' }, { bankStatus: 'quarantined' });
+    await seedAuthoredQuestion({ id: 'authored-rejected', subject: 'Pharmacology', system: 'Cardiovascular' }, { bankStatus: 'rejected' });
+    await seedAuthoredQuestion({ id: 'authored-unreviewed', subject: 'Pharmacology', system: 'Cardiovascular' }, { reviewMetadata: null });
+    const { externalId: readyId } = await seedAuthoredQuestion({ id: 'authored-ready', subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(1);
+    expect(res.body.questions[0].id).toBe(readyId);
+  });
+
+  // 8. Insufficient reviewed server questions returns a clear insufficient-count error, not an insecure partial fallback.
+  it('returns a clear insufficient-count error for a strict 40Q block when reviewed content and AI both fall short', async () => {
+    // Only 3 authored questions available; no ANTHROPIC_API_KEY to fill the rest —
+    // must fail loudly rather than silently serving a partial (or local-bank) block.
+    await seedAuthoredQuestion({ id: 'authored-40q-1', subject: 'Pharmacology', system: 'Cardiovascular' });
+    await seedAuthoredQuestion({ id: 'authored-40q-2', subject: 'Pharmacology', system: 'Cardiovascular' });
+    await seedAuthoredQuestion({ id: 'authored-40q-3', subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 40, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(503);
+
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+    expect(res.body.returned).toBeLessThan(40);
+  });
+
+  // Fix 1 — backend-owned Step 1 Standard Block honors the same content-area
+  // blueprint as the frontend's local-bank selectStandardizedStep1Questions().
+  const STEP1_BLUEPRINT_GROUPS = [
+    { count: 1, areas: ['Human Development'] },
+    { count: 2, areas: ['Blood & Lymphoreticular System', 'Immune System'] },
+    { count: 2, areas: ['Behavioral Health', 'Nervous System & Special Senses'] },
+    { count: 2, areas: ['Musculoskeletal System', 'Skin & Subcutaneous Tissue'] },
+    { count: 2, areas: ['Cardiovascular System'] },
+    { count: 3, areas: ['Respiratory System', 'Renal & Urinary System'] },
+    { count: 1, areas: ['Gastrointestinal System'] },
+    {
+      count: 3,
+      areas: [
+        'Pregnancy, Childbirth, & the Puerperium',
+        'Female and Transgender Reproductive System & Breast',
+        'Male and Transgender Reproductive System',
+        'Endocrine System',
+      ],
+    },
+    { count: 2, areas: ['Multisystem Processes & Disorders'] },
+    { count: 1, areas: ['Biostatistics, Epidemiology/Population Health, & Interpretation of the Medical Literature'] },
+    { count: 1, areas: ['Social Sciences'] },
+  ];
+
+  it('selects a blueprint-balanced, answer-stripped Step 1 Standard Block from server-owned content', async () => {
+    let counter = 0;
+    for (const group of STEP1_BLUEPRINT_GROUPS) {
+      for (const area of group.areas) {
+        for (let i = 0; i < 3; i++) {
+          counter += 1;
+          await seedAuthoredQuestion({
+            id: `bp-${counter}`,
+            usmleContentArea: area,
+            testedConcept: `concept-${counter}`,
+            topic: `topic-${counter}`,
+          });
+        }
+      }
+    }
+    app = createApp();
+    const clientSessionId = randomUUID();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { blockType: 'standardized-step1-block-2026', mode: 'exam', questionCount: 20 },
+        clientSessionId,
+      })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(20);
+    res.body.questions.forEach(expectNoRevealFields);
+
+    for (const group of STEP1_BLUEPRINT_GROUPS) {
+      const matched = res.body.questions.filter((q: any) => group.areas.includes(q.usmleContentArea));
+      expect(matched.length).toBe(group.count);
+    }
+
+    const concepts = res.body.questions.map((q: any) => q.testedConcept);
+    expect(new Set(concepts).size).toBe(concepts.length);
+
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(reservation).not.toBeNull();
+    expect(reservation!.questions).toHaveLength(20);
+    expect(reservation!.questions.every(q => Boolean(q.correct_answer))).toBe(true);
+  });
+
+  it('returns a clear insufficient-count error when concept/topic diversity cannot fill the Step 1 blueprint, even though the raw pool has plenty of rows', async () => {
+    // 25 rows clear the raw-count gate (>= 20) so this exercises blueprint
+    // selection itself, not the separate raw-shortfall path — but only 2
+    // distinct testedConcept/topic combinations exist, so concept/topic dedup
+    // caps real selection at 2 regardless of row count.
+    for (let i = 0; i < 25; i++) {
+      const variant = i % 2;
+      await seedAuthoredQuestion({
+        id: `cardio-dup-${i}`,
+        usmleContentArea: 'Cardiovascular System',
+        testedConcept: `cardio-concept-${variant}`,
+        topic: `cardio-topic-${variant}`,
+      });
+    }
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { blockType: 'standardized-step1-block-2026', mode: 'exam', questionCount: 20 },
+        clientSessionId: randomUUID(),
+      })
+      .expect(503);
+
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+  });
+
+  // Fix 2 — authenticated Exam mode never silently serves a partial block.
+  it('returns a clear insufficient-count error for a non-40 authenticated Exam request when reviewed content falls short and live AI is unavailable', async () => {
+    await seedAuthoredQuestion({ id: 'short-1', subject: 'Pharmacology', system: 'Cardiovascular' });
+    await seedAuthoredQuestion({ id: 'short-2', subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 5, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      })
+      .expect(503);
+
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+    expect(res.body.returned).toBe(2);
+    expect(res.body.requested).toBe(5);
+  });
+
+  it('still serves a partial result for Practice mode when reviewed/generated content falls short and live AI is unavailable', async () => {
+    const q = makeAuthoredQuestion({
+      id: 'practice-short-1',
+      // Practice mode's structural validator requires a 150+ char explanation
+      // (exam mode skips this check entirely) — Exam-mode fixtures elsewhere in
+      // this file use a shorter explanation that only passes under 'exam'.
+      explanation: 'ACE inhibitors block angiotensin-converting enzyme, which normally degrades bradykinin. Bradykinin accumulates in the airway mucosa and stimulates sensory C-fibers, producing a persistent dry, nonproductive cough that resolves after stopping the drug.',
+    });
+    await getRepositories().questions.upsertByExternalId('practice-short-1', {
+      subject: 'Pharmacology',
+      system: 'Cardiovascular',
+      body: { ...q, id: 'practice-short-1', source: 'ai', bankStatus: 'validated_generated', mode: 'practice', difficulty: 'Balanced' },
+      source: 'ai',
+      bankStatus: 'validated_generated',
+      mode: 'practice',
+      difficulty: 'Balanced',
+      validationScore: 85,
+    });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'practice', questionCount: 5, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+      })
+      .expect(200);
+
+    expect(res.body.questions.length).toBeGreaterThan(0);
+    expect(res.body.questions.length).toBeLessThan(5);
+    expect(res.body.telemetry.stoppedReason).toBe('bank_partial_no_api_key');
+  });
+
+  // Fix 3 — reservation failure (or a missing clientSessionId) fails Exam
+  // generation closed; an unreserved Exam session is never started.
+  it('returns a clear 400 when clientSessionId is missing for authenticated Exam generation', async () => {
+    await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+      })
+      .expect(400);
+
+    expect(res.body.code).toBe('CLIENT_SESSION_ID_REQUIRED');
+  });
+
+  it('fails the request closed when the exam reservation cannot be created', async () => {
+    await seedAuthoredQuestion({ subject: 'Pharmacology', system: 'Cardiovascular' });
+    app = createApp();
+    const clientSessionId = randomUUID();
+
+    const createSpy = vi.spyOn(getRepositories().examSessionReservations, 'create')
+      .mockRejectedValueOnce(new Error('simulated reservation storage failure'));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId,
+      })
+      .expect(503);
+
+    expect(res.body.code).toBe('RESERVATION_FAILED');
+    expect(res.body.questions).toBeUndefined();
+
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    expect(reservation).toBeNull();
+
+    createSpy.mockRestore();
+  });
+});
+
 // ── Phase 2 governance ────────────────────────────────────────────────────────
 
 describe('Phase 2 governance', () => {

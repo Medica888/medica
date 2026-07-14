@@ -55,6 +55,14 @@ import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata
 import { getGeneratedBankReusePolicy, config } from '../config.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
+import { shuffleQuestionForExam, toStudentExamQuestion } from '../lib/examStudentView.js';
+import { createExamService, questionFromAuthoritativeBody } from '../services/ExamService.js';
+import {
+  selectStep1BlueprintBlock,
+  InsufficientBlueprintCoverageError,
+  STEP1_BLUEPRINT_TARGET_COUNT,
+} from '../lib/step1BlueprintSelection.js';
+import type { Question } from '../types/index.js';
 
 const router = Router();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -2208,10 +2216,16 @@ function _questionBodyForFailedGeneratedCandidate(
   };
 }
 
-async function _validatePromotableQuestion(rawQuestion: Record<string, any>, config: Record<string, any>) {
+async function _validatePromotableQuestion(
+  rawQuestion: Record<string, any>,
+  config: Record<string, any>,
+  options: { skipMedicalReview?: boolean } = {},
+) {
   const scope = resolveScope(config);
   const question = normalizeQuestion(rawQuestion, 0, scope);
-  const validation = await runQuestionValidation(question, config, scope);
+  const validation = await runQuestionValidation(question, config, scope, {
+    medicalReview: options.skipMedicalReview ? false : undefined,
+  });
   const fingerprint = computeQuestionFingerprint(question.stem || '', question.testedConcept || '');
   (question as Record<string, any>).id = String(rawQuestion.id || fingerprint);
   // Preserve lifecycle metadata that normalizeQuestion does not carry
@@ -2283,6 +2297,21 @@ async function _saveFailedGeneratedQuestionCandidate(
   return true;
 }
 
+/**
+ * Fail-closed cross-user quarantine filter: if the quarantine lookup itself
+ * fails, the whole candidate pool is treated as unusable rather than risk
+ * serving quarantined content unfiltered.
+ */
+async function _filterQuarantinedFingerprints(questions: Record<string, any>[]): Promise<Record<string, any>[]> {
+  try {
+    const quarantinedFps = await getRepositories().questionReports.getQuarantinedFingerprints();
+    if (quarantinedFps.size === 0) return questions;
+    return questions.filter(q => !quarantinedFps.has(computeQuestionFingerprint(q.stem || '', q.testedConcept || '')));
+  } catch {
+    return [];
+  }
+}
+
 async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number, approvedOnly = false): Promise<Record<string, any>[]> {
   const repo = getRepositories().questions;
   const scope = resolveScope(config);
@@ -2307,24 +2336,211 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
     .filter(result => result.valid)
     .map(result => result.question as Record<string, any>);
 
-  try {
-    const quarantinedFps = await getRepositories().questionReports.getQuarantinedFingerprints();
-    if (quarantinedFps.size === 0) return valid;
-    return valid.filter(q => !quarantinedFps.has(computeQuestionFingerprint(q.stem || '', q.testedConcept || '')));
-  } catch {
-    return [];
+  return _filterQuarantinedFingerprints(valid);
+}
+
+/**
+ * Reviewed, commercially-ready authored (human-written) QBank content, run
+ * through the same structural/taxonomy validators as AI bank-reuse content —
+ * but with medical review explicitly skipped, since reviewMetadata already
+ * records a human review decision (source_checked/expert_reviewed) and
+ * re-running an AI medical review on every serve would be redundant and,
+ * for hard-mode content, prohibitively expensive (one live call per question).
+ *
+ * Each candidate is validated individually inside its own try/catch:
+ * normalizeQuestion() throws on a malformed correct-answer letter, and unlike
+ * AI-generated content (validated once at insert time), authored rows are a
+ * new provenance here — one bad row must not reject the whole batch.
+ */
+async function _getReviewedAuthoredQuestions(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
+  const repo = getRepositories().questions;
+  const scope = resolveScope(config);
+  const rawAuthored = await repo.findReviewedAuthoredQuestions({
+    subject:    config.subject,
+    system:     config.system,
+    difficulty: config.difficulty || 'Balanced',
+    limit:      Math.min(targetCount * 3, 200),
+  });
+
+  const scopeFiltered = isSpecific(scope) ? rawAuthored.filter(q => inScope(q as Record<string, any>, scope)) : rawAuthored;
+
+  const validationResults = await Promise.all(
+    scopeFiltered.map(async (q) => {
+      try {
+        return await _validatePromotableQuestion(q as Record<string, any>, config, { skipMedicalReview: true });
+      } catch (err) {
+        logger.warn('[generate-questions] authored question failed validation and was dropped from the exam pool', {
+          id: String((q as Record<string, any>).id ?? ''),
+          error: (err as Error).message,
+        });
+        return null;
+      }
+    }),
+  );
+  const valid = validationResults
+    .filter((result): result is NonNullable<typeof result> => result !== null && result.valid)
+    .map(result => result.question as Record<string, any>);
+
+  return _filterQuarantinedFingerprints(valid);
+}
+
+// Two historical blockType identifiers both mean "current-format Step 1
+// Standard Block": the legacy 40-question identifier predates the switch to a
+// 20-item blueprint-balanced block, and STANDARDIZED_STEP1_BLOCK_TYPE is what
+// the frontend's normalizeQuizConfigForGeneration() (medica-app/src/lib/
+// quizTypes.js) now migrates every standardized-block request to before it
+// ever reaches this route. Recognizing both here — not just the legacy one —
+// keeps the server's own migration below in sync with what the frontend
+// actually sends, so blueprint detection never depends on which one a caller
+// happens to use.
+const LEGACY_STANDARDIZED_BLOCK_TYPE = 'standardized-40-question-block';
+const STANDARDIZED_STEP1_BLOCK_TYPE = 'standardized-step1-block-2026';
+const isStandardizedBlockType = (blockType: unknown): boolean =>
+  blockType === LEGACY_STANDARDIZED_BLOCK_TYPE || blockType === STANDARDIZED_STEP1_BLOCK_TYPE;
+
+/**
+ * Exam-mode server-owned bank pool: merges AI-generated-and-promoted reuse
+ * content with reviewed authored (QBank) content so a fully bank-covered Exam
+ * request never needs to fall back to the frontend's answer-bearing bundled
+ * question data (see generateAIQuestions.js's examMustUseServer gate, which
+ * always routes exam+authenticated requests here regardless of local bank
+ * coverage). Practice/Coach are unaffected — they keep using
+ * _getReusableGeneratedBankQuestions alone, unchanged.
+ *
+ * Standardized Step 1 Blocks fetch a much wider candidate pool than
+ * targetCount: blueprint selection needs real representation from low-volume
+ * content areas (e.g. Social Sciences), and a random LIMIT sized to the exact
+ * 20-question target risks missing a thin area by sampling variance alone,
+ * even when the DB has enough of that area overall.
+ */
+async function _getExamBankPool(config: Record<string, any>, targetCount: number, approvedOnly: boolean): Promise<Record<string, any>[]> {
+  if (config.mode !== 'exam') return _getReusableGeneratedBankQuestions(config, targetCount, approvedOnly);
+
+  const poolFetchCount = isStandardizedBlockType(config.blockType)
+    ? Math.max(targetCount * 10, 200)
+    : targetCount;
+
+  const [generated, authored] = await Promise.all([
+    _getReusableGeneratedBankQuestions(config, poolFetchCount, approvedOnly),
+    _getReviewedAuthoredQuestions(config, poolFetchCount),
+  ]);
+
+  const seenIds = new Set<string>();
+  const merged: Record<string, any>[] = [];
+  for (const q of [...generated, ...authored]) {
+    const id = String(q.id ?? '');
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    merged.push(q);
   }
+
+  // Shuffle so a fixed authored pool doesn't always surface in the same
+  // relative order once merged with generated-bank content.
+  for (let i = merged.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [merged[i], merged[j]] = [merged[j]!, merged[i]!];
+  }
+
+  return merged;
+}
+
+/**
+ * Thrown by applyExamStudentView when authenticated Exam mode cannot start a
+ * server-reserved session — caught in the route's error handler and mapped to
+ * a clear status/code rather than falling through to the generic 500.
+ */
+class ExamReservationError extends Error {
+  constructor(message: string, public readonly code: string, public readonly status: number) {
+    super(message);
+    this.name = 'ExamReservationError';
+  }
+}
+
+/**
+ * Applies the server-owned answer-key flow to a batch of freshly-generated or
+ * reused-from-bank questions, unconditionally for Exam mode. Every returned
+ * question is stripped of answer/rationale fields via toStudentExamQuestion —
+ * this happens regardless of client behavior, so an old or misbehaving client
+ * can never receive an answer-bearing Exam response.
+ *
+ * Exam mode is fail-closed: a clientSessionId is required, and the exact
+ * displayed snapshot must be reserved server-side (exam_session_reservations)
+ * before this returns. Either succeeds together or the whole request fails
+ * with a clear ExamReservationError — an authenticated Exam session is never
+ * started without a server-side answer key to score against later, and no
+ * unreserved Exam student-view questions are ever returned on the normal path.
+ *
+ * Retry safety: reserveGeneratedExamSnapshot is idempotent and, on a retry
+ * with the same clientSessionId, returns the ORIGINAL snapshot rather than
+ * the fresh shuffle this call just computed. The response is always built
+ * from that return value — never from the local `shuffled` variable — so a
+ * retried request can never show the student an option order different from
+ * the one the reservation (and therefore completion scoring) is pinned to.
+ *
+ * Practice/Coach are untouched: this function is a no-op for any mode other
+ * than 'exam', returning the input questions exactly as generated.
+ */
+async function applyExamStudentView(
+  questions: Record<string, any>[],
+  params: { mode: string; clientSessionId?: string; userId: string },
+): Promise<{ questions: Record<string, any>[]; reserved: boolean; studentView: boolean }> {
+  if (params.mode !== 'exam') return { questions, reserved: false, studentView: false };
+
+  if (!params.clientSessionId) {
+    throw new ExamReservationError(
+      'A client session ID is required to start a server-owned Exam session.',
+      'CLIENT_SESSION_ID_REQUIRED',
+      400,
+    );
+  }
+
+  const shuffled = questions.map((q) => shuffleQuestionForExam(q));
+  const emptyFallback: Question = { id: '', text: '', options: [], correct_answer: '' };
+  const authoritative = shuffled.map((q) => questionFromAuthoritativeBody(
+    String(q.id ?? ''),
+    q as Record<string, unknown>,
+    { ...emptyFallback, id: String(q.id ?? '') },
+  ));
+
+  let result: { reserved: boolean; clientSessionId: string; questions: Question[] };
+  try {
+    result = await createExamService().reserveGeneratedExamSnapshot(
+      params.userId,
+      params.clientSessionId,
+      authoritative,
+    );
+  } catch (err) {
+    logger.warn('[generate-questions] exam reservation failed, failing the request closed', {
+      error: (err as Error).message,
+    });
+    throw new ExamReservationError(
+      'Could not reserve the exam question snapshot. Please try starting the exam again.',
+      'RESERVATION_FAILED',
+      503,
+    );
+  }
+
+  if (!result.reserved) {
+    logger.warn('[generate-questions] exam reservation unavailable, failing the request closed');
+    throw new ExamReservationError(
+      'Could not reserve the exam question snapshot. Please try starting the exam again.',
+      'RESERVATION_FAILED',
+      503,
+    );
+  }
+
+  const responseSource = result.questions as unknown as Record<string, unknown>[];
+  return { questions: responseSource.map((q) => toStudentExamQuestion(q)), reserved: true, studentView: true };
 }
 
 router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, validate(generateQuestionsSchema), async (req: AuthRequest, res: Response) => {
   const { config: rawConfig } = req.body ?? {};
+  const clientSessionId = typeof req.body?.clientSessionId === 'string' ? req.body.clientSessionId : undefined;
 
   if (!rawConfig?.mode || !rawConfig?.questionCount) {
     res.status(400).json({ error: 'Missing required config fields: mode, questionCount', code: 'INVALID_CONFIG' });
     return;
   }
-
-  const STANDARDIZED_BLOCK = 'standardized-40-question-block';
 
   // Concurrency and timeout state — set after auth check inside the try block.
   let slotAcquired = false;
@@ -2336,20 +2552,28 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
 
   try {
     let config = rawConfig;
-    if (config.blockType === STANDARDIZED_BLOCK) {
+    // Normalizes either historical blockType identifier to the same current
+    // shape the frontend's own normalizeQuizConfigForGeneration() produces
+    // (medica-app/src/lib/quizTypes.js) — 20-question blueprint-balanced
+    // block, current blockType string — so a raw/legacy caller that bypasses
+    // frontend normalization converges on the exact config the blueprint
+    // detection below expects, instead of silently skipping it.
+    if (isStandardizedBlockType(config.blockType)) {
       config = {
         ...config,
         mode: 'exam',
-        questionCount: 40,
-        subject: '',
-        system: '',
+        questionCount: STEP1_BLUEPRINT_TARGET_COUNT,
+        subject: 'All Subjects',
+        system: 'All Systems',
         topic: '',
         clinicalFocus: '',
         difficulty: 'Balanced',
+        blockType: STANDARDIZED_STEP1_BLOCK_TYPE,
       };
     }
     config = normalizeConfigTaxonomy(config);
     const targetCount = Math.min(Math.max(Number(config.questionCount) || 5, 1), 40);
+    const isStandardizedStep1Block = config.mode === 'exam' && config.blockType === STANDARDIZED_STEP1_BLOCK_TYPE;
     let scope = resolveScope(config);
     let specific = isSpecific(scope);
 
@@ -2389,8 +2613,11 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
 
     // Adaptive blueprint — only for global/mixed scope; specific-topic overrides it.
     // Requires an authenticated user (optionalAuth sets req.userId when token is present).
+    // A standardized Step 1 Standard Block is a fixed, non-personalized
+    // content-area distribution by definition — adaptive mastery-driven
+    // targeting must never override its blueprint quotas.
     let adaptiveBlueprint: AdaptiveBlueprint | null = null;
-    if (!specific && req.userId) {
+    if (!specific && req.userId && !isStandardizedStep1Block) {
       try {
         const { userConceptMastery, concepts } = getRepositories();
         const bp = await new AdaptiveExamService(userConceptMastery, concepts)
@@ -2407,10 +2634,28 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
     const reusePolicy = getGeneratedBankReusePolicy();
     const approvedOnly = reusePolicy.approvedOnly;
-    const generatedBankQuestions = await _getReusableGeneratedBankQuestions(config, targetCount, approvedOnly);
+    const generatedBankQuestions = await _getExamBankPool(config, targetCount, approvedOnly);
     const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
-      const questions = generatedBankQuestions.slice(0, targetCount);
+      let questions: Record<string, any>[];
+      if (isStandardizedStep1Block) {
+        try {
+          questions = selectStep1BlueprintBlock(generatedBankQuestions, targetCount);
+        } catch (err) {
+          if (err instanceof InsufficientBlueprintCoverageError) {
+            res.status(503).json({
+              error: 'Reviewed question bank cannot fill a blueprint-balanced Step 1 Standard Block.',
+              code: 'AI_INSUFFICIENT_COUNT',
+              available: err.available,
+              requested: err.requested,
+            });
+            return;
+          }
+          throw err;
+        }
+      } else {
+        questions = generatedBankQuestions.slice(0, targetCount);
+      }
       await getRepositories().questions.markUsedByExternalIds(
         questions.map(q => String(q.fingerprint || q.id || '')),
       ).catch(() => {});
@@ -2454,11 +2699,12 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         validatedQueueCount,
         approvedOnlyMode: approvedOnly,
       };
+      const examView = await applyExamStudentView(questions, { mode: config.mode, clientSessionId, userId: req.userId! });
       res.json({
-        questions,
+        questions: examView.questions,
         source: 'generated-bank',
-        count: questions.length,
-        telemetry,
+        count: examView.questions.length,
+        telemetry: { ...telemetry, studentView: examView.studentView, reserved: examView.reserved },
         generationStrategy: 'generated-bank',
         adaptiveConcepts: [],
       });
@@ -2468,29 +2714,36 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     // bankPool: bank questions to serve directly (skipped if adaptive); shortfall: how many AI must fill
     const bankPool = adaptiveBlueprint ? [] : generatedBankQuestions;
     const shortfall = targetCount - bankPool.length;
-    const is40QExamBlock = config.mode === 'exam' && targetCount === 40;
+    // Authenticated Exam mode must never silently serve a partial block: by
+    // the time execution reaches here, the "bank already covers the request"
+    // early return above has already ruled out bankPool.length >= targetCount
+    // for Exam mode, so any bankPool content seen here is inherently a
+    // shortfall. Practice/Coach keep the existing graceful partial-serve
+    // behavior — only Exam mode is strict.
+    const isExamMode = config.mode === 'exam';
 
     if (!process.env.ANTHROPIC_API_KEY) {
       if (bankPool.length > 0) {
-        if (is40QExamBlock) {
+        if (isExamMode) {
           res.status(503).json({
-            error: '40 Question Block requires exactly 40 validated questions; live AI is unavailable to fill the shortfall',
+            error: `Exam block requires ${targetCount} validated questions; live AI is unavailable to fill the shortfall`,
             code:  'AI_INSUFFICIENT_COUNT',
             returned: bankPool.length,
-            requested: 40,
+            requested: targetCount,
           });
           return;
         }
-        // Partial bank coverage — serve what we have; can't fill shortfall without an AI key
+        // Practice/Coach: partial bank coverage is acceptable — serve what we have.
         const questions = bankPool.slice(0, targetCount);
         await getRepositories().questions.markUsedByExternalIds(
           questions.map(q => String(q.fingerprint || q.id || '')),
         ).catch(() => {});
         const approvedReuseCount = questions.filter(q => String(q.bankStatus) === 'approved').length;
+        const examView = await applyExamStudentView(questions, { mode: config.mode, clientSessionId, userId: req.userId! });
         res.json({
-          questions,
+          questions: examView.questions,
           source:             'generated-bank',
-          count:              questions.length,
+          count:              examView.questions.length,
           telemetry: {
             requested: targetCount, generated: 0, available: bankPool.length,
             returning: questions.length, duplicateRejects: 0,
@@ -2513,6 +2766,8 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
             liveGeneratedCount: 0,
             validatedQueueCount,
             approvedOnlyMode: approvedOnly,
+            studentView: examView.studentView,
+            reserved: examView.reserved,
           },
           generationStrategy: 'generated-bank',
           adaptiveConcepts:   [],
@@ -2680,12 +2935,49 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
 
     // Use the full AI buffer so +2 buffer questions can fill bank-collision gaps.
     // Save the full AI output (idempotent upsert) — unused buffer questions enter the bank for future requests.
-    const combined           = dedup([...bankPool, ...allQuestions]).slice(0, targetCount);
-    const questions          = combined;
-    // Compute reuse counts before save (save does not mutate question objects)
-    const bankContrib = Math.min(bankPool.length, combined.length);
-    const approvedReuseCount = combined.slice(0, bankContrib).filter(q => String(q.bankStatus) === 'approved').length;
-    const liveGeneratedCount = combined.length - bankContrib;
+    const combinedPool = dedup([...bankPool, ...allQuestions]);
+    let questions: Record<string, any>[];
+    if (isStandardizedStep1Block) {
+      try {
+        questions = selectStep1BlueprintBlock(combinedPool, targetCount);
+      } catch (err) {
+        if (err instanceof InsufficientBlueprintCoverageError) {
+          res.status(503).json({
+            error: 'Reviewed content cannot fill a blueprint-balanced Step 1 Standard Block.',
+            code: 'AI_INSUFFICIENT_COUNT',
+            available: err.available,
+            requested: err.requested,
+          });
+          return;
+        }
+        throw err;
+      }
+    } else {
+      questions = combinedPool.slice(0, targetCount);
+    }
+
+    // Authenticated Exam mode must never silently serve fewer than requested —
+    // fail clearly instead of degrading into a partial (or frontend
+    // answer-bearing local-fallback) response. Practice/Coach keep the
+    // existing graceful-partial behavior via the EMPTY_RESULT check below.
+    if (config.mode === 'exam' && questions.length < targetCount) {
+      res.status(503).json({
+        error: `Exam block requires ${targetCount} questions; only ${questions.length} could be generated or reused`,
+        code: 'AI_INSUFFICIENT_COUNT',
+        returned: questions.length,
+        requested: targetCount,
+      });
+      return;
+    }
+
+    // Compute reuse counts by identity, not position — blueprint selection
+    // may reorder/interleave bank and freshly-generated questions, so a
+    // positional split would misattribute which questions actually came
+    // from the reused bank pool.
+    const bankIdSet = new Set(bankPool.map(q => String(q.id ?? '')));
+    const bankContribQuestions = questions.filter(q => bankIdSet.has(String(q.id ?? '')));
+    const approvedReuseCount = bankContribQuestions.filter(q => String(q.bankStatus) === 'approved').length;
+    const liveGeneratedCount = questions.length - bankContribQuestions.length;
     if (bankPool.length > 0) {
       const returnedBankFingerprints = questions
         .filter(q => bankPool.some(bankQ => computeQuestionFingerprint(bankQ.stem || '', bankQ.testedConcept || '') === computeQuestionFingerprint(q.stem || '', q.testedConcept || '')))
@@ -2769,11 +3061,12 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       return;
     }
 
+    const examView = await applyExamStudentView(questions, { mode: config.mode, clientSessionId, userId: req.userId! });
     res.json({
-      questions,
+      questions: examView.questions,
       source: bankPool.length > 0 ? 'hybrid' : 'ai',
-      count:              questions.length,
-      telemetry,
+      count:              examView.questions.length,
+      telemetry: { ...telemetry, studentView: examView.studentView, reserved: examView.reserved },
       generationStrategy: adaptiveBlueprint ? 'adaptive' : 'random',
       adaptiveConcepts:   adaptiveBlueprint ? adaptiveBlueprint.targetConcepts : [],
     });
@@ -2784,6 +3077,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         code: 'INVALID_TAXONOMY',
         field: err.field,
       });
+      return;
+    }
+    if (err instanceof ExamReservationError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
       return;
     }
     const isAbort = (err as any)?.name === 'AbortError' || controller?.signal.aborted;

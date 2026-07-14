@@ -216,6 +216,20 @@ export interface IQuestionsRepository {
     excludeFingerprints?: string[],
   ): Promise<Array<{ id: string; body: Record<string, unknown> }>>;
   /**
+   * Random sample of authored, commercially-ready questions matching subject/
+   * system/difficulty — mode is intentionally NOT a filter, since authored
+   * content is seeded mode-agnostic (mode='') and reusable across practice/
+   * coach/exam alike. Used to fill the Exam-mode server-owned bank pool with
+   * reviewed QBank content (never exposed directly — callers must still run it
+   * through the exam student-view sanitizer before it reaches a response).
+   */
+  findReviewedAuthoredQuestions(params: {
+    subject?: string;
+    system?: string;
+    difficulty?: string;
+    limit?: number;
+  }): Promise<Record<string, unknown>[]>;
+  /**
    * Resolves a list of external IDs to their full question bodies (with answers),
    * for both authored and AI-generated content — excluding only quarantined,
    * validation_failed, or rejected rows. Unlike findByExternalIds, this does NOT

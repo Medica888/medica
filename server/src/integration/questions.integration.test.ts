@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { Pool } from 'pg';
 import { InMemoryQuestionsRepository } from '../repositories/memory/QuestionsRepository.js';
 import { PgQuestionsRepository } from '../repositories/pg/QuestionsRepository.js';
 import type { IQuestionsRepository } from '../repositories/interfaces.js';
+import { upsertAuthoredQuestions, type AuthoredQuestion } from '../db/seedAuthoredQuestions.js';
 import { createTestPool, truncateAll } from './helpers.js';
 
 // Commercial-readiness metadata for fixtures that must clear findStudentCatalog's
@@ -505,6 +508,94 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       const result = await repo.findStudentCatalog({ search: 'NEPHRO' });
       expect(result.data.map((q) => q.id)).toContain(externalId);
     });
+
+    // ─── findReviewedAuthoredQuestions (Exam-mode server-owned bank pool) ───────
+
+    it('findReviewedAuthoredQuestions returns a commercially-ready authored question', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
+        subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced',
+        body: { id: 'irrelevant', stem: 'authored exam stem', testedConcept: 'authored concept', correct: 'A', options: ['A opt', 'B opt', 'C opt', 'D opt'] },
+      });
+      // The body's own id is what findReviewedAuthoredQuestions callers read (it
+      // returns raw bodies, like findGeneratedBankQuestions) — real seeded rows
+      // always carry their external id inside the body (see upsertAuthoredQuestions).
+      data.body['id'] = externalId;
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+      expect(result.map((q) => q['id'])).toContain(externalId);
+    });
+
+    it('findReviewedAuthoredQuestions excludes AI-sourced content even when otherwise ready', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'ai', bankStatus: 'approved', reviewMetadata: READY_METADATA,
+        subject: 'Pharmacology', system: 'Cardiovascular',
+      });
+      data.body['id'] = externalId;
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+      expect(result.map((q) => q['id'])).not.toContain(externalId);
+    });
+
+    it.each(['quarantined', 'rejected', 'validation_failed'] as const)(
+      'findReviewedAuthoredQuestions excludes a %s authored question',
+      async (bankStatus) => {
+        const { externalId, data } = makeQuestionData({
+          source: 'authored', bankStatus, reviewMetadata: READY_METADATA,
+          subject: 'Pharmacology', system: 'Cardiovascular',
+        });
+        data.body['id'] = externalId;
+        await repo.upsertByExternalId(externalId, data);
+
+        const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+        expect(result.map((q) => q['id'])).not.toContain(externalId);
+      },
+    );
+
+    it('findReviewedAuthoredQuestions excludes an approved authored question with no reviewMetadata (unreviewed)', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', reviewMetadata: undefined,
+        subject: 'Pharmacology', system: 'Cardiovascular',
+      });
+      data.body['id'] = externalId;
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+      expect(result.map((q) => q['id'])).not.toContain(externalId);
+    });
+
+    it('findReviewedAuthoredQuestions filters by subject and system', async () => {
+      const { externalId: match, data: matchData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
+        subject: 'Pharmacology', system: 'Cardiovascular',
+      });
+      matchData.body['id'] = match;
+      const { externalId: mismatch, data: mismatchData } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
+        subject: 'Anatomy', system: 'Musculoskeletal',
+      });
+      mismatchData.body['id'] = mismatch;
+      await repo.upsertByExternalId(match, matchData);
+      await repo.upsertByExternalId(mismatch, mismatchData);
+
+      const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+      expect(result.map((q) => q['id'])).toContain(match);
+      expect(result.map((q) => q['id'])).not.toContain(mismatch);
+    });
+
+    it('findReviewedAuthoredQuestions does not filter by mode — authored content is mode-agnostic', async () => {
+      const { externalId, data } = makeQuestionData({
+        source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,
+        subject: 'Pharmacology', system: 'Cardiovascular', mode: '',
+      });
+      data.body['id'] = externalId;
+      await repo.upsertByExternalId(externalId, data);
+
+      const result = await repo.findReviewedAuthoredQuestions({ subject: 'Pharmacology', system: 'Cardiovascular' });
+      expect(result.map((q) => q['id'])).toContain(externalId);
+    });
   });
 }
 
@@ -545,6 +636,42 @@ describe('QuestionsRepository contract', () => {
       const rows = await repo.findGeneratedBankReview({ externalId: eid });
       expect(rows[0]['subject']).toBe('Physiology');
       expect(rows[0]['system']).toBe('Renal');
+    });
+
+    // ─── PG-only: findReviewedAuthoredQuestions against the real seed file ──
+    // Empirical proof (not an assumption) that the production authoredQuestions.json
+    // actually clears commercialReadySql() through this specific query path — the
+    // Exam-mode server-owned bank pool depends entirely on this yielding real rows.
+    // See seedAuthoredQuestions.integration.test.ts for the same regression guard
+    // against findStudentCatalog (both share the commercialReadySql() gate).
+
+    it('findReviewedAuthoredQuestions returns real seeded authored questions for Balanced difficulty', async () => {
+      await truncateAll(pool);
+      const dataPath = join(__dirname, '..', 'db', 'seed-data', 'authoredQuestions.json');
+      const questions: AuthoredQuestion[] = JSON.parse(readFileSync(dataPath, 'utf-8'));
+      await upsertAuthoredQuestions(pool, questions);
+
+      const repo = new PgQuestionsRepository(pool);
+      const result = await repo.findReviewedAuthoredQuestions({ difficulty: 'Balanced', limit: 200 });
+
+      expect(result.length).toBeGreaterThan(0);
+      for (const q of result) {
+        expect((q as Record<string, unknown>)['correct'] ?? (q as Record<string, unknown>)['correctAnswer']).toBeTruthy();
+      }
+    });
+
+    it('findReviewedAuthoredQuestions returns real seeded authored questions for hard-mode difficulty (expert_reviewed gate)', async () => {
+      await truncateAll(pool);
+      const dataPath = join(__dirname, '..', 'db', 'seed-data', 'authoredQuestions.json');
+      const questions: AuthoredQuestion[] = JSON.parse(readFileSync(dataPath, 'utf-8'));
+      await upsertAuthoredQuestions(pool, questions);
+
+      const repo = new PgQuestionsRepository(pool);
+      const nbme = await repo.findReviewedAuthoredQuestions({ difficulty: 'NBME Difficult', limit: 200 });
+      const uworld = await repo.findReviewedAuthoredQuestions({ difficulty: 'UWorld Challenge', limit: 200 });
+
+      expect(nbme.length).toBeGreaterThan(0);
+      expect(uworld.length).toBeGreaterThan(0);
     });
 
     // ─── PG-only: generatedLast7d computation ───────────────────────────────

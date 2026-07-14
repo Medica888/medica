@@ -1,9 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
-import { ExamService } from '../services/ExamService.js';
+import { createExamService } from '../services/ExamService.js';
 import { AnalyticsService } from '../services/AnalyticsService.js';
-import { ConceptMappingService } from '../services/ConceptMappingService.js';
-import { ConceptMasteryService } from '../services/ConceptMasteryService.js';
 import { ProgressTrackingService } from '../services/ProgressTrackingService.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -15,24 +13,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const router = Router();
 
-function getService(): ExamService {
-  const {
-    examSessions, examSessionReservations, questionAttempts, questions,
-    concepts, questionConcepts, userConceptMastery, questionReports,
-  } = getRepositories();
-  const conceptMapping = new ConceptMappingService(concepts, questionConcepts);
-  const conceptMastery = new ConceptMasteryService(userConceptMastery, questionConcepts, concepts);
-  return new ExamService(
-    examSessions, questionAttempts, questions, conceptMapping, conceptMastery,
-    examSessionReservations, questionReports,
-  );
-}
-
 router.use(requireAuth);
 
 router.post('/reservations', validate(reserveSessionSchema), async (req: AuthRequest, res: Response) => {
   try {
-    const result = await getService().reserveSession(req.userId!, req.body);
+    const result = await createExamService().reserveSession(req.userId!, req.body);
     res.status(201).json(result);
   } catch {
     res.status(500).json({ error: 'Internal server error' });
@@ -41,7 +26,7 @@ router.post('/reservations', validate(reserveSessionSchema), async (req: AuthReq
 
 router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Response) => {
   try {
-    const session = await getService().createSession(req.userId!, req.body);
+    const session = await createExamService().createSession(req.userId!, req.body);
     // Fire-and-forget: update analytics snapshot after every new exam
     const { analytics, examSessions, userConceptMastery, masterySnapshots } = getRepositories();
     new AnalyticsService(analytics, examSessions)
@@ -66,7 +51,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const page = Math.max(1, Math.floor(parseInt(String(req.query['page'] ?? '1'), 10)) || 1);
     const limit = Math.min(100, Math.max(1, Math.floor(parseInt(String(req.query['limit'] ?? '20'), 10)) || 20));
-    const result = await getService().getSessions(req.userId!, { page, limit });
+    const result = await createExamService().getSessions(req.userId!, { page, limit });
     res.json(result);
   } catch {
     res.status(500).json({ error: 'Internal server error' });
@@ -77,7 +62,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   const id = String(req.params['id']);
   if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Session not found' });
   try {
-    const session = await getService().getSession(id, req.userId!);
+    const session = await createExamService().getSession(id, req.userId!);
     res.json({ session });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : '';
@@ -91,7 +76,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const id = String(req.params['id']);
   if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Session not found' });
   try {
-    await getService().deleteSession(id, req.userId!);
+    await createExamService().deleteSession(id, req.userId!);
     res.status(204).end();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : '';

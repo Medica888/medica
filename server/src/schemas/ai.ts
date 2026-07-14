@@ -36,6 +36,11 @@ export const generateQuestionsSchema = z.object({
     questionIds:     z.array(z.string().max(200)).max(1000).optional(),
     baseQuestionIds: z.array(z.string().max(200)).max(1000).optional(),
   }).optional(),
+  // Exam mode only: when present, the server reserves the exact per-session
+  // shuffled/answer-bearing snapshot under this id (see exam_session_reservations)
+  // and returns student-view (answer-stripped) questions instead of full bodies.
+  // Ignored for practice/coach — those modes always return full question bodies.
+  clientSessionId: z.string().uuid().optional(),
 });
 
 export const generateFlashcardsSchema = z.object({

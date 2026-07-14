@@ -153,6 +153,12 @@ vi.mock('./components/session/QuizSession', () => ({
   default: ({ session, onComplete, onExit }) => (
     <div>
       <div>Exam Session Mock</div>
+      <div data-testid="exam-session-full">
+        {JSON.stringify({
+          serverReserved: session.serverReserved,
+          question0: session.questions[0],
+        })}
+      </div>
       <button type="button" onClick={() => onComplete(makeResults(), withAnswer(session))}>Submit Exam Mock</button>
       <button type="button" onClick={onExit}>Exit Session Mock</button>
     </div>
@@ -204,9 +210,15 @@ vi.mock('./components/exam/ExamResults', () => ({
 }))
 
 vi.mock('./components/exam/ExamReview', () => ({
-  default: ({ initialFilter, onBack, onNewQuiz }) => (
+  default: ({ session, initialFilter, onBack, onNewQuiz }) => (
     <div>
       <div>Exam Review Mock {initialFilter}</div>
+      <div data-testid="exam-review-session-full">
+        {JSON.stringify({
+          question0: session.questions[0],
+          answers: session.answers,
+        })}
+      </div>
       <button type="button" onClick={onBack}>Back To Exam Results Mock</button>
       <button type="button" onClick={onNewQuiz}>New From Exam Review Mock</button>
     </div>
@@ -344,8 +356,41 @@ function makeQuestions(mode = 'exam') {
       { letter: 'D', text: 'D' },
     ],
     correct: 'A',
+    correctAnswer: 'A',
+    correct_answer: 'A',
     explanation: 'Mock explanation',
+    pearl: 'Mock pearl',
+    highYieldPearl: 'Mock high-yield pearl',
+    memoryAnchor: 'Mock memory anchor',
+    commonTrap: 'Mock common trap',
+    optionExplanations: { A: 'Correct because A.', B: 'Wrong because B.' },
+    wrongAnswerExplanations: { B: 'Wrong because B.' },
   }]
+}
+
+// Mirrors what the backend's toStudentExamQuestion() returns for a server-owned
+// Exam-mode reservation: no correct/explanation/rationale fields, and the option
+// order is already the exact per-session display order the server decided.
+function makeStudentViewQuestions() {
+  const questions = [{
+    id: 'exam-q1',
+    subject: 'Pathology',
+    system: 'Cardiovascular',
+    difficulty: 'Balanced',
+    stem: 'Mock stem',
+    options: [
+      { letter: 'A', text: 'Server-ordered A' },
+      { letter: 'B', text: 'Server-ordered B' },
+      { letter: 'C', text: 'Server-ordered C' },
+      { letter: 'D', text: 'Server-ordered D' },
+    ],
+  }]
+  Object.defineProperty(questions, 'generationTelemetry', {
+    value: { studentView: true, reserved: true, source: 'ai' },
+    enumerable: false,
+    configurable: true,
+  })
+  return questions
 }
 
 function makeResults() {
@@ -560,6 +605,56 @@ describe('App quiz phase routing', () => {
     await waitFor(() => expect(screen.getByTestId('exam-results-score')).toHaveTextContent('0/1'))
   })
 
+  it('restores backend canonical question details for exam review after a synced save', async () => {
+    vi.mocked(persistSession).mockResolvedValue({
+      backendSynced: true,
+      syncState: 'synced',
+      backendResults: {
+        ...makeResults(),
+        correct: 1,
+        percentage: 100,
+        subjectBreakdown: [],
+        systemBreakdown: [],
+      },
+      backendSession: {
+        id: 'backend-exam-session',
+        mode: 'exam',
+        completed_at: '2026-07-14T00:00:00.000Z',
+        answers: { 'exam-q1': 'B' },
+        questions: [{
+          id: 'exam-q1',
+          text: 'Backend canonical stem',
+          options: [
+            { letter: 'A', text: 'Backend A' },
+            { letter: 'B', text: 'Backend B' },
+          ],
+          correct_answer: 'B',
+          explanation: 'Backend canonical explanation',
+          optionExplanations: { B: 'Correct backend explanation' },
+        }],
+      },
+    })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit Exam Mock' }))
+
+    await waitFor(() => expect(screen.getByTestId('exam-results-score')).toHaveTextContent('1/1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Review Exam Mock' }))
+
+    const reviewState = JSON.parse((await screen.findByTestId('exam-review-session-full')).textContent)
+    expect(reviewState.question0).toEqual(expect.objectContaining({
+      id: 'exam-q1',
+      stem: 'Backend canonical stem',
+      correct: 'B',
+      explanation: 'Backend canonical explanation',
+      optionExplanations: { B: 'Correct backend explanation' },
+    }))
+    expect(reviewState.answers).toEqual({ 'exam-q1': 'B' })
+  })
+
   it('opens the working quiz builder in Coach mode from AI Coach navigation', async () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'AI Coach' }))
@@ -676,6 +771,66 @@ describe('App — Phase 2 server-side session reservation', () => {
       clientSessionId: expect.any(String),
       questionIds: expect.any(Array),
     }))
+  })
+
+  it('conceals answer and explanation fields from the active exam session after reservation', async () => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(true)
+    vi.mocked(exams.reserve).mockResolvedValue({ reserved: true, clientSessionId: '00000000-0000-4000-8000-000000000001' })
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+
+    const sessionState = JSON.parse(screen.getByTestId('exam-session-full').textContent)
+    expect(sessionState.serverReserved).toBe(true)
+    expect(sessionState.question0).toEqual(expect.objectContaining({
+      id: 'exam-q1',
+      stem: 'Mock stem',
+      options: expect.any(Array),
+    }))
+    expect(sessionState.question0).not.toHaveProperty('correct')
+    expect(sessionState.question0).not.toHaveProperty('correctAnswer')
+    expect(sessionState.question0).not.toHaveProperty('correct_answer')
+    expect(sessionState.question0).not.toHaveProperty('explanation')
+    expect(sessionState.question0).not.toHaveProperty('pearl')
+    expect(sessionState.question0).not.toHaveProperty('highYieldPearl')
+    expect(sessionState.question0).not.toHaveProperty('memoryAnchor')
+    expect(sessionState.question0).not.toHaveProperty('commonTrap')
+    expect(sessionState.question0).not.toHaveProperty('optionExplanations')
+    expect(sessionState.question0).not.toHaveProperty('wrongAnswerExplanations')
+  })
+
+  it('starts the exam flow directly from server-owned student-view questions that never had a correct field', async () => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(true)
+    vi.mocked(generateAIQuestions).mockResolvedValueOnce(makeStudentViewQuestions())
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+
+    const sessionState = JSON.parse(screen.getByTestId('exam-session-full').textContent)
+    expect(sessionState.question0.stem).toBe('Mock stem')
+    expect(sessionState.question0.options).toHaveLength(4)
+  })
+
+  it('does not reshuffle server-owned Exam student-view questions', async () => {
+    vi.mocked(isBackendSyncEnabled).mockReturnValue(true)
+    vi.mocked(generateAIQuestions).mockResolvedValueOnce(makeStudentViewQuestions())
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
+
+    const sessionState = JSON.parse((await screen.findByTestId('exam-session-full')).textContent)
+    // Exact server-decided order is preserved — never reordered client-side.
+    // (When studentView is true, no shuffle runs at all: this is a deterministic
+    // pass-through, not just a likely outcome of a skipped random shuffle.)
+    expect(sessionState.question0.options.map(o => o.text)).toEqual([
+      'Server-ordered A', 'Server-ordered B', 'Server-ordered C', 'Server-ordered D',
+    ])
   })
 
   it('continues into the quiz unblocked when the reservation call fails', async () => {
