@@ -8,6 +8,11 @@ import { PgQuestionsRepository } from '../repositories/pg/QuestionsRepository.js
 import type { IQuestionsRepository } from '../repositories/interfaces.js';
 import { upsertAuthoredQuestions, type AuthoredQuestion } from '../db/seedAuthoredQuestions.js';
 import { createTestPool, truncateAll } from './helpers.js';
+import {
+  selectStep1BlueprintBlock,
+  STEP1_STANDARD_BLOCK_BLUEPRINT,
+  STEP1_BLUEPRINT_TARGET_COUNT,
+} from '../lib/step1BlueprintSelection.js';
 
 // Commercial-readiness metadata for fixtures that must clear findStudentCatalog's
 // isCommerciallyContentReady gate (see reviewedContentMetadata.ts). Authored questions
@@ -672,6 +677,70 @@ describe('QuestionsRepository contract', () => {
 
       expect(nbme.length).toBeGreaterThan(0);
       expect(uworld.length).toBeGreaterThan(0);
+    });
+
+    // ─── PG-only: real authored-bank Step 1 blueprint coverage guard ─────────
+    // Proves the production authoredQuestions.json — not a synthetic fixture —
+    // actually has enough commercially-ready Balanced content to fill every
+    // STEP1_STANDARD_BLOCK_BLUEPRINT group. Standard Block generation forces
+    // difficulty: 'Balanced' with no subject/system filter (see ai.ts's
+    // isStandardizedBlockType branch), so that's the exact pool this guards.
+    // A future content edit (re-tagging usmleContentArea, downgrading
+    // reviewMetadata, deleting rows) that starves a group breaks this test
+    // before it can silently degrade a real Standard Block.
+
+    it('real authored bank has enough commercially-ready Balanced coverage to fill every Step 1 blueprint group', async () => {
+      await truncateAll(pool);
+      const dataPath = join(__dirname, '..', 'db', 'seed-data', 'authoredQuestions.json');
+      const questions: AuthoredQuestion[] = JSON.parse(readFileSync(dataPath, 'utf-8'));
+      await upsertAuthoredQuestions(pool, questions);
+
+      const repo = new PgQuestionsRepository(pool);
+      const readyPool = await repo.findReviewedAuthoredQuestions({ difficulty: 'Balanced', limit: 200 });
+
+      expect(readyPool.length).toBeGreaterThanOrEqual(STEP1_BLUEPRINT_TARGET_COUNT);
+
+      const shortfalls = STEP1_STANDARD_BLOCK_BLUEPRINT
+        .map((group) => {
+          const available = readyPool.filter((q) =>
+            group.areas.includes(String((q as Record<string, unknown>)['usmleContentArea'] ?? '')),
+          ).length;
+          return { id: group.id, quota: group.count, available };
+        })
+        .filter((g) => g.available < g.quota)
+        .map((g) => `${g.id}: need ${g.quota}, have ${g.available}`);
+
+      expect(shortfalls, `Blueprint groups short on real authored coverage: ${shortfalls.join('; ')}`).toEqual([]);
+    });
+
+    it('selectStep1BlueprintBlock fills a real Step 1 Standard Block from the authored bank with exact group quotas and no repeated concept/topic', async () => {
+      await truncateAll(pool);
+      const dataPath = join(__dirname, '..', 'db', 'seed-data', 'authoredQuestions.json');
+      const questions: AuthoredQuestion[] = JSON.parse(readFileSync(dataPath, 'utf-8'));
+      await upsertAuthoredQuestions(pool, questions);
+
+      const repo = new PgQuestionsRepository(pool);
+      const realPool = await repo.findReviewedAuthoredQuestions({ difficulty: 'Balanced', limit: 200 });
+
+      const selected = selectStep1BlueprintBlock(realPool, STEP1_BLUEPRINT_TARGET_COUNT);
+      expect(selected).toHaveLength(STEP1_BLUEPRINT_TARGET_COUNT);
+
+      const groupMismatches = STEP1_STANDARD_BLOCK_BLUEPRINT
+        .map((group) => {
+          const matched = selected.filter((q) =>
+            group.areas.includes(String((q as Record<string, unknown>)['usmleContentArea'] ?? '')),
+          ).length;
+          return { id: group.id, quota: group.count, matched };
+        })
+        .filter((g) => g.matched !== g.quota)
+        .map((g) => `${g.id}: expected ${g.quota}, got ${g.matched}`);
+
+      expect(groupMismatches, `Selected block group counts off: ${groupMismatches.join('; ')}`).toEqual([]);
+
+      const concepts = selected.map((q) => String((q as Record<string, unknown>)['testedConcept'] ?? '').trim().toLowerCase());
+      const topics = selected.map((q) => String((q as Record<string, unknown>)['topic'] ?? '').trim().toLowerCase());
+      expect(new Set(concepts).size).toBe(concepts.length);
+      expect(new Set(topics).size).toBe(topics.length);
     });
 
     // ─── PG-only: generatedLast7d computation ───────────────────────────────
