@@ -60,9 +60,9 @@ test.describe('Authenticated Exam mode is server-owned end to end', () => {
     const [generateResponse] = await Promise.all([
       page.waitForResponse((res) => res.url().includes('/api/generate-questions'), { timeout: 30_000 }),
       (async () => {
-        await hero.getByRole('button', { name: /^Build (First Block|Custom Block)$/ }).click();
-        await page.waitForSelector('text=Generate Your Personalized');
-        await page.getByRole('button', { name: 'Generate Quiz' }).click();
+        await hero.getByRole('button', { name: /^(Start First Session|Build Custom Set)$/ }).click();
+        await page.waitForSelector('text=Build Your Step');
+        await page.getByRole('button', { name: 'Start Session' }).click();
       })(),
     ]);
 
@@ -114,3 +114,4 @@ test.describe('Authenticated Exam mode is server-owned end to end', () => {
     expect(explanationText?.trim().length).toBeGreaterThan(0);
   });
 });
+

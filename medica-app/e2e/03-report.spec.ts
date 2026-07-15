@@ -19,7 +19,7 @@ test.describe('Question report to governance trigger', () => {
     }).toMatchObject({ ok: true });
     // Navigate into the quiz so a question + Report button are visible.
     await openQuizBuilder(page);
-    await page.getByRole('button', { name: 'Generate Quiz' }).click();
+    await page.getByRole('button', { name: 'Start Session' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
   });
 
@@ -84,3 +84,4 @@ test.describe('Question report to governance trigger', () => {
     }
   });
 });
+

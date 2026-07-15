@@ -49,7 +49,7 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     render(<QuizBuilder onStart={onStart} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Challenge' }))
-    fireEvent.click(screen.getByRole('button', { name: /generate quiz/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start session/i }))
 
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'exam',
@@ -63,7 +63,7 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Coach' }))
     fireEvent.click(screen.getByRole('button', { name: 'Challenge' }))
-    fireEvent.click(screen.getByRole('button', { name: /generate quiz/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start session/i }))
 
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'coach',
@@ -103,7 +103,7 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     render(<QuizBuilder onStart={onStart} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Current Step 1 Block/ }))
-    fireEvent.click(screen.getByRole('button', { name: /generate quiz/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start step 1 block/i }))
 
     expect(saveLastQuizConfig).toHaveBeenCalledWith(expect.objectContaining({
       blockType: STANDARDIZED_STEP1_BLOCK,
@@ -132,3 +132,4 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     expect(screen.getByText('Harder questions with deep teaching, traps, and weak-spot repair.')).toBeInTheDocument()
   })
 })
+

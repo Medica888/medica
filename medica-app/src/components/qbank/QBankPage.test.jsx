@@ -117,6 +117,27 @@ describe('QBankPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Select question 1: ACE inhibitor cough' })).toBeChecked()
   })
 
+  it('offers a Clear filters action when filters narrow the list to zero, and it restores the full list', () => {
+    render(<QBankPage onStartSelected={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search questions' }), { target: { value: 'no match' } })
+    expect(screen.getByText(/no questions match/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect(screen.getByRole('searchbox', { name: 'Search questions' })).toHaveValue('')
+    expect(screen.getByLabelText('4 validated questions available')).toBeInTheDocument()
+    expect(screen.getByTestId('qbk-match-count')).toHaveTextContent('4 matching question')
+  })
+
+  it('shows a distinct empty message with no Clear filters action when the validated bank itself is empty', () => {
+    vi.mocked(getBrowsableQuestionBank).mockReturnValue([])
+    render(<QBankPage onStartSelected={vi.fn()} />)
+
+    expect(screen.getByText(/no validated questions are available/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument()
+  })
+
   it('starts exactly the selected questions in the chosen mode', async () => {
     const onStartSelected = vi.fn()
     render(<QBankPage onStartSelected={onStartSelected} />)

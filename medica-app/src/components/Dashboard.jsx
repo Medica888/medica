@@ -111,7 +111,7 @@ export default function Dashboard({ onNavigate }) {
   const todayTasks = useMemo(() => {
     if (analytics.empty) {
       return [
-        { id: 'a', text: 'Create your first quiz' },
+        { id: 'a', text: 'Start your first block' },
         { id: 'b', text: 'Complete one Practice session' },
         { id: 'c', text: 'Review your results' },
       ]
@@ -220,7 +220,7 @@ export default function Dashboard({ onNavigate }) {
                 </svg>
               </button>
               <button type="button" className="db-btn db-btn--ghost" onClick={startCustomQuiz}>
-                Build Custom Block
+                Build Custom Set
               </button>
             </div>
           </section>
@@ -235,7 +235,7 @@ export default function Dashboard({ onNavigate }) {
             </div>
             <div className="db-hero-actions">
               <button type="button" className="db-btn db-btn--primary" onClick={startCustomQuiz}>
-                Build First Block
+                Start First Session
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
                   <path d="M5 2L10 6.5L5 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

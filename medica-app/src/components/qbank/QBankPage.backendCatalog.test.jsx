@@ -126,6 +126,29 @@ describe('QBankPage — backend-driven catalog', () => {
     expect(onStartSelected.mock.calls[0][0].questions).toEqual([q1])
   })
 
+  // ─── Empty state must distinguish "search matched nothing" from "bank is empty" ──
+  // A server-narrowed search can empty `questions` itself (not just the client-side
+  // `filtered` list) — the empty state must key off active filter state, not catalog
+  // size, or a too-narrow search gets misread as an empty bank and loses its escape hatch.
+
+  it('shows Clear filters, not the empty-bank message, when a backend search matches nothing', () => {
+    vi.mocked(useQBankCatalog).mockImplementation(search => ({
+      questions: search ? [] : [makeQuestion('q1')],
+      loading: false,
+      error: null,
+      source: 'backend',
+      refresh: vi.fn(),
+    }))
+
+    const { rerender } = render(<QBankPage onStartSelected={vi.fn()} />)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search questions' }), { target: { value: 'no server match' } })
+    rerender(<QBankPage onStartSelected={vi.fn()} />)
+
+    expect(screen.getByText(/no questions match these filters/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument()
+    expect(screen.queryByText(/no validated questions are available/i)).not.toBeInTheDocument()
+  })
+
   // ─── Backend-driven resume safety ──────────────────────────────────────────
   // A backend-driven session's resume validity must be decided by the server
   // (POST /api/qbank/sessions), never by whatever this browser's catalog/search

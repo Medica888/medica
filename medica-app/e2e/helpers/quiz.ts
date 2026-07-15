@@ -25,8 +25,8 @@ export async function blockLiveAIGeneration(page: Page): Promise<void> {
 
 /**
  * Open the quiz builder from the Dashboard hero CTA. The button reads
- * "Build First Block" for a user with no session history, or
- * "Build Custom Block" once they have one (Dashboard.jsx). Both wire to
+ * "Start First Session" for a user with no session history, or
+ * "Build Custom Set" once they have one (Dashboard.jsx). Both wire to
  * the same startCustomQuiz handler, so match either label rather than
  * assuming a fixed history state.
  */
@@ -34,7 +34,7 @@ export async function openQuizBuilder(page: Page): Promise<void> {
   await blockLiveAIGeneration(page);
   const hero = page.locator('.db-hero-actions');
   await hero.waitFor({ state: 'visible' });
-  await hero.getByRole('button', { name: /^Build (First Block|Custom Block)$/ }).click();
+  await hero.getByRole('button', { name: /^(Start First Session|Build Custom Set)$/ }).click();
 }
 
 /**
@@ -43,9 +43,9 @@ export async function openQuizBuilder(page: Page): Promise<void> {
  */
 export async function runQuizToCompletion(page: Page): Promise<void> {
   await openQuizBuilder(page);
-  await page.waitForSelector('text=Generate Your Personalized');
+  await page.waitForSelector('text=Build Your Step');
 
-  await page.getByRole('button', { name: 'Generate Quiz' }).click();
+  await page.getByRole('button', { name: 'Start Session' }).click();
   await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
 
   const navButtons = page.locator('[aria-label="Question navigator"] button');
@@ -67,9 +67,10 @@ export async function runQuizToCompletion(page: Page): Promise<void> {
 
 /**
  * Returns the number of questions shown in the current exam session.
- * Call after the quiz has loaded (after Generate Quiz click).
+ * Call after the quiz has loaded (after Start Session click).
  */
 export async function getQuestionCount(page: Page): Promise<number> {
   const navButtons = page.locator('[aria-label="Question navigator"] button');
   return navButtons.count();
 }
+

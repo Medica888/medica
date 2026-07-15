@@ -267,6 +267,7 @@
 }
 
 .qbk-empty strong { color: var(--t1); font-size: 14px; }
+.qbk-empty-clear { margin-top: 6px; }
 
 .qbk-loading {
   max-width: 1280px;

@@ -67,7 +67,7 @@ test.describe('Quiz builder accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await openQuizBuilder(page);
-    await page.waitForSelector('text=Generate Your Personalized');
+    await page.waitForSelector('text=Build Your Step');
   });
 
   test('clinical focus textarea has an accessible label', async ({ page }) => {
@@ -75,15 +75,16 @@ test.describe('Quiz builder accessibility', () => {
     await expect(page.getByLabel('Clinical Themes / Custom Focus')).toBeVisible();
   });
 
-  test('Generate Quiz button is keyboard-focusable', async ({ page }) => {
-    const btn = page.getByRole('button', { name: 'Generate Quiz' });
+  test('Start Session button is keyboard-focusable', async ({ page }) => {
+    const btn = page.getByRole('button', { name: 'Start Session' });
     await btn.focus();
     await expect(btn).toBeFocused();
   });
 
-  test('Generate Quiz button is exposed with an accessible name and is enabled', async ({ page }) => {
-    const btn = page.getByRole('button', { name: 'Generate Quiz' });
+  test('Start Session button is exposed with an accessible name and is enabled', async ({ page }) => {
+    const btn = page.getByRole('button', { name: 'Start Session' });
     await expect(btn).toBeVisible();
     await expect(btn).not.toBeDisabled();
   });
 });
+

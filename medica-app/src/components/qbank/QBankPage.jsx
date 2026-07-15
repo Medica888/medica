@@ -343,6 +343,24 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
     setPage(1)
   }
 
+  // In backend mode, `search` narrows the catalog fetch server-side (useQBankCatalog),
+  // so a no-match search can empty `inventory` itself, not just `filtered` — inventory
+  // size alone can't tell "bank is empty" apart from "this filter combo matched nothing".
+  // Active-filter state is the only discriminator that holds in both local and backend mode.
+  const hasActiveFilters = Boolean(
+    search.trim() || subject !== 'All Subjects' || system !== 'All Systems'
+    || difficulty !== 'All Difficulties' || statusFilter !== 'All',
+  )
+
+  const clearFilters = () => {
+    setSearch('')
+    setSubject('All Subjects')
+    setSystem('All Systems')
+    setDifficulty('All Difficulties')
+    setStatusFilter('All')
+    setPage(1)
+  }
+
   return (
     <div className="qbk-page">
       <div className="qbk-scroll">
@@ -438,8 +456,20 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
           <div className="qbk-loading" role="status">Loading validated questions…</div>
         ) : visible.length === 0 ? (
           <div className="qbk-empty">
-            <strong>No questions match these filters.</strong>
-            <span>Try a broader subject, system, difficulty, or search term.</span>
+            {hasActiveFilters ? (
+              <>
+                <strong>No questions match these filters.</strong>
+                <span>Try a broader subject, system, difficulty, or search term.</span>
+                <button type="button" className="qbk-text-btn qbk-empty-clear" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              </>
+            ) : (
+              <>
+                <strong>No validated questions are available right now.</strong>
+                <span>Check back later, or build a new session to generate fresh questions.</span>
+              </>
+            )}
           </div>
         ) : (
           <div className="qbk-list" aria-label="Validated questions">

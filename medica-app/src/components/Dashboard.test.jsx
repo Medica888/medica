@@ -79,7 +79,7 @@ describe('Dashboard recommended quiz handoff', () => {
     const onNavigate = vi.fn()
     render(<Dashboard onNavigate={onNavigate} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /^Build Custom Block$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Build Custom Set$/i }))
 
     expect(clearLastQuizConfig).toHaveBeenCalledOnce()
     expect(saveLastQuizConfig).not.toHaveBeenCalled()
@@ -96,8 +96,9 @@ describe('Dashboard recommended quiz handoff', () => {
 
     render(<Dashboard onNavigate={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: /^Build First Block$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Start First Session$/i })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Build Custom Block$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Build Custom Set$/i })).toBeNull()
   })
 })
+

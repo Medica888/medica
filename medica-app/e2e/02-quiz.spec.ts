@@ -9,12 +9,12 @@ test.describe('Quiz generation and completion', () => {
 
   test('quiz builder is visible after starting a new block', async ({ page }) => {
     await openQuizBuilder(page);
-    await expect(page.locator('text=Generate Your Personalized')).toBeVisible();
+    await expect(page.locator('text=Build Your Step')).toBeVisible();
   });
 
   test('questions load and are answerable after generation', async ({ page }) => {
     await openQuizBuilder(page);
-    await page.getByRole('button', { name: 'Generate Quiz' }).click();
+    await page.getByRole('button', { name: 'Start Session' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
     await expect(page.locator('.exam-opt')).toHaveCount(4);
     await page.locator('.exam-opt').first().click();
@@ -46,10 +46,11 @@ test.describe('Quiz generation and completion', () => {
 
   test('question count is shown in the exam header', async ({ page }) => {
     await openQuizBuilder(page);
-    await page.getByRole('button', { name: 'Generate Quiz' }).click();
+    await page.getByRole('button', { name: 'Start Session' }).click();
     await page.locator('.exam-opt').first().waitFor({ timeout: 20_000 });
     const total = await getQuestionCount(page);
     const headerText = await page.locator('.exam-hdr-qcount').textContent();
     expect(headerText).toContain(`/ ${total}`);
   });
 });
+

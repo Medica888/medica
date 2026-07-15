@@ -59,6 +59,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
   const isGlobalScope = !config.topic && !config.clinicalFocus
   const showAdaptive  = authState.isAuthenticated && !isStandardized && isGlobalScope
   const adaptive      = useMasteryAdaptivePreview()
+  const startLabel    = isStandardized ? 'Start Step 1 Block' : 'Start Session'
 
   const update = (key, val) => {
     if (isStandardized) return
@@ -143,9 +144,9 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
         <div className="qb-page-hdr">
           <div className="qb-badge">
             <div className="qb-badge-dot" aria-hidden="true" />
-            USMLE Step 1 · Quiz Generator
+            USMLE Step 1 - Session Builder
           </div>
-          <h1 className="qb-title">Generate Your Personalized Step&nbsp;1 Assessment</h1>
+          <h1 className="qb-title">Build Your Step&nbsp;1 Session</h1>
           <p className="qb-subtitle">
             Choose how you want to study, what content to test, and how hard the questions should be.
           </p>
@@ -262,18 +263,18 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                       <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,.3)" strokeWidth="2" />
                       <path d="M8 2a6 6 0 0 1 6 6" stroke="white" strokeWidth="2" strokeLinecap="round" />
                     </svg>
-                    Preparing Quiz…
+                    Preparing session...
                   </>
                 ) : saved ? (
                   <>
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M3 8L6.5 11.5L13 5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Configuration Saved
+                    Session ready
                   </>
                 ) : (
                   <>
-                    Generate Quiz
+                    {startLabel}
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M3 8h10M9.5 4L13 8l-3.5 4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -298,12 +299,12 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                     <circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" strokeWidth="1.3" />
                     <path d="M4 6l1.5 1.5L8 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  Configuration saved. Launching your session…
+                  Starting your session...
                 </div>
               )}
 
               <div className="qb-gen-trust">
-                ✦ Adaptive USMLE-style questions · Built for mastery
+                USMLE-style questions - built for mastery
               </div>
             </div>
           </div>
@@ -349,3 +350,4 @@ function AdaptiveExamPreview({ data }) {
     </div>
   )
 }
+

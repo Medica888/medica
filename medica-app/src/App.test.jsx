@@ -38,7 +38,7 @@ vi.mock('./components/Dashboard', () => ({
   default: ({ onNavigate }) => (
     <div>
       <div>Dashboard Mock</div>
-      <button type="button" onClick={() => onNavigate('create-quiz')}>Build First Block</button>
+      <button type="button" onClick={() => onNavigate('create-quiz')}>Start Step 1 Block</button>
     </div>
   ),
 }))
@@ -573,7 +573,7 @@ describe('App quiz phase routing', () => {
     vi.mocked(persistSession).mockResolvedValue({ backendSynced: false, syncState: 'local-only' })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: startLabel }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
     fireEvent.click(await screen.findByRole('button', { name: finishLabel }))
@@ -597,7 +597,7 @@ describe('App quiz phase routing', () => {
     })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Submit Exam Mock' }))
@@ -636,7 +636,7 @@ describe('App quiz phase routing', () => {
     })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Submit Exam Mock' }))
@@ -666,7 +666,7 @@ describe('App quiz phase routing', () => {
   it('passes exam flow through builder, loading, session, results, review, and back', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     expect(await screen.findByText('Quiz Builder Mock')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Exam Flow' }))
@@ -691,7 +691,7 @@ describe('App quiz phase routing', () => {
   it('passes practice flow through builder, loading, session, results, review, and back', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
 
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
@@ -712,7 +712,7 @@ describe('App quiz phase routing', () => {
   it('passes coach flow through builder, loading, session, results, and new session', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Coach Flow' }))
 
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
@@ -730,7 +730,7 @@ describe('App quiz phase routing', () => {
   it('returns from an active session to the builder on exit', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
 
@@ -749,7 +749,7 @@ describe('App — Phase 2 server-side session reservation', () => {
 
   it('does not attempt a reservation for anonymous/offline sessions', async () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
 
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
@@ -761,7 +761,7 @@ describe('App — Phase 2 server-side session reservation', () => {
     vi.mocked(exams.reserve).mockResolvedValue({ reserved: true, clientSessionId: '00000000-0000-4000-8000-000000000001' })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
 
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
@@ -778,7 +778,7 @@ describe('App — Phase 2 server-side session reservation', () => {
     vi.mocked(exams.reserve).mockResolvedValue({ reserved: true, clientSessionId: '00000000-0000-4000-8000-000000000001' })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
 
@@ -806,7 +806,7 @@ describe('App — Phase 2 server-side session reservation', () => {
     vi.mocked(generateAIQuestions).mockResolvedValueOnce(makeStudentViewQuestions())
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
 
@@ -820,7 +820,7 @@ describe('App — Phase 2 server-side session reservation', () => {
     vi.mocked(generateAIQuestions).mockResolvedValueOnce(makeStudentViewQuestions())
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Exam Flow' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Loading' }))
 
@@ -838,7 +838,7 @@ describe('App — Phase 2 server-side session reservation', () => {
     vi.mocked(exams.reserve).mockRejectedValue(new Error('network error'))
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'Build First Block' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Start Practice Flow' }))
 
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()
@@ -940,3 +940,4 @@ describe('readinessStatus header label', () => {
     expect(vi.mocked(useSessionHistory)).toHaveBeenCalled()
   })
 })
+
