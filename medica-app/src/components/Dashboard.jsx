@@ -1,13 +1,25 @@
 import { useState, useMemo } from 'react'
 import { buildAnalyticsData } from '../lib/analyticsEngine'
 import { getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
-import { DEFAULT_CONFIG, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
+import { DEFAULT_CONFIG, STANDARDIZED_STEP1_BLOCK, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
 import { useSessionHistory } from '../hooks/useSessionHistory'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MODE_LABELS = { practice: 'Practice', coach: 'Coach', exam: 'Exam' }
 const MODE_COLORS = { practice: 'green',    coach: 'blue',  exam: 'orange' }
+
+const STEP1_BLOCK_CONFIG = {
+  ...DEFAULT_CONFIG,
+  mode: 'exam',
+  questionCount: 20,
+  subject: 'All Subjects',
+  system: 'All Systems',
+  topic: '',
+  clinicalFocus: '',
+  difficulty: 'Balanced',
+  blockType: STANDARDIZED_STEP1_BLOCK,
+}
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -168,6 +180,11 @@ export default function Dashboard({ onNavigate }) {
     onNavigate('create-quiz')
   }
 
+  function startStep1Block() {
+    saveLastQuizConfig(STEP1_BLOCK_CONFIG)
+    onNavigate('create-quiz')
+  }
+
   return (
     <div className="db-scroll">
       <div className="db-content">
@@ -222,6 +239,9 @@ export default function Dashboard({ onNavigate }) {
               <button type="button" className="db-btn db-btn--ghost" onClick={startCustomQuiz}>
                 Build Custom Set
               </button>
+              <button type="button" className="db-btn db-btn--ghost" onClick={startStep1Block}>
+                Step 1 Block
+              </button>
             </div>
           </section>
         ) : (
@@ -242,6 +262,9 @@ export default function Dashboard({ onNavigate }) {
               </button>
               <button type="button" className="db-btn db-btn--ghost" onClick={() => onNavigate('qbank')}>
                 Browse QBank
+              </button>
+              <button type="button" className="db-btn db-btn--ghost" onClick={startStep1Block}>
+                Step 1 Block
               </button>
             </div>
           </section>
@@ -288,6 +311,13 @@ export default function Dashboard({ onNavigate }) {
           <section className="db-section">
             <h2 className="db-section-title">Quick Actions</h2>
             <div className="db-qa-grid">
+              <QuickAction
+                icon={<Step1BlockIcon />}
+                label="Step 1 Block"
+                desc="Timed 20-question benchmark"
+                color="blue"
+                onClick={startStep1Block}
+              />
               <QuickAction
                 icon={<QBankIcon />}
                 label="Browse QBank"
@@ -520,6 +550,16 @@ function QBankIcon() {
       <rect x="3" y="4" width="16" height="4" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
       <rect x="3" y="10" width="16" height="4" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
       <rect x="3" y="16" width="10" height="3" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
+function Step1BlockIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <rect x="4" y="4" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 8h6M8 11h6M8 14h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M15.5 4.5v4h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity=".55" />
     </svg>
   )
 }

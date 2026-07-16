@@ -86,7 +86,26 @@ describe('Dashboard recommended quiz handoff', () => {
     expect(onNavigate).toHaveBeenCalledWith('create-quiz')
   })
 
-  it('keeps the first-time dashboard focused on one block-building CTA', () => {
+  it('opens the locked Step 1 block from the dashboard', () => {
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^Step 1 Block$/i })[0])
+
+    expect(saveLastQuizConfig).toHaveBeenCalledOnce()
+    expect(saveLastQuizConfig.mock.calls[0][0]).toMatchObject({
+      mode: 'exam',
+      questionCount: 20,
+      subject: 'All Subjects',
+      system: 'All Systems',
+      difficulty: 'Balanced',
+      blockType: 'standardized-step1-block-2026',
+    })
+    expect(clearLastQuizConfig).not.toHaveBeenCalled()
+    expect(onNavigate).toHaveBeenCalledWith('create-quiz')
+  })
+
+  it('keeps the first-time dashboard focused while offering QBank and Step 1 block paths', () => {
     buildAnalyticsData.mockReturnValue({
       empty: true,
       overview: {},
@@ -97,8 +116,9 @@ describe('Dashboard recommended quiz handoff', () => {
     render(<Dashboard onNavigate={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: /^Start First Session$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Browse QBank$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Step 1 Block$/i })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Quick Actions' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Build Custom Set$/i })).toBeNull()
   })
 })
-
