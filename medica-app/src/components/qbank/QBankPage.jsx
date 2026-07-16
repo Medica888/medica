@@ -15,6 +15,7 @@ import {
 } from '../../lib/qbankProgress'
 import { useQBankCatalog } from '../../hooks/useQBankCatalog'
 import { PUBLIC_DIFFICULTIES, getDifficultyDisplayLabel, getPublicDifficultyId } from '../../lib/quizTypes'
+import { normalizeOptions } from '../../lib/answerNormalize'
 
 const PAGE_SIZE = 20
 const MAX_SELECTION = 40
@@ -578,7 +579,7 @@ export default function QBankPage({ onStartSelected, sessions = [] }) {
             </div>
             <p className="qbk-preview-stem">{preview.stem}</p>
             <div className="qbk-preview-options" aria-label="Answer options">
-              {(preview.options || []).map(option => (
+              {normalizeOptions(preview.options).map(option => (
                 <div key={option.letter} className="qbk-preview-option">
                   <span>{option.letter}</span>
                   <p>{option.text}</p>

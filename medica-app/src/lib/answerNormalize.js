@@ -14,13 +14,35 @@ export function normalizeAnswerLetter(value) {
 }
 
 /**
- * Normalizes mixed option shapes into [{ letter, text }].
+ * Guarantees every option has a unique display letter. Well-formed data always
+ * already is unique, so this is a no-op in the common case. Malformed/imported
+ * data (e.g. a corrupted authored row or a raw AI-generation body that skipped
+ * the server's per-session shuffle/relabel step) can carry two options tagged
+ * with the same letter — every rendering component keys its option list by
+ * `opt.letter`, so an undetected duplicate both breaks React's key uniqueness
+ * and, worse, would show two answer choices labeled identically on screen.
+ * Relabeling positionally (A, B, C, ... in original order) the moment a
+ * duplicate is found keeps every rendered letter both unique and visible.
+ */
+function dedupeLetters(parsedOptions) {
+  const seen = new Set()
+  let hasDuplicate = false
+  for (const opt of parsedOptions) {
+    if (seen.has(opt.letter)) { hasDuplicate = true; break }
+    seen.add(opt.letter)
+  }
+  if (!hasDuplicate) return parsedOptions
+  return parsedOptions.slice(0, LETTERS.length).map((opt, i) => ({ letter: LETTERS[i], text: opt.text }))
+}
+
+/**
+ * Normalizes mixed option shapes into [{ letter, text }], with unique letters.
  * Supports: { letter, text }, { id, text } with string or numeric id, and "A. text" strings.
  * Returns [] if options are absent or malformed; never throws.
  */
 export function normalizeOptions(options) {
   if (!Array.isArray(options)) return []
-  return options.flatMap(opt => {
+  const parsed = options.flatMap(opt => {
     if (opt === null || opt === undefined) return []
     if (typeof opt === 'string') {
       const m = opt.match(/^([A-La-l])[.\s]\s*(.+)/)
@@ -36,6 +58,7 @@ export function normalizeOptions(options) {
     const text = (opt.text ?? opt.label ?? '').toString()
     return LETTERS.includes(letter) ? [{ letter, text }] : []
   }).filter(o => LETTERS.includes(o.letter))
+  return dedupeLetters(parsed)
 }
 
 /**

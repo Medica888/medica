@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { saveQuizSession } from '../../lib/storage'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
-import { getQuestionCorrectLetter, normalizeAnswerLetter } from '../../lib/answerNormalize'
+import { getQuestionCorrectLetter, normalizeAnswerLetter, normalizeOptions } from '../../lib/answerNormalize'
 import { isStandardized40QuestionBlock } from '../../lib/quizTypes'
 import QuestionNavigator from './QuestionNavigator'
 import HighlightedText from './HighlightedText'
@@ -105,6 +105,12 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
   const isExam   = mode === 'exam'
   const totalQ   = questions?.length ?? 0
   const question = questions?.[currentIndex] ?? questions?.[0]
+  // Exam-mode student-view questions come straight from the server (see App.jsx's
+  // buildAISession) and are never re-shuffled client-side, so unlike every other
+  // question-rendering component here, this is the only place that hasn't already
+  // gone through normalizeOptions() - malformed/duplicate-lettered options would
+  // otherwise reach the key={opt.letter} render below unguarded.
+  const options  = normalizeOptions(question?.options)
   const sourceLabel         = getSessionSourceLabel(initialSession)
   const fallbackReasonLabel = formatFallbackReason(initialSession.config?.fallbackReason)
   const medicalReviewLabel  = getMedicalReviewLabel(initialSession.generationTelemetry)
@@ -360,7 +366,7 @@ export default function QuizSession({ session: initialSession, onExit, onComplet
 
             {/* Answer options */}
             <div className="exam-options" role="group" aria-label="Answer choices">
-              {question.options.map(opt => {
+              {options.map(opt => {
                 let state = ''
                 if (answered) {
                   if (!examSubmitted) {

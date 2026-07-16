@@ -176,6 +176,44 @@ describe('QBankPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(previewButtons[0]).toHaveFocus()
   })
+
+  // ─── Duplicate option letters (malformed/imported data) ──────────────────
+  // The preview modal renders raw catalog options with zero shuffle/relabel
+  // step (unlike the session-taking components, which all funnel through
+  // normalizeOptions) - a malformed duplicate-lettered question must still
+  // render with unique letters and never trigger a duplicate React key warning.
+
+  it('normalizes malformed duplicate-lettered options in the preview modal without duplicate-key warnings', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.mocked(getBrowsableQuestionBank).mockReturnValue([
+      makeQuestion('q-malformed', {
+        options: [
+          { letter: 'A', text: 'First option (malformed duplicate A)' },
+          { letter: 'A', text: 'Second option (malformed duplicate A)' },
+          { letter: 'B', text: 'Beta' },
+        ],
+      }),
+    ])
+
+    render(<QBankPage onStartSelected={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    expect(screen.getByText('First option (malformed duplicate A)')).toBeInTheDocument()
+    expect(screen.getByText('Second option (malformed duplicate A)')).toBeInTheDocument()
+    expect(screen.getByText('Beta')).toBeInTheDocument()
+
+    const letters = [...document.querySelectorAll('.qbk-preview-option span')].map(el => el.textContent)
+    expect(letters).toEqual(['A', 'B', 'C'])
+    expect(new Set(letters).size).toBe(letters.length)
+
+    const duplicateKeyWarning = consoleError.mock.calls.some(call =>
+      String(call[0] ?? '').includes('same key'),
+    )
+    expect(duplicateKeyWarning).toBe(false)
+
+    consoleError.mockRestore()
+  })
 })
 
 describe('QBankPage — progress filter strip', () => {

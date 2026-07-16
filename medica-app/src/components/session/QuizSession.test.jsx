@@ -224,6 +224,56 @@ describe('QuizSession exam answer display', () => {
   })
 })
 
+// ── Duplicate option letters (malformed/imported data) ────────────────────────
+// Exam-mode student-view questions come straight from the server and skip the
+// client-side shuffle/relabel step (see App.jsx's buildAISession) - this is the
+// one option-rendering path in the app that previously had zero normalization
+// before keying by opt.letter.
+
+describe('QuizSession — duplicate option letters (malformed data)', () => {
+  it('relabels malformed duplicate-lettered options uniquely and never warns about duplicate React keys', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const malformedSession = {
+      id: 'malformed-session',
+      mode: 'exam',
+      answers: {},
+      currentIndex: 0,
+      questions: [{
+        id: 'q-malformed',
+        subject: 'Pathology', system: 'Cardiovascular', difficulty: 'Balanced',
+        stem: 'A malformed question with two options both labeled A.',
+        options: [
+          { letter: 'A', text: 'First option (malformed duplicate A)' },
+          { letter: 'A', text: 'Second option (malformed duplicate A)' },
+          { letter: 'B', text: 'Beta' },
+        ],
+        correct: 'B',
+      }],
+    }
+
+    const { container } = render(
+      <QuizSession session={malformedSession} onExit={vi.fn()} onComplete={vi.fn()} />,
+    )
+
+    expect(screen.getByText('First option (malformed duplicate A)')).toBeInTheDocument()
+    expect(screen.getByText('Second option (malformed duplicate A)')).toBeInTheDocument()
+    expect(screen.getByText('Beta')).toBeInTheDocument()
+
+    // Relabeled positionally: A, B, C - no two rendered choices share a letter.
+    const letters = [...container.querySelectorAll('.exam-opt-letter')].map(el => el.textContent)
+    expect(letters).toEqual(['A', 'B', 'C'])
+    expect(new Set(letters).size).toBe(letters.length)
+
+    const duplicateKeyWarning = consoleError.mock.calls.some(call =>
+      String(call[0] ?? '').includes('same key'),
+    )
+    expect(duplicateKeyWarning).toBe(false)
+
+    consoleError.mockRestore()
+  })
+})
+
 // ── Question Navigator — exam mode wiring ─────────────────────────────────────
 
 describe('QuizSession — Question Navigator (exam mode)', () => {
