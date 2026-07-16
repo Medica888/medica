@@ -32,6 +32,15 @@ const LOCKED_CONFIG = {
   blockType:     STANDARDIZED_STEP1_BLOCK,
 }
 
+// What a new user needs to know before pressing Start, since the timed / no-explanations-
+// until-submit distinction otherwise only lives in the Live Preview panel, away from the
+// button they're about to click.
+const START_HINT = {
+  exam:     'Timed - explanations appear after you submit.',
+  practice: 'Untimed - feedback after every question.',
+  coach:    'Untimed - deep teaching after every question.',
+}
+
 /** @param {{ onStart: (config: import('../../lib/quizTypes').QuizConfig) => void, generationError?: string|null, initialMode?: 'exam'|'practice'|'coach'|null }} props */
 export default function QuizBuilder({ onStart, generationError = null, initialMode = null }) {
   const authState = useAuthState()
@@ -178,7 +187,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                 aria-pressed={isStandardized}
                 onClick={() => setSessionFormat('current-step1')}
               >
-                <span className="qb-format-title">Current Step 1 Block</span>
+                <span className="qb-format-title">Step 1 Block</span>
                 <span className="qb-format-desc">20 questions, 30 minutes, blueprint-balanced.</span>
               </button>
             </div>
@@ -190,9 +199,9 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                   <path d="M5 6V4.5a2 2 0 0 1 4 0V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                 </svg>
                 <div>
-                  <div className="qb-locked-title">Current Step 1 Block</div>
+                  <div className="qb-locked-title">Step 1 Block</div>
                   <div className="qb-locked-desc">
-                    Uses the current 20-question format and a representative Step 1 content blueprint.
+                    Uses the 20-question format and a representative Step 1 content blueprint.
                   </div>
                   <div className="qb-locked-pills">
                     <span className="qb-locked-pill">Exam Mode</span>
@@ -304,7 +313,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
               )}
 
               <div className="qb-gen-trust">
-                USMLE-style questions - built for mastery
+                {START_HINT[config.mode] || START_HINT.exam}
               </div>
             </div>
           </div>

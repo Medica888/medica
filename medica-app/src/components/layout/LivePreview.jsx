@@ -15,7 +15,7 @@ export default function LivePreview({ config }) {
 
   const modeLabel = { exam: 'Exam', practice: 'Practice', coach: 'Coach' }[mode]
   const timeLabel = standardized ? '30 min' : (timed ? `${questionCount} min` : 'No time limit')
-  const formatLabel = standardized ? 'Current Step 1 Block' : 'Custom Set'
+  const formatLabel = standardized ? 'Step 1 Block' : 'Custom Set'
   const noteText  = (MODE_NOTES[mode] ?? MODE_NOTES.exam)(questionCount)
 
   return (

@@ -23,7 +23,7 @@ const MODE_ICONS = {
 export default function ModeSelector({ value, onChange, disabled = false }) {
   const selected = MODES.find(m => m.id === value)
   const hint = disabled
-    ? 'Current Step 1 Block uses Exam mode.'
+    ? 'Step 1 Block uses Exam mode.'
     : 'Choose the learning experience first. Difficulty only controls how hard the questions are.'
 
   return (
