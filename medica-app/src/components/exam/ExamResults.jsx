@@ -107,7 +107,7 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
             {/* Instability signals */}
             {weakAreas.length > 0 && (
               <div className="cr-panel">
-                <div className="cr-panel-label">INSTABILITY SIGNALS</div>
+                <div className="cr-panel-label">WEAK AREAS</div>
                 <div className="cr-wsd">
                   {weakAreas.map((w, i) => {
                     const sev = w.percentage < 50 ? 'priority' : w.percentage < 70 ? 'focus' : 'reinforced'

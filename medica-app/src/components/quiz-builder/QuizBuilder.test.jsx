@@ -100,10 +100,10 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
 
     expect(screen.getByRole('button', { name: /Custom Set/ })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: /^Step 1 Block/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Uses the 20-question format and a representative Step 1 content blueprint.')).toBeInTheDocument()
+    expect(screen.getByText('Uses the 20-question format and a balanced mix of Step 1 content areas.')).toBeInTheDocument()
     expect(screen.getByText('20 Questions')).toBeInTheDocument()
     expect(screen.getByText('30 Minutes')).toBeInTheDocument()
-    expect(screen.getByText('Blueprint-balanced')).toBeInTheDocument()
+    expect(screen.getByText('Balanced Content Areas')).toBeInTheDocument()
     expect(screen.getByText('Step 1 Block uses Exam mode.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Exam' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Practice' })).toBeDisabled()

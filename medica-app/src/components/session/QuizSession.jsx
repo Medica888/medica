@@ -41,11 +41,11 @@ function formatFallbackReason(reason) {
 function formatStopReason(reason) {
   const labels = {
     requested_count_reached:   'target reached',
-    max_candidates_reached:    'candidate limit reached',
-    max_refill_rounds_reached: 'round limit reached',
-    generation_error:          'generation stopped',
-    rate_limited:              'rate limited',
-    unknown:                   'unknown stop',
+    max_candidates_reached:    'question limit reached',
+    max_refill_rounds_reached: 'generation limit reached',
+    generation_error:          'generation issue',
+    rate_limited:              'temporarily limited',
+    unknown:                   'stopped early',
   }
   return labels[reason] || null
 }

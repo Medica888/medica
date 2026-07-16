@@ -188,7 +188,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                 onClick={() => setSessionFormat('current-step1')}
               >
                 <span className="qb-format-title">Step 1 Block</span>
-                <span className="qb-format-desc">20 questions, 30 minutes, blueprint-balanced.</span>
+                <span className="qb-format-desc">20 questions, 30 minutes, balanced across Step 1 content areas.</span>
               </button>
             </div>
 
@@ -201,7 +201,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                 <div>
                   <div className="qb-locked-title">Step 1 Block</div>
                   <div className="qb-locked-desc">
-                    Uses the 20-question format and a representative Step 1 content blueprint.
+                    Uses the 20-question format and a balanced mix of Step 1 content areas.
                   </div>
                   <div className="qb-locked-pills">
                     <span className="qb-locked-pill">Exam Mode</span>
@@ -209,7 +209,7 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                     <span className="qb-locked-pill">30 Minutes</span>
                     <span className="qb-locked-pill">All Subjects</span>
                     <span className="qb-locked-pill">All Systems</span>
-                    <span className="qb-locked-pill">Blueprint-balanced</span>
+                    <span className="qb-locked-pill">Balanced Content Areas</span>
                   </div>
                 </div>
               </div>

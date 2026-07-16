@@ -305,12 +305,12 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
             {/* Mistake Intelligence */}
             <div className="an-intel-card an-mistake-card">
-              <div className="an-intel-card-title">Mistake Intelligence</div>
+              <div className="an-intel-card-title">Mistake Patterns</div>
 
               {/* Primary failure mode */}
               {mistakeDiagnosis?.topCategory && (
                 <div className="an-mistake-primary">
-                  <div className="an-mistake-primary-label">PRIMARY FAILURE MODE</div>
+                  <div className="an-mistake-primary-label">TOP MISTAKE PATTERN</div>
                   <div className="an-mistake-primary-name">{mistakeDiagnosis.topCategory}</div>
                   {mistakeDiagnosis.topCategoryCount > 0 && (
                     <p className="an-mistake-primary-desc">
@@ -323,7 +323,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
               {/* Mistake clusters */}
               {repeatedMistakes.length > 0 && (
                 <div className="an-mistake-clusters">
-                  <div className="an-mistake-cluster-label">MISTAKE CLUSTERS</div>
+                  <div className="an-mistake-cluster-label">REPEATED MISTAKES</div>
                   {repeatedMistakes.slice(0, 3).map((m, i) => (
                     <div key={i} className="an-mistake-cluster-row">
                       <span className="an-mistake-cluster-name">
@@ -363,7 +363,7 @@ export default function AnalyticsDashboard({ onNavigate }) {
 
         {/* ── Backend-powered panels — all-time data, not range-filtered ── */}
         <p className="an-backend-note" data-testid="backend-all-time-note">
-          Learning Progress, Concept Mastery, and Study Prescription reflect all-time data from the backend — not affected by the time filter above.
+          Learning Progress, Concept Mastery, and Study Prescription reflect all-time data — not affected by the time filter above.
         </p>
 
         {/* ── Progress tracking (backend-powered; needs ≥1 snapshot to show) */}
@@ -404,7 +404,7 @@ function ReportQualityCard({ analytics }) {
       <div className="an-report-head">
         <div>
           <div className="an-intel-card-title">Question Reports</div>
-          <div className="an-intel-card-sub">Local quality feedback</div>
+          <div className="an-intel-card-sub">Feedback from your reports</div>
         </div>
         <div className="an-report-total">{analytics.total}</div>
       </div>

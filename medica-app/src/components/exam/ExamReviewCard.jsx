@@ -85,7 +85,7 @@ export default function ExamReviewCard({ question, userAnswer, questionNumber, i
           )}
           {question.weakSpotCategory && (
             <div className="erv-meta-item">
-              <span className="erv-meta-label">Instability Signal</span>
+              <span className="erv-meta-label">Weak Area</span>
               <span className="erv-meta-val">{question.weakSpotCategory}</span>
             </div>
           )}
