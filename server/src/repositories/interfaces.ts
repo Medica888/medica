@@ -5,6 +5,7 @@ import type {
   AuthTokenType,
   ExamSession,
   ExamSessionReservation,
+  ExamSessionReservationSource,
   Question,
   QuestionAttempt,
   Flashcard,
@@ -72,7 +73,7 @@ export interface IExamSessionsRepository {
 export interface IExamSessionReservationsRepository {
   /** Idempotent by (userId, clientSessionId) — callers should check findByClientSessionId first. */
   create(
-    reservation: { userId: string; clientSessionId: string; questions: Question[] },
+    reservation: { userId: string; clientSessionId: string; questions: Question[]; source: ExamSessionReservationSource },
     tx?: unknown,
   ): Promise<ExamSessionReservation>;
   findByClientSessionId(userId: string, clientSessionId: string): Promise<ExamSessionReservation | null>;

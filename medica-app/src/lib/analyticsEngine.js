@@ -1,6 +1,7 @@
 import { normalizeTopicForAnalytics } from './topicNormalizer.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { normalizeSubjectLabel, normalizeSystemLabel } from './usmleTaxonomy.js'
+import { isSessionTrustedForAnalytics } from './sessionTrust.js'
 
 export { getRangeStartDate }
 
@@ -88,23 +89,35 @@ export function buildAnalyticsData(storageData, range = 'all', now = new Date())
     return { empty: true, rangeEmpty: range !== 'all' && allSessions.length > 0 }
   }
 
-  const overview = _computeOverview(sessions)
-  const subjectBreakdown = _aggregateSubjects(sessions)
-  const systemBreakdown = _aggregateSystems(sessions)
-  const usmleContentBreakdown = _aggregateNamedBreakdown(sessions, 'usmleContentBreakdown')
-  const physicianTaskBreakdown = _aggregateNamedBreakdown(sessions, 'physicianTaskBreakdown')
-  const topicBreakdown = _aggregateTopics(sessions)
+  // Trust boundary (Phase 1): personal history (`sessions`, returned below)
+  // may include every session regardless of integrity — it is never filtered,
+  // hidden, or deleted. Trusted performance calculations (Medica Score,
+  // readiness, weak areas, study priorities, accuracy trends, and everything
+  // derived from them) must use ONLY sessions the centralized trust policy
+  // permits — a session with no integrityStatus (never synced to the
+  // backend) or an unverified_local/legacy_unverified status must not
+  // silently move these numbers. See sessionTrust.js.
+  const trustedSessions = sessions.filter(isSessionTrustedForAnalytics)
+
+  const overview = _computeOverview(trustedSessions)
+  const subjectBreakdown = _aggregateSubjects(trustedSessions)
+  const systemBreakdown = _aggregateSystems(trustedSessions)
+  const usmleContentBreakdown = _aggregateNamedBreakdown(trustedSessions, 'usmleContentBreakdown')
+  const physicianTaskBreakdown = _aggregateNamedBreakdown(trustedSessions, 'physicianTaskBreakdown')
+  const topicBreakdown = _aggregateTopics(trustedSessions)
   const weaknesses = _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown, usmleContentBreakdown, physicianTaskBreakdown)
-  const mistakeDiagnosis = _diagnoseMistakes(sessions)
+  const mistakeDiagnosis = _diagnoseMistakes(trustedSessions)
   const studyPrescription = _prescribeStudy(weaknesses, overview)
-  const sessionComparison = _compareSessions(sessions)
-  const trends = _computeTrends(sessions)
-  const flashcardSummary = _buildFlashcardSummary(sessions)
-  const repeatedMistakes = _detectRepeatedMistakes(sessions)
-  const repeatedPatterns = _detectRepeatedPatterns(sessions)
-  const improvingTopics = _detectImprovingTopics(sessions)
+  const sessionComparison = _compareSessions(trustedSessions)
+  const trends = _computeTrends(trustedSessions)
+  const flashcardSummary = _buildFlashcardSummary(trustedSessions)
+  const repeatedMistakes = _detectRepeatedMistakes(trustedSessions)
+  const repeatedPatterns = _detectRepeatedPatterns(trustedSessions)
+  const improvingTopics = _detectImprovingTopics(trustedSessions)
   const flashcardsData = _buildFlashcardsData(flashcards)
   const flashcardMastery = _buildFlashcardMastery(flashcardReviewEvents)
+  // Study streak is engagement (did the student show up today), not a
+  // performance calculation — computed from the full, unfiltered history.
   const studyStreak = _computeStreak(sessions)
   const nextSession = _recommendNextSession(weaknesses, overview, topicBreakdown, flashcardMastery.weakConcepts)
 

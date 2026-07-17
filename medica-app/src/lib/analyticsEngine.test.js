@@ -17,6 +17,11 @@ function makeSession(daysAgo, overrides = {}) {
     subjectBreakdown: [{ name: 'Pathology', correct: 7, total: 10, percentage: 70 }],
     systemBreakdown:  [{ name: 'Cardiovascular', correct: 7, total: 10, percentage: 70 }],
     missedQuestions:  [],
+    // Trust boundary (Phase 1): trusted analytics only aggregate sessions the
+    // centralized policy permits. These fixtures represent ordinary, already-
+    // synced sessions, so they default to a trusted classification — trust
+    // filtering itself has its own dedicated describe block below.
+    integrityStatus: 'client_selected_verified',
     ...overrides,
   }
 }
@@ -45,6 +50,7 @@ describe('buildAnalyticsData - USMLE taxonomy analytics', () => {
           { name: 'Patient Care: Pharmacotherapy', correct: 1, total: 3, percentage: 33 },
         ],
         missedQuestions: [],
+        integrityStatus: 'client_selected_verified',
       },
     ] })
 
@@ -434,5 +440,91 @@ describe('getRangeStartDate', () => {
     const start = getRangeStartDate('month', NOW)
     const diff = (NOW.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
     expect(diff).toBeCloseTo(30, 5)
+  })
+})
+
+// ── Trust filtering (Phase 1) — Medica Score/readiness/weak areas/trends ─────
+
+describe('buildAnalyticsData — trusted analytics filtering', () => {
+  it('includes a server_issued session in trusted analytics', () => {
+    const data = buildAnalyticsData({ sessions: [makeSession(0, { integrityStatus: 'server_issued', medicaScore: 90 })] }, 'all', NOW)
+    expect(data.empty).toBe(false)
+    expect(data.overview.avgMedicaScore).toBe(90)
+  })
+
+  it('includes a client_selected_verified session in trusted analytics', () => {
+    const data = buildAnalyticsData({ sessions: [makeSession(0, { integrityStatus: 'client_selected_verified', medicaScore: 70 })] }, 'all', NOW)
+    expect(data.empty).toBe(false)
+    expect(data.overview.avgMedicaScore).toBe(70)
+  })
+
+  it('excludes an unverified_local session from Medica Score and readiness', () => {
+    const data = buildAnalyticsData({
+      sessions: [makeSession(0, { integrityStatus: 'unverified_local', medicaScore: 99, readinessLabel: 'Strong' })],
+    }, 'all', NOW)
+    // Personal history still shows the session; trusted overview is computed from nothing.
+    expect(data.empty).toBe(false)
+    expect(data.sessions).toHaveLength(1)
+    expect(data.overview.avgMedicaScore).toBe(0)
+    expect(data.overview.latestReadiness).toBe('N/A')
+  })
+
+  it('excludes a legacy_unverified session from new trusted calculations', () => {
+    const data = buildAnalyticsData({
+      sessions: [makeSession(0, { integrityStatus: 'legacy_unverified', medicaScore: 99 })],
+    }, 'all', NOW)
+    expect(data.overview.avgMedicaScore).toBe(0)
+  })
+
+  it('a session with no integrityStatus at all (never synced) is excluded, the same as legacy_unverified', () => {
+    // eslint-disable-next-line no-unused-vars
+    const { integrityStatus: _drop, ...noStatus } = makeSession(0, { medicaScore: 99 })
+    const data = buildAnalyticsData({ sessions: [noStatus] }, 'all', NOW)
+    expect(data.overview.avgMedicaScore).toBe(0)
+  })
+
+  it('personal history (the returned `sessions` field) still includes all four classifications — never hidden or deleted', () => {
+    const data = buildAnalyticsData({
+      sessions: [
+        makeSession(0, { integrityStatus: 'server_issued' }),
+        makeSession(1, { integrityStatus: 'client_selected_verified' }),
+        makeSession(2, { integrityStatus: 'unverified_local' }),
+        makeSession(3, { integrityStatus: 'legacy_unverified' }),
+      ],
+    }, 'all', NOW)
+    expect(data.sessions).toHaveLength(4)
+  })
+
+  it('mixing trusted and untrusted sessions produces the SAME trusted metric as using only the trusted sessions', () => {
+    const trustedOnly = buildAnalyticsData({
+      sessions: [
+        makeSession(0, { integrityStatus: 'server_issued', medicaScore: 60 }),
+        makeSession(1, { integrityStatus: 'client_selected_verified', medicaScore: 80 }),
+      ],
+    }, 'all', NOW)
+    const mixed = buildAnalyticsData({
+      sessions: [
+        makeSession(0, { integrityStatus: 'server_issued', medicaScore: 60 }),
+        makeSession(1, { integrityStatus: 'client_selected_verified', medicaScore: 80 }),
+        makeSession(2, { integrityStatus: 'unverified_local', medicaScore: 1 }),
+        makeSession(3, { integrityStatus: 'legacy_unverified', medicaScore: 100 }),
+      ],
+    }, 'all', NOW)
+
+    expect(mixed.overview.avgMedicaScore).toBe(trustedOnly.overview.avgMedicaScore)
+    // Personal history diverges (mixed has more sessions) — only the trusted metric must match.
+    expect(mixed.sessions.length).not.toBe(trustedOnly.sessions.length)
+  })
+
+  it('the frontend cannot elevate analytics eligibility by changing mode — eligibility is governed by integrityStatus alone', () => {
+    const examVersion = buildAnalyticsData({
+      sessions: [makeSession(0, { mode: 'exam', integrityStatus: 'unverified_local', medicaScore: 95 })],
+    }, 'all', NOW)
+    const practiceVersion = buildAnalyticsData({
+      sessions: [makeSession(0, { mode: 'practice', integrityStatus: 'unverified_local', medicaScore: 95 })],
+    }, 'all', NOW)
+
+    expect(examVersion.overview.avgMedicaScore).toBe(0)
+    expect(practiceVersion.overview.avgMedicaScore).toBe(0)
   })
 })

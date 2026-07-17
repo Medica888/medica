@@ -57,8 +57,24 @@ const sampleSession = {
   difficulty: 'balanced',
 };
 
-beforeEach(() => {
-  setRepositories(createInMemoryRepositories());
+let repos: ReturnType<typeof createInMemoryRepositories>;
+
+beforeEach(async () => {
+  repos = createInMemoryRepositories();
+  setRepositories(repos);
+
+  // Trust boundary (Phase 1): analytics now only aggregates sessions the
+  // centralized trust policy permits (server_issued / client_selected_verified).
+  // Seed q1/q2 as authoritative bank matches so sampleSession classifies as
+  // client_selected_verified rather than unverified_local — these tests are
+  // about the analytics aggregation math, not integrity classification
+  // (which has its own dedicated coverage in ExamService.test.ts).
+  for (const q of sampleSession.questions) {
+    await repos.questions.upsertByExternalId(q.id, {
+      subject: q.subject, system: q.system, source: 'authored', bankStatus: 'approved',
+      body: { id: q.id, stem: q.text, options: q.options, correct: q.correct_answer },
+    });
+  }
 });
 
 describe('GET /api/analytics', () => {

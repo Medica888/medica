@@ -5,6 +5,7 @@ import type {
   AnalyticsSnapshot,
 } from '../types/index.js';
 import type { IAnalyticsRepository, IExamSessionsRepository } from '../repositories/interfaces.js';
+import { getSessionTrustCapabilities } from './sessionIntegrity.js';
 
 // ── USMLE Step 1 discipline yield weights ──────────────────────────────────
 const USMLE_STEP1_YIELD_MAP: Record<string, { weight: number; reason: string }> = {
@@ -210,9 +211,23 @@ export class AnalyticsService {
     private sessionsRepo: IExamSessionsRepository,
   ) {}
 
+  /**
+   * Fetches a user's sessions and filters to only those the centralized trust
+   * policy (sessionIntegrity.ts) permits to feed trusted analytics — Medica
+   * Score, readiness, weak areas, study priorities, and accuracy trends must
+   * never be silently influenced by unverified_local or legacy_unverified
+   * content. This does NOT affect personal history: ExamService.getSessions()
+   * (a separate, unfiltered method) remains the source for session-list views,
+   * so no session is hidden or deleted — only excluded from these specific
+   * canonical calculations.
+   */
+  private async getTrustedSessions(userId: string, limit: number): Promise<ExamSession[]> {
+    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit });
+    return result.data.filter((s) => getSessionTrustCapabilities(s.integrity_status).includedInTrustedAnalytics);
+  }
+
   async getAnalytics(userId: string): Promise<Record<string, unknown>> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = result.data;
+    const sessions = await this.getTrustedSessions(userId, 50);
 
     if (sessions.length === 0) return { empty: true };
 
@@ -248,8 +263,7 @@ export class AnalyticsService {
   }
 
   async saveSnapshot(userId: string): Promise<void> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = result.data;
+    const sessions = await this.getTrustedSessions(userId, 50);
     if (sessions.length === 0) return;
 
     const subjects = aggregateBreakdown(sessions, 'subject_breakdown');
@@ -271,8 +285,8 @@ export class AnalyticsService {
   }
 
   async getBenchmark(userId: string): Promise<Record<string, unknown>> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 100 });
-    const examSessions = result.data.filter(
+    const trusted = await this.getTrustedSessions(userId, 100);
+    const examSessions = trusted.filter(
       (s) => s.mode === 'exam' && Object.keys(s.answers).length === 40,
     );
 
@@ -310,8 +324,8 @@ export class AnalyticsService {
   }
 
   async getProgressGains(userId: string): Promise<unknown[]> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = [...result.data].reverse(); // chronological
+    const trusted = await this.getTrustedSessions(userId, 50);
+    const sessions = [...trusted].reverse(); // chronological
     if (sessions.length < 2) return [];
 
     return sessions.slice(1).map((sess, i) => {

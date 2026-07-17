@@ -24,6 +24,28 @@ export interface AuthToken {
   created_at: Date;
 }
 
+/**
+ * Provenance/trust classification for a persisted session's question-and-answer
+ * content, independent of score:
+ *  - server_issued: the server itself selected/generated the exact question set
+ *    (reservation created via ExamService.reserveGeneratedExamSnapshot).
+ *  - client_selected_verified: the client chose the question IDs, but every one
+ *    resolved against the authoritative questions table (either a
+ *    reserveSession-created reservation, or a full authoritative-ID match at
+ *    completion time with no prior reservation).
+ *  - unverified_local: no reservation, and at least one submitted question ID
+ *    did not resolve authoritatively — the client's own question body was
+ *    trusted for that content.
+ *  - legacy_unverified: default for every row that predates this column
+ *    (backfilled by migration 1750100000001). Never inferred from score or
+ *    content alone — historical rows are not reinterpreted as verified.
+ */
+export type SessionIntegrityStatus =
+  | 'server_issued'
+  | 'client_selected_verified'
+  | 'unverified_local'
+  | 'legacy_unverified';
+
 export interface ExamSession {
   id: string;
   user_id: string;
@@ -40,7 +62,11 @@ export interface ExamSession {
   completed_at: Date;
   duration_seconds: number;
   difficulty: string;
+  integrity_status: SessionIntegrityStatus;
 }
+
+/** Distinguishes who selected the reserved question set — see SessionIntegrityStatus. */
+export type ExamSessionReservationSource = 'server_issued' | 'client_selected';
 
 /**
  * Immutable server-issued snapshot of the exact question set reserved for a
@@ -54,6 +80,7 @@ export interface ExamSessionReservation {
   user_id: string;
   client_session_id: string;
   questions: Question[];
+  source: ExamSessionReservationSource;
   created_at: Date;
 }
 

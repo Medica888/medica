@@ -1,4 +1,5 @@
 import { isQuestionAnswered, isQuestionCorrect } from '../../lib/examReviewHelpers'
+import { getSessionTrustCapabilities } from '../../lib/sessionTrust'
 
 const READINESS_COLOR = {
   'Strong':           'var(--status-stable)',
@@ -26,8 +27,14 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
   const {
     total, correct, percentage,
     subjectBreakdown, systemBreakdown,
-    weakAreas, medicaScore, readinessLabel, recommendation,
+    weakAreas, medicaScore, readinessLabel, recommendation, integrityStatus,
   } = results
+
+  // integrityStatus is absent until the backend sync round-trip resolves (see
+  // App.jsx's handleExamComplete) — treat "not yet known" as neutral rather
+  // than flashing an unverified warning that then disappears once sync
+  // succeeds. Once a status IS present, the shared trust policy decides.
+  const isUnverified = integrityStatus != null && getSessionTrustCapabilities(integrityStatus).displayIntegrityWarning
 
   const answers   = session?.answers ?? {}
   const questions = session?.questions ?? []
@@ -90,6 +97,11 @@ export default function ExamResults({ results, session, onReview, onNewQuiz, onB
         {total < 10 && (
           <p className="cr-sample-note" role="note">
             Early snapshot from {total} question{total !== 1 ? 's' : ''}. Use this session for review, not as a stable readiness estimate.
+          </p>
+        )}
+        {isUnverified && (
+          <p className="cr-sample-note" role="note">
+            This session's questions couldn't be fully verified, so it won't count toward your mastery tracking — you can still review it below.
           </p>
         )}
 

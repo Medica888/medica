@@ -5,6 +5,8 @@ import { PgUsersRepository } from '../repositories/pg/UsersRepository.js';
 import { PgExamSessionsRepository } from '../repositories/pg/ExamSessionsRepository.js';
 import { PgQuestionAttemptsRepository } from '../repositories/pg/QuestionAttemptsRepository.js';
 import { PgExamSessionReservationsRepository } from '../repositories/pg/ExamSessionReservationsRepository.js';
+import { PgConceptsRepository } from '../repositories/pg/ConceptsRepository.js';
+import { PgMasterySnapshotsRepository } from '../repositories/pg/MasterySnapshotsRepository.js';
 import { questionFromAuthoritativeBody } from '../services/ExamService.js';
 import { shuffleQuestionForExam, toStudentExamQuestion } from '../lib/examStudentView.js';
 import { createTestPool, truncateAll, makeUser } from './helpers.js';
@@ -26,6 +28,7 @@ function makeSession(userId: string, overrides: Partial<Omit<ExamSession, 'id'>>
     completed_at:     new Date(),
     duration_seconds: 300,
     difficulty:       'Balanced',
+    integrity_status: 'legacy_unverified',
     ...overrides,
   };
 }
@@ -220,7 +223,7 @@ describe('PgExamSessionReservationsRepository — integration', () => {
       { ...emptyFallback, id: shuffled.id as string },
     );
 
-    await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [authoritative] });
+    await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [authoritative], source: 'server_issued' });
 
     const found = await reservationsRepo.findByClientSessionId(user.id, clientSessionId);
     const stored = found!.questions[0]!;
@@ -267,10 +270,10 @@ describe('PgExamSessionReservationsRepository — integration', () => {
     const clientSessionId = randomUUID();
 
     const first: Question = { ...freshGeneratedQuestion, options: ['Correct mechanism', 'Distractor B', 'Distractor C', 'Distractor D'], correct_answer: 'A' } as unknown as Question;
-    await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [first] });
+    await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [first], source: 'server_issued' });
 
     const differentShuffle: Question = { ...freshGeneratedQuestion, options: ['Distractor D', 'Correct mechanism', 'Distractor B', 'Distractor C'], correct_answer: 'B' } as unknown as Question;
-    const retryResult = await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [differentShuffle] });
+    const retryResult = await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [differentShuffle], source: 'server_issued' });
 
     // create()'s OWN return value must already reflect the original row — this
     // is what applyExamStudentView's fix relies on to avoid a second read.
@@ -290,6 +293,7 @@ describe('PgExamSessionReservationsRepository — integration', () => {
       userId: owner.id,
       clientSessionId,
       questions: [{ ...freshGeneratedQuestion, options: ['A opt', 'B opt', 'C opt', 'D opt'], correct_answer: 'A' } as unknown as Question],
+      source: 'server_issued',
     });
 
     const asOther = await reservationsRepo.findByClientSessionId(other.id, clientSessionId);
@@ -297,5 +301,229 @@ describe('PgExamSessionReservationsRepository — integration', () => {
 
     const asOwner = await reservationsRepo.findByClientSessionId(owner.id, clientSessionId);
     expect(asOwner).not.toBeNull();
+  });
+});
+
+// ── Phase 1 — session integrity classification: DB-level constraints ──────────
+
+describe('exam_sessions.integrity_status — constraint + backfill — integration', () => {
+  let pool: Pool;
+  let usersRepo: PgUsersRepository;
+  let sessionsRepo: PgExamSessionsRepository;
+
+  beforeAll(() => {
+    pool = createTestPool();
+    usersRepo = new PgUsersRepository(pool);
+    sessionsRepo = new PgExamSessionsRepository(pool);
+  });
+  afterAll(() => pool.end());
+  beforeEach(() => truncateAll(pool));
+
+  it('rejects an invalid integrity_status value at the database level', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'integrity-check@test.com' }));
+    await expect(pool.query(
+      `INSERT INTO exam_sessions
+         (id, user_id, mode, questions, answers, score, percentage, medica_score, readiness_label,
+          subject_breakdown, system_breakdown, missed_questions, completed_at, duration_seconds, difficulty, integrity_status)
+       VALUES (gen_random_uuid(), $1, 'practice', '[]', '{}', 0, 0, 0, 'Developing', '{}', '{}', '[]', now(), 60, 'Balanced', 'bogus_status')`,
+      [user.id],
+    )).rejects.toThrow(/violates check constraint/);
+  });
+
+  it('a row inserted without integrity_status (simulating a pre-migration row) backfills to legacy_unverified via the column default', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'integrity-backfill@test.com' }));
+    const res = await pool.query<{ id: string }>(
+      `INSERT INTO exam_sessions
+         (id, user_id, mode, questions, answers, score, percentage, medica_score, readiness_label,
+          subject_breakdown, system_breakdown, missed_questions, completed_at, duration_seconds, difficulty)
+       VALUES (gen_random_uuid(), $1, 'practice', '[]', '{}', 0, 0, 0, 'Developing', '{}', '{}', '[]', now(), 60, 'Balanced')
+       RETURNING id`,
+      [user.id],
+    );
+
+    const found = await sessionsRepo.findById(res.rows[0]!.id);
+    expect(found!.integrity_status).toBe('legacy_unverified');
+  });
+});
+
+describe('exam_session_reservations.source — constraint + non-escalation — integration', () => {
+  let pool: Pool;
+  let usersRepo: PgUsersRepository;
+  let reservationsRepo: PgExamSessionReservationsRepository;
+
+  beforeAll(() => {
+    pool = createTestPool();
+    usersRepo = new PgUsersRepository(pool);
+    reservationsRepo = new PgExamSessionReservationsRepository(pool);
+  });
+  afterAll(() => pool.end());
+  beforeEach(() => truncateAll(pool));
+
+  it('rejects an invalid source value at the database level', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'source-check@test.com' }));
+    await expect(pool.query(
+      `INSERT INTO exam_session_reservations (id, user_id, client_session_id, questions, source)
+       VALUES (gen_random_uuid(), $1, gen_random_uuid(), '[]', 'bogus_source')`,
+      [user.id],
+    )).rejects.toThrow(/violates check constraint/);
+  });
+
+  it('a client_selected reservation cannot be silently upgraded to server_issued by a later retry with a different source', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'source-retry@test.com' }));
+    const clientSessionId = randomUUID();
+    const q: Question = { id: 'q1', text: 'stem', options: ['A', 'B'], correct_answer: 'A' };
+
+    await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [q], source: 'client_selected' });
+    // A second create() call for the SAME clientSessionId claims server_issued —
+    // ON CONFLICT must preserve the ORIGINAL source, never let a later caller
+    // upgrade trust for an already-existing reservation.
+    const retry = await reservationsRepo.create({ userId: user.id, clientSessionId, questions: [q], source: 'server_issued' });
+
+    expect(retry.source).toBe('client_selected');
+    const found = await reservationsRepo.findByClientSessionId(user.id, clientSessionId);
+    expect(found!.source).toBe('client_selected');
+  });
+});
+
+describe('mastery_snapshots — uniqueness + idempotency — integration', () => {
+  let pool: Pool;
+  let usersRepo: PgUsersRepository;
+  let sessionsRepo: PgExamSessionsRepository;
+  let conceptsRepo: PgConceptsRepository;
+  let snapshotsRepo: PgMasterySnapshotsRepository;
+
+  beforeAll(() => {
+    pool = createTestPool();
+    usersRepo = new PgUsersRepository(pool);
+    sessionsRepo = new PgExamSessionsRepository(pool);
+    conceptsRepo = new PgConceptsRepository(pool);
+    snapshotsRepo = new PgMasterySnapshotsRepository(pool);
+  });
+  afterAll(() => pool.end());
+  beforeEach(() => truncateAll(pool));
+
+  it('insertBatch is idempotent: a retried snapshot for the same (user, concept, session) does not create a duplicate row', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'ms-idem@test.com' }));
+    const session = await sessionsRepo.create(makeSession(user.id));
+    const concept = await conceptsRepo.upsertBySlug('idem-concept', {
+      name: 'Idempotency Concept', subject: 'Pharmacology', system: 'Cardiovascular',
+    });
+
+    const snapshot = {
+      userId: user.id, conceptId: concept.id, sessionId: session.id,
+      masteryScore: 0.75, confidence: 0.6, attemptCount: 3,
+    };
+    await snapshotsRepo.insertBatch([snapshot]);
+    // Simulates the route's fire-and-forget takeSnapshot() being triggered twice
+    // for the same session (e.g. an outbox or client retry) — must not duplicate.
+    await snapshotsRepo.insertBatch([snapshot]);
+
+    const rows = await snapshotsRepo.findByUserId(user.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.mastery_score).toBeCloseTo(0.75);
+  });
+
+  it('allows separate rows for the same user+concept across different sessions', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'ms-multi@test.com' }));
+    const session1 = await sessionsRepo.create(makeSession(user.id));
+    const session2 = await sessionsRepo.create(makeSession(user.id));
+    const concept = await conceptsRepo.upsertBySlug('multi-concept', {
+      name: 'Multi Session Concept', subject: 'Pathology', system: 'Renal',
+    });
+
+    await snapshotsRepo.insertBatch([{
+      userId: user.id, conceptId: concept.id, sessionId: session1.id,
+      masteryScore: 0.5, confidence: 0.4, attemptCount: 1,
+    }]);
+    await snapshotsRepo.insertBatch([{
+      userId: user.id, conceptId: concept.id, sessionId: session2.id,
+      masteryScore: 0.6, confidence: 0.5, attemptCount: 2,
+    }]);
+
+    const rows = await snapshotsRepo.findByUserId(user.id);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('the raw unique constraint rejects a duplicate insert bypassing ON CONFLICT (confirms a real DB-level guarantee, not just app-level dedup)', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'ms-constraint@test.com' }));
+    const session = await sessionsRepo.create(makeSession(user.id));
+    const concept = await conceptsRepo.upsertBySlug('constraint-concept', {
+      name: 'Constraint Concept', subject: 'Physiology', system: 'Pulmonary',
+    });
+
+    await pool.query(
+      `INSERT INTO mastery_snapshots (user_id, concept_id, session_id, mastery_score, confidence, attempt_count)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [user.id, concept.id, session.id, 0.5, 0.5, 1],
+    );
+    await expect(pool.query(
+      `INSERT INTO mastery_snapshots (user_id, concept_id, session_id, mastery_score, confidence, attempt_count)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [user.id, concept.id, session.id, 0.9, 0.9, 5],
+    )).rejects.toThrow(/duplicate key value violates unique constraint/);
+  });
+
+  it('concurrent duplicate insertBatch calls for the same batch resolve to exactly one row (race safety)', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'ms-concurrent@test.com' }));
+    const session = await sessionsRepo.create(makeSession(user.id));
+    const concept = await conceptsRepo.upsertBySlug('concurrent-concept', {
+      name: 'Concurrent Concept', subject: 'Biochemistry', system: 'Renal',
+    });
+    const snapshot = {
+      userId: user.id, conceptId: concept.id, sessionId: session.id,
+      masteryScore: 0.42, confidence: 0.3, attemptCount: 1,
+    };
+
+    await Promise.all([
+      snapshotsRepo.insertBatch([snapshot]),
+      snapshotsRepo.insertBatch([snapshot]),
+    ]);
+
+    const rows = await snapshotsRepo.findByUserId(user.id);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('migration 1750100000001 up() dedups pre-existing duplicate rows before adding the unique constraint, instead of failing the deploy', async () => {
+    const user = await usersRepo.create(makeUser({ email: 'ms-migration-dedup@test.com' }));
+    const session = await sessionsRepo.create(makeSession(user.id));
+    const concept = await conceptsRepo.upsertBySlug('migration-dedup-concept', {
+      name: 'Migration Dedup Concept', subject: 'Microbiology', system: 'Immune',
+    });
+
+    // Simulate the real pre-migration production state this migration must handle:
+    // roll the migration back (drops the unique constraint + the other Phase 1
+    // columns/constraints) and insert duplicate tuples that ADD CONSTRAINT alone
+    // would reject outright.
+    const migration = await import('../../migrations/1750100000001_session-integrity-classification.js');
+    const runSteps = async (fn: (pgm: { sql: (query: string) => void }) => void) => {
+      const steps: string[] = [];
+      fn({ sql: (query: string) => { steps.push(query); } });
+      for (const step of steps) await pool.query(step);
+    };
+
+    await runSteps(migration.down);
+
+    await pool.query(
+      `INSERT INTO mastery_snapshots (user_id, concept_id, session_id, mastery_score, confidence, attempt_count, created_at)
+       VALUES ($1,$2,$3,0.3,0.3,1, now() - interval '2 minutes'),
+              ($1,$2,$3,0.6,0.6,2, now())`,
+      [user.id, concept.id, session.id],
+    );
+    const beforeCount = await pool.query('SELECT COUNT(*) AS c FROM mastery_snapshots');
+    expect(Number(beforeCount.rows[0].c)).toBe(2);
+
+    await expect(runSteps(migration.up)).resolves.toBeUndefined();
+
+    const rows = await snapshotsRepo.findByUserId(user.id);
+    expect(rows).toHaveLength(1);
+    // The earliest row per tuple is kept (created_at, id ordering) — not the latest.
+    expect(rows[0]!.mastery_score).toBeCloseTo(0.3);
+
+    // Constraint is live again: a fresh duplicate insert attempt is rejected.
+    await expect(pool.query(
+      `INSERT INTO mastery_snapshots (user_id, concept_id, session_id, mastery_score, confidence, attempt_count)
+       VALUES ($1,$2,$3,0.9,0.9,9)`,
+      [user.id, concept.id, session.id],
+    )).rejects.toThrow(/duplicate key value violates unique constraint/);
   });
 });

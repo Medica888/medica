@@ -182,6 +182,33 @@ describe('saveSession', () => {
       medicaScore: 98,
       readinessLabel: 'Strong',
     });
+    // Backend didn't send integrity_status on this mock — must default to the
+    // least-trusted classification, never assume verified when the field is absent.
+    expect(result.backendResults.integrityStatus).toBe('legacy_unverified');
+  });
+
+  it('passes through the backend-assigned integrity_status onto the normalized result', async () => {
+    api.exams.create.mockResolvedValueOnce({
+      session: {
+        id: 'server-session-2',
+        mode: 'exam',
+        questions: [],
+        answers: {},
+        score: 0,
+        percentage: 0,
+        medica_score: 0,
+        readiness_label: 'Building',
+        subject_breakdown: {},
+        system_breakdown: {},
+        missed_questions: [],
+        completed_at: '2026-07-14T00:00:00.000Z',
+        difficulty: 'Balanced',
+        integrity_status: 'unverified_local',
+      },
+    });
+
+    const result = await saveSession({ ...results, mode: 'exam' }, sessionWithAnswers);
+    expect(result.backendResults.integrityStatus).toBe('unverified_local');
   });
 
   it('maps missed_questions correctly — unanswered or incorrect', async () => {

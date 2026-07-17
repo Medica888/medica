@@ -17,6 +17,12 @@ export class InMemoryMasterySnapshotsRepository implements IMasterySnapshotsRepo
   ): Promise<void> {
     const now = new Date();
     for (const s of snapshots) {
+      // Mirrors the PG unique constraint (user_id, concept_id, session_id) + ON CONFLICT DO NOTHING —
+      // a retried snapshot for the same session must not create a duplicate row.
+      const alreadyExists = this.rows.some((r) => (
+        r.user_id === s.userId && r.concept_id === s.conceptId && r.session_id === s.sessionId
+      ));
+      if (alreadyExists) continue;
       this.rows.push({
         id:            randomUUID(),
         user_id:       s.userId,

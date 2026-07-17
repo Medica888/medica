@@ -81,6 +81,25 @@ describe('POST /api/exams', () => {
     expect(res.body.session.missed_questions).toHaveLength(1);
   });
 
+  it('ignores a client-supplied integrity_status field — the server computes its own value regardless of what the request body claims', async () => {
+    const token = await registerAndGetToken();
+    const res = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ...sampleSession,
+        // No reservation, no authoritative bank match for q1 in this test —
+        // the honest classification is unverified_local. A client claiming
+        // server_issued in the body must not be able to launder that in.
+        integrity_status: 'server_issued',
+        status: 'verified',
+        verifiedAt: new Date().toISOString(),
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.session.integrity_status).toBe('unverified_local');
+  });
+
   it('rejects duplicate question ids before persistence', async () => {
     const token = await registerAndGetToken();
     const res = await request(app)
@@ -97,6 +116,47 @@ describe('POST /api/exams', () => {
   it('returns 401 without token', async () => {
     const res = await request(app).post('/api/exams').send(sampleSession);
     expect(res.status).toBe(401);
+  });
+
+  it('skips the fire-and-forget mastery snapshot for an unverified_local session, even when the user already has mastery history', async () => {
+    const token = await registerAndGetToken();
+    const concept = { ...sampleSession.questions[0], id: 'q-mastery-concept', canonicalConcepts: ['Route Gate Concept'] };
+
+    // Session 1: trusted — seed the question as an authoritative bank match so
+    // this session classifies as client_selected_verified (mode alone no longer
+    // grants trust; see sessionIntegrity.ts). Establishes a real mastery
+    // snapshot batch tied to session 1's id.
+    await repos.questions.upsertByExternalId('q-mastery-concept', {
+      subject: 'Physiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'q-mastery-concept', stem: concept.text, options: concept.options, correct: concept.correct_answer },
+    });
+    const first = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...sampleSession, questions: [concept], answers: { [concept.id]: 'A' } });
+    expect(first.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const batchesAfterFirst = await repos.masterySnapshots.findBatchIds(first.body.session.user_id);
+    expect(batchesAfterFirst).toEqual([first.body.session.id]);
+
+    // Session 2: a DIFFERENT question id that never resolves authoritatively
+    // (and no reservation) — classifies as unverified_local regardless of
+    // mode. Even though this user already HAS mastery rows the snapshot
+    // pipeline could read, the route must not create a NEW snapshot batch
+    // tagged with this untrusted session.
+    const unverifiedConcept = { ...concept, id: 'q-mastery-concept-unverified' };
+    const second = await request(app)
+      .post('/api/exams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...sampleSession, mode: 'exam', questions: [unverifiedConcept], answers: { [unverifiedConcept.id]: 'A' } });
+    expect(second.status).toBe(201);
+    expect(second.body.session.integrity_status).toBe('unverified_local');
+    await new Promise((r) => setTimeout(r, 10));
+
+    const batchesAfterSecond = await repos.masterySnapshots.findBatchIds(second.body.session.user_id);
+    expect(batchesAfterSecond).toEqual([first.body.session.id]);
+    expect(batchesAfterSecond).not.toContain(second.body.session.id);
   });
 });
 

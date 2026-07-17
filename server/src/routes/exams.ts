@@ -8,6 +8,7 @@ import { validate } from '../middleware/validate.js';
 import { createSessionSchema, reserveSessionSchema } from '../schemas/exam.js';
 import { getRepositories } from '../repositories/index.js';
 import { logger } from '../lib/logger.js';
+import { getSessionTrustCapabilities } from '../services/sessionIntegrity.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,10 +33,15 @@ router.post('/', validate(createSessionSchema), async (req: AuthRequest, res: Re
     new AnalyticsService(analytics, examSessions)
       .saveSnapshot(req.userId!)
       .catch((err) => logger.error('[analytics] snapshot update failed', { error: (err as Error).message }));
-    // Fire-and-forget: capture mastery progress snapshot (independent — one cannot swallow the other)
-    new ProgressTrackingService(userConceptMastery, masterySnapshots)
-      .takeSnapshot(req.userId!, session.id)
-      .catch((err) => logger.error('[progress] snapshot failed', { error: (err as Error).message }));
+    // Fire-and-forget: capture mastery progress snapshot (independent — one cannot swallow the other).
+    // Gated by the same trust policy as the synchronous mastery update in ExamService — an
+    // untrusted session's snapshot must not be captured either. insertBatch is additionally
+    // idempotent (UNIQUE user_id/concept_id/session_id) so a retried call here is a safe no-op.
+    if (getSessionTrustCapabilities(session.integrity_status).includedInMasteryProcessing) {
+      new ProgressTrackingService(userConceptMastery, masterySnapshots)
+        .takeSnapshot(req.userId!, session.id)
+        .catch((err) => logger.error('[progress] snapshot failed', { error: (err as Error).message }));
+    }
     res.status(201).json({ session });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : '';

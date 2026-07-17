@@ -44,7 +44,8 @@ export class PgMasterySnapshotsRepository implements IMasterySnapshotsRepository
       `INSERT INTO mastery_snapshots
          (user_id, concept_id, session_id, mastery_score, confidence, attempt_count)
        SELECT unnest($1::uuid[]), unnest($2::uuid[]), unnest($3::uuid[]),
-              unnest($4::numeric[]), unnest($5::numeric[]), unnest($6::int[])`,
+              unnest($4::numeric[]), unnest($5::numeric[]), unnest($6::int[])
+       ON CONFLICT (user_id, concept_id, session_id) DO NOTHING`,
       [
         snapshots.map((s) => s.userId),
         snapshots.map((s) => s.conceptId),
