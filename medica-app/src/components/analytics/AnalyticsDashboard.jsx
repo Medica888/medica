@@ -181,11 +181,15 @@ export default function AnalyticsDashboard({ onNavigate }) {
                     Predicted score over {overview.totalSessions} session{overview.totalSessions !== 1 ? 's' : ''}
                   </div>
                 </div>
-                {overview.latestMedicaScore != null && (
+                {overview.latestMedicaScore != null ? (
                   <div className="an-traj-badge">
                     <span className="an-traj-score">{overview.latestMedicaScore}</span>
                     <span className="an-traj-badge-lbl">CURRENT</span>
                   </div>
+                ) : (
+                  <p className="an-intel-muted" data-testid="medica-score-unavailable">
+                    Medica Score not available yet — complete a standardized Step 1 exam block to establish your score.
+                  </p>
                 )}
               </div>
               {trends.length >= 2 ? (

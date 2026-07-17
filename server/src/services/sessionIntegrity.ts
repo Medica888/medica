@@ -45,37 +45,98 @@ export function deriveSessionIntegrityStatus(input: {
  * ONLY place trust rules are decided — analytics/mastery/readiness code must
  * consult this instead of re-deriving their own checks against integrity_status.
  *
+ * Phase 1.1 replaces the single broad `includedInTrustedAnalytics` flag with
+ * metric-specific capabilities. A session can be fully and honestly scored
+ * (the server verified the questions, answers, and score) without being
+ * representative enough for standardized comparison — a learner who
+ * hand-picks 10 easy Pharmacology questions gets a real, verified score for
+ * that content, but it should not move a "how ready are you for the real
+ * exam" number the way a full standardized block does.
+ *
  * includedInPersonalHistory: every session a user completed is always visible
  *   to them, whatever its trust tier — sessions are never silently hidden or
  *   deleted for low trust, only labeled.
  * includedInMasteryProcessing: feeds UserConceptMastery / mastery_snapshots
- *   (spaced repetition, per-concept readiness) — server-side only.
- * includedInTrustedAnalytics: feeds Medica Score, readiness, weak areas, study
- *   priorities, and accuracy trends — currently the same trust tier as
- *   mastery (both require provable server-issued or fully ID-verified
- *   content), kept as a separate field so the two consumption points can
- *   diverge later without re-deriving trust logic elsewhere.
+ *   (spaced repetition, per-concept readiness) — server-side only. Unchanged
+ *   from Phase 1: server_issued and client_selected_verified both qualify.
+ * includedInPersonalPerformanceAnalytics: feeds personal-facing breakdowns —
+ *   subject/system/topic accuracy, mistake patterns, study priorities. Same
+ *   eligibility as mastery: a verified client-selected session is genuine
+ *   evidence of the learner's own performance on that content, even though
+ *   it isn't standardized.
+ * includedInMedicaScore / includedInReadiness: feed the standardized,
+ *   comparable readiness number and label. Requires server_issued — the
+ *   server chose the exact question set, so the sample is representative by
+ *   construction. A verified-but-client-selected set (the learner picked
+ *   which 10 Pharmacology questions to answer) is real evidence of personal
+ *   performance but not a representative sample, so it must not move this
+ *   number. This is the crux of Phase 1.1: verified is not the same as
+ *   standardized.
+ * includedInCohortComparison / includedInInstitutionalAnalytics: reserved for
+ *   comparative/institutional features that don't exist yet — prepared here
+ *   so cohort percentile and institutional dashboards, when built, inherit
+ *   the same restriction as Medica Score/readiness (server_issued only)
+ *   without re-deriving trust logic elsewhere.
  * displayIntegrityWarning: true when the UI should show an "unverified"
- *   badge next to the result — legacy rows and unverified-local content.
+ *   badge next to the result. Tied to the mastery/personal-performance tier,
+ *   not the standardized tier — a client_selected_verified session is
+ *   genuinely verified and must never be labeled "unverified," even though
+ *   it doesn't count toward Medica Score.
  */
 export interface SessionTrustCapabilities {
   includedInPersonalHistory: boolean;
   includedInMasteryProcessing: boolean;
-  includedInTrustedAnalytics: boolean;
+  includedInPersonalPerformanceAnalytics: boolean;
+  includedInMedicaScore: boolean;
+  includedInReadiness: boolean;
+  includedInCohortComparison: boolean;
+  includedInInstitutionalAnalytics: boolean;
   displayIntegrityWarning: boolean;
 }
 
-const TRUSTED_FOR_MASTERY: ReadonlySet<SessionIntegrityStatus> = new Set([
+/**
+ * Verified evidence of personal performance: the server confirmed the
+ * questions, answers, and score are genuine, even if the learner (not the
+ * server) chose which questions to answer. Backs mastery and personal
+ * performance analytics — never standardized/comparative metrics.
+ */
+const VERIFIED_PERSONAL_EVIDENCE: ReadonlySet<SessionIntegrityStatus> = new Set([
   'server_issued',
   'client_selected_verified',
 ]);
 
+/**
+ * Standardized evidence: the server itself selected the exact question set,
+ * so the sample is representative by construction. Backs Medica Score,
+ * readiness, cohort comparison, and institutional analytics.
+ */
+const STANDARDIZED_EVIDENCE: ReadonlySet<SessionIntegrityStatus> = new Set([
+  'server_issued',
+]);
+
 export function getSessionTrustCapabilities(integrityStatus: SessionIntegrityStatus): SessionTrustCapabilities {
-  const trusted = TRUSTED_FOR_MASTERY.has(integrityStatus);
+  const verifiedPersonal = VERIFIED_PERSONAL_EVIDENCE.has(integrityStatus);
+  const standardized = STANDARDIZED_EVIDENCE.has(integrityStatus);
   return {
     includedInPersonalHistory: true,
-    includedInMasteryProcessing: trusted,
-    includedInTrustedAnalytics: trusted,
-    displayIntegrityWarning: !trusted,
+    includedInMasteryProcessing: verifiedPersonal,
+    includedInPersonalPerformanceAnalytics: verifiedPersonal,
+    includedInMedicaScore: standardized,
+    includedInReadiness: standardized,
+    includedInCohortComparison: standardized,
+    includedInInstitutionalAnalytics: standardized,
+    displayIntegrityWarning: !verifiedPersonal,
   };
+}
+
+/**
+ * Centralized capability-based filter — the only way analytics code should
+ * select an eligible session subset. Prevents `session.integrity_status ===
+ * 'server_issued'`-style inline checks from spreading across services.
+ */
+export function filterSessionsByTrustCapability<T extends { integrity_status: SessionIntegrityStatus }>(
+  sessions: T[],
+  capability: keyof SessionTrustCapabilities,
+): T[] {
+  return sessions.filter((s) => getSessionTrustCapabilities(s.integrity_status)[capability]);
 }

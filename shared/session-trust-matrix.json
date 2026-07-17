@@ -1,0 +1,43 @@
+{
+  "_comment": "Canonical session-integrity trust matrix — Phase 1.1. This is the single source of truth both server/src/services/sessionIntegrity.test.ts and medica-app/src/lib/sessionTrust.test.js load at test time and assert their own getSessionTrustCapabilities() implementation against. Edit this file to change the policy, and both test suites will immediately enforce the same values on both sides — a change applied to only one implementation fails that side's test against this file, and a change to only this file's expectations without updating an implementation fails on both sides.",
+  "server_issued": {
+    "includedInPersonalHistory": true,
+    "includedInMasteryProcessing": true,
+    "includedInPersonalPerformanceAnalytics": true,
+    "includedInMedicaScore": true,
+    "includedInReadiness": true,
+    "includedInCohortComparison": true,
+    "includedInInstitutionalAnalytics": true,
+    "displayIntegrityWarning": false
+  },
+  "client_selected_verified": {
+    "includedInPersonalHistory": true,
+    "includedInMasteryProcessing": true,
+    "includedInPersonalPerformanceAnalytics": true,
+    "includedInMedicaScore": false,
+    "includedInReadiness": false,
+    "includedInCohortComparison": false,
+    "includedInInstitutionalAnalytics": false,
+    "displayIntegrityWarning": false
+  },
+  "unverified_local": {
+    "includedInPersonalHistory": true,
+    "includedInMasteryProcessing": false,
+    "includedInPersonalPerformanceAnalytics": false,
+    "includedInMedicaScore": false,
+    "includedInReadiness": false,
+    "includedInCohortComparison": false,
+    "includedInInstitutionalAnalytics": false,
+    "displayIntegrityWarning": true
+  },
+  "legacy_unverified": {
+    "includedInPersonalHistory": true,
+    "includedInMasteryProcessing": false,
+    "includedInPersonalPerformanceAnalytics": false,
+    "includedInMedicaScore": false,
+    "includedInReadiness": false,
+    "includedInCohortComparison": false,
+    "includedInInstitutionalAnalytics": false,
+    "displayIntegrityWarning": true
+  }
+}

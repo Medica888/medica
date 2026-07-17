@@ -296,3 +296,26 @@ describe('AnalyticsDashboard — Test 19: report timestamp fallback (documented)
     expect(screen.getByText(/No reported questions yet/i)).toBeInTheDocument()
   })
 })
+
+// ── Test 20: Medica Score unavailable state (Phase 1.1) ──────────────────────
+
+describe('AnalyticsDashboard — Test 20: Medica Score unavailable, not zero', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('shows "Medica Score not available yet" instead of a score badge when latestMedicaScore is null', () => {
+    const data = makeData(2)
+    data.overview.latestMedicaScore = null
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('medica-score-unavailable')).toHaveTextContent(/not available yet/i)
+    expect(screen.queryByText('200')).toBeNull()
+  })
+
+  it('shows the numeric score badge (not the unavailable message) when latestMedicaScore is a real value, including 0', () => {
+    const data = makeData(2)
+    data.overview.latestMedicaScore = 0
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.queryByTestId('medica-score-unavailable')).toBeNull()
+  })
+})
