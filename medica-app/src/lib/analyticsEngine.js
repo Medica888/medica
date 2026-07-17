@@ -182,6 +182,12 @@ function _computeOverview(allSessions, personalPerformanceSessions, medicaScoreS
 
   // Medica Score / readiness: standardized evidence only. No eligible
   // session means no evidence — null, never an invented 0 or 'N/A'.
+  //
+  // latestReadiness is "Step 1 Readiness" in the UI (AnalyticsDashboard.jsx's
+  // Score Trajectory card) — deliberately distinct from the mastery-derived
+  // "Concept Progress" card (ReadinessCard/rdHook), which may include
+  // eligible client_selected_verified Practice/Coach activity. Field name
+  // kept for API/consumer stability; see Phase 1.2 report.
   const scores = medicaScoreSessions.filter(s => s.medicaScore != null).map(s => s.medicaScore)
   const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
 

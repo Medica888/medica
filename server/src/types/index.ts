@@ -356,11 +356,20 @@ export type ReadinessStatus =
   | 'Approaching Readiness'    // 70–84
   | 'Exam Ready';              // 85–100
 
-/** Minimal score computed by ProgressTrackingService.getReadiness(). */
+/**
+ * Minimal score computed by ProgressTrackingService.getReadiness().
+ * Mastery-derived concept progress — built from UserConceptMastery rows,
+ * which include eligible client_selected_verified Practice/Coach activity
+ * (see sessionIntegrity.ts's includedInMasteryProcessing). This is NOT the
+ * standardized Step 1 readiness metric (AnalyticsService's
+ * overview.latestReadiness, server_issued sessions only) — the two are
+ * deliberately distinct user-facing metrics. Displayed to users as
+ * "Concept Progress" (see ReadinessCard in AnalyticsDashboard.jsx).
+ */
 export interface ReadinessScore {
   overallReadiness: number;         // 0–100
   status:           ReadinessStatus;
-  label?:           'Concept Readiness';
+  label?:           'Concept Progress';
   components: {
     mastery:     number;
     confidence:  number;

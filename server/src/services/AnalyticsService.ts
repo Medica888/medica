@@ -265,6 +265,13 @@ export class AnalyticsService {
 
     // Medica Score / readiness: standardized evidence only (server_issued).
     // No eligible session means no evidence, not a score of zero.
+    //
+    // latestReadiness is the standardized "Step 1 Readiness" metric shown in
+    // the frontend (AnalyticsDashboard.jsx's Score Trajectory card) — it is
+    // deliberately distinct from ProgressTrackingService's mastery-derived
+    // "Concept Progress" metric, which may include client_selected_verified
+    // Practice/Coach activity. Field name unchanged for API stability; see
+    // Phase 1.2 report for the terminology split.
     const scores = medicaScoreSessions.filter((s) => s.medica_score != null).map((s) => s.medica_score);
     const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
     const latestMedicaScore = medicaScoreSessions.length > 0 ? (medicaScoreSessions[0]!.medica_score ?? null) : null;

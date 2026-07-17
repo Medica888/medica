@@ -213,7 +213,8 @@ router.get('/readiness', async (req: AuthRequest, res: Response) => {
 
     res.json({
       overallReadiness:     score.overallReadiness,
-      readinessMetric:      score.label ?? 'Concept Readiness',
+      // Mastery-derived concept progress, not standardized Step 1 readiness — see ProgressTrackingService.getReadiness().
+      readinessMetric:      score.label ?? 'Concept Progress',
       status:               score.status,
       components:           readinessComponents,
       distribution:         score.distribution,
