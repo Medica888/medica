@@ -8,11 +8,14 @@ import type {
   IQuestionReportsRepository,
 } from '../repositories/interfaces.js';
 import { getRepositories } from '../repositories/index.js';
-import type { ExamSession, Question, SubjectStats, PaginationParams, PaginatedResult } from '../types/index.js';
+import type {
+  ExamSession, ExamSessionReservationSource, Question, SubjectStats, PaginationParams, PaginatedResult,
+} from '../types/index.js';
 import type { CreateSessionInput, ReserveSessionInput } from '../schemas/exam.js';
 import { ConceptMappingService } from './ConceptMappingService.js';
 import { ConceptMasteryService } from './ConceptMasteryService.js';
 import { normalizeSubject, normalizeSystem } from '../lib/medicaTaxonomy.js';
+import { deriveSessionIntegrityStatus, getSessionTrustCapabilities } from './sessionIntegrity.js';
 
 // A–L covers the USMLE Step 1 extended-matching ceiling (up to 12 options).
 // M and beyond are never valid — mirrors medica-app/src/lib/answerNormalize.js.
@@ -265,16 +268,26 @@ export class ExamService {
     private questionReports?: IQuestionReportsRepository,
   ) {}
 
-  private async resolveAuthoritativeQuestions(questions: Question[]): Promise<Question[]> {
-    if (!this.questions) return questions;
+  /**
+   * Resolves question bodies authoritatively where possible, and reports
+   * whether EVERY submitted question id matched — a partial match still
+   * returns usable bodies (best-effort, existing behavior) but is not
+   * "fully authoritative" for integrity-classification purposes (see
+   * deriveSessionIntegrityStatus): a session with even one un-resolvable
+   * question id had at least some content trusted wholesale from the client.
+   */
+  private async resolveAuthoritativeQuestions(
+    questions: Question[],
+  ): Promise<{ questions: Question[]; fullyAuthoritative: boolean }> {
+    if (!this.questions || questions.length === 0) return { questions, fullyAuthoritative: false };
     const rows = await this.questions.findAuthoritativeQuestionsByIds(questions.map((q) => q.id), []);
-    if (rows.length === 0) return questions;
-
     const byExternalId = new Map(rows.map((row) => [row.id, row.body]));
-    return questions.map((q) => {
+    const resolved = questions.map((q) => {
       const body = byExternalId.get(q.id);
       return body ? questionFromAuthoritativeBody(q.id, body, q) : q;
     });
+    const fullyAuthoritative = questions.every((q) => byExternalId.has(q.id));
+    return { questions: resolved, fullyAuthoritative };
   }
 
   /**
@@ -309,7 +322,7 @@ export class ExamService {
       { id, text: '', options: [], correct_answer: '' },
     ));
 
-    await this.reservations.create({ userId, clientSessionId, questions });
+    await this.reservations.create({ userId, clientSessionId, questions, source: 'client_selected' });
     return { reserved: true, clientSessionId };
   }
 
@@ -342,7 +355,7 @@ export class ExamService {
   ): Promise<{ reserved: boolean; clientSessionId: string; questions: Question[] }> {
     if (!this.reservations || questions.length === 0) return { reserved: false, clientSessionId, questions: [] };
 
-    const stored = await this.reservations.create({ userId, clientSessionId, questions });
+    const stored = await this.reservations.create({ userId, clientSessionId, questions, source: 'server_issued' });
     return { reserved: true, clientSessionId, questions: stored.questions };
   }
 
@@ -367,6 +380,7 @@ export class ExamService {
     // bodies — submitted text/options/correct_answer/explanation are ignored entirely,
     // even if a question was quarantined after the reservation was made.
     let snapshotQuestions: Question[] | null = null;
+    let reservationSource: ExamSessionReservationSource | null = null;
     if (input.clientSessionId && this.reservations) {
       const reservation = await this.reservations.findByClientSessionId(userId, input.clientSessionId);
       if (reservation) {
@@ -376,12 +390,25 @@ export class ExamService {
           && [...submittedIds].every((id) => snapshotIds.has(id));
         if (!setsMatch) throw new Error('SNAPSHOT_MISMATCH');
         snapshotQuestions = reservation.questions;
+        reservationSource = reservation.source;
       }
     }
 
-    const normalizedQuestions = snapshotQuestions
-      ? snapshotQuestions.map(normalizeQuestionTaxonomy)
-      : await this.resolveAuthoritativeQuestions(input.questions.map(normalizeQuestionTaxonomy));
+    let normalizedQuestions: Question[];
+    let fullyAuthoritative: boolean;
+    if (snapshotQuestions) {
+      normalizedQuestions = snapshotQuestions.map(normalizeQuestionTaxonomy);
+      fullyAuthoritative = true; // reservation-backed bodies are already authoritative by construction
+    } else {
+      const resolved = await this.resolveAuthoritativeQuestions(input.questions.map(normalizeQuestionTaxonomy));
+      normalizedQuestions = resolved.questions;
+      fullyAuthoritative = resolved.fullyAuthoritative;
+    }
+
+    const integrityStatus = deriveSessionIntegrityStatus({
+      reservationSource,
+      fullyAuthoritativeMatch: fullyAuthoritative,
+    });
 
     // Answers arrive keyed to the client's own (possibly shuffled) option order;
     // resolve bare letters against that order before scoring against the
@@ -405,6 +432,7 @@ export class ExamService {
       completed_at: new Date(input.completed_at),
       duration_seconds: input.duration_seconds,
       difficulty: input.difficulty,
+      integrity_status: integrityStatus,
     };
 
     return withTransaction(async (tx) => {
@@ -443,8 +471,11 @@ export class ExamService {
       }
 
       // 2c. Update per-user concept mastery for directly linked concepts (Phase 3).
-      //     Direct links only — no hierarchy roll-up.
-      if (this.conceptMastery && questionRefMap.size > 0) {
+      //     Direct links only — no hierarchy roll-up. Gated by integrity: only sessions the
+      //     server can prove it issued or fully verified may write to shared mastery state
+      //     (see sessionIntegrity.ts) — legacy/unverified content earns no new mastery credit.
+      const trust = getSessionTrustCapabilities(integrityStatus);
+      if (this.conceptMastery && questionRefMap.size > 0 && trust.includedInMasteryProcessing) {
         const answered = normalizedQuestions
           .map((q) => ({
             questionDbId:      questionRefMap.get(q.id) ?? '',

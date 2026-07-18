@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import AnalyticsDashboard from './AnalyticsDashboard'
 
@@ -55,6 +55,7 @@ vi.mock('./ProgressTrendPanel',     () => ({ default: () => null }))
 
 import { buildAnalyticsData } from '../../lib/analyticsEngine'
 import { getQuestionReportAnalytics } from '../../lib/storage'
+import { useReadiness } from '../../hooks/useMastery'
 
 // ── Fixture ───────────────────────────────────────────────────────────────────
 
@@ -294,5 +295,133 @@ describe('AnalyticsDashboard — Test 19: report timestamp fallback (documented)
     expect(getQuestionReportAnalytics).toHaveBeenCalledWith('month')
     // When total is 0, shows "No reported questions yet" (documented fallback behavior)
     expect(screen.getByText(/No reported questions yet/i)).toBeInTheDocument()
+  })
+})
+
+// ── Test 20: Medica Score unavailable state (Phase 1.1) ──────────────────────
+
+describe('AnalyticsDashboard — Test 20: Medica Score unavailable, not zero', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('shows "Medica Score not available yet" instead of a score badge when latestMedicaScore is null', () => {
+    const data = makeData(2)
+    data.overview.latestMedicaScore = null
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('medica-score-unavailable')).toHaveTextContent(/not available yet/i)
+    expect(screen.queryByText('200')).toBeNull()
+  })
+
+  it('shows the numeric score badge (not the unavailable message) when latestMedicaScore is a real value, including 0', () => {
+    const data = makeData(2)
+    data.overview.latestMedicaScore = 0
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.queryByTestId('medica-score-unavailable')).toBeNull()
+  })
+})
+
+// ── Test 21: Step 1 Readiness vs Concept Progress terminology (Phase 1.2) ────
+
+describe('AnalyticsDashboard — Test 21: Step 1 Readiness vs Concept Progress', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => useReadiness.mockReturnValue({ data: null, loading: false, error: null }))
+
+  it('labels the mastery-derived card "CONCEPT PROGRESS", never "Concept Readiness"', () => {
+    buildAnalyticsData.mockReturnValue(makeData(3))
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByText('CONCEPT PROGRESS')).toBeInTheDocument()
+    expect(screen.queryByText(/concept readiness/i)).toBeNull()
+  })
+
+  it('shows the Concept Progress card\'s distinguishing note separating it from Step 1 Readiness', () => {
+    buildAnalyticsData.mockReturnValue(makeData(3))
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('concept-progress-distinction')).toHaveTextContent(/separate from standardized Step 1 Readiness/i)
+  })
+
+  it('displays Step 1 Readiness with its value when overview.latestReadiness is present', () => {
+    const data = makeData(3)
+    data.overview.latestReadiness = 'Strong'
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('step1-readiness-value')).toHaveTextContent('Step 1 Readiness')
+    expect(screen.getByTestId('step1-readiness-value')).toHaveTextContent('Strong')
+    expect(screen.queryByTestId('step1-readiness-unavailable')).toBeNull()
+  })
+
+  it('shows "Step 1 Readiness not available yet" — not a false 0% or "Not ready" — when overview.latestReadiness is null', () => {
+    const data = makeData(3)
+    data.overview.latestReadiness = null
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('step1-readiness-unavailable')).toHaveTextContent(/not available yet/i)
+    expect(screen.queryByText(/not ready/i)).toBeNull()
+    expect(screen.queryByTestId('step1-readiness-value')).toBeNull()
+  })
+
+  it('a genuine standardized readiness value still displays as-is (not suppressed) when present', () => {
+    const data = makeData(3)
+    data.overview.latestReadiness = 'Needs Foundation'
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    expect(screen.getByTestId('step1-readiness-value')).toHaveTextContent('Needs Foundation')
+  })
+
+  it('within the analytics dashboard, no component renders the bare, ambiguous label "Readiness" alone for either metric', () => {
+    // Scoped to AnalyticsDashboard specifically. The per-session "READINESS"
+    // KPI in ExamResults/CoachResults/PracticeResults (a different, pre-
+    // existing metric — an immediate per-session grade from scoring, not
+    // one of this phase's two aggregate metrics, and not gated by trust
+    // eligibility) is intentionally out of scope — see Phase 1.2 report.
+    buildAnalyticsData.mockReturnValue(makeData(3))
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+    // Every rendered "readiness" mention is qualified — "Step 1 Readiness" or
+    // part of a specific status phrase — never the bare standalone word.
+    const bareReadiness = screen.queryAllByText(/^readiness$/i)
+    expect(bareReadiness).toHaveLength(0)
+  })
+
+  it('a user can simultaneously see Concept Progress with a value and Step 1 Readiness unavailable, without contradictory wording', () => {
+    const data = makeData(3)
+    data.overview.latestReadiness = null // no standardized evidence
+    // Concept Progress falls back to the local accuracy-derived percentage
+    // (rdHook.data is mocked null in this file) — it always renders a value.
+    buildAnalyticsData.mockReturnValue(data)
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+
+    // Concept Progress: has a numeric value (readinessPct derived from overallAccuracy=70).
+    expect(screen.getByText('CONCEPT PROGRESS')).toBeInTheDocument()
+    expect(screen.getByTestId('concept-progress-pct')).toHaveTextContent('70')
+
+    // Step 1 Readiness: explicitly unavailable, not a contradictory 0%/"Not ready".
+    expect(screen.getByTestId('step1-readiness-unavailable')).toBeInTheDocument()
+    expect(screen.queryByText(/not ready/i)).toBeNull()
+  })
+
+  it('does not render the raw "Exam Ready" backend status text inside the Concept Progress card when backend mastery data is populated', () => {
+    // rdHook.data is mocked null in every other test in this file — that
+    // blind spot would hide the exact conflation this phase targets: the
+    // backend's ReadinessStatus enum includes 'Exam Ready', which reads as
+    // standardized exam evidence if shown verbatim inside a card titled
+    // "CONCEPT PROGRESS". Populate it here to prove the card never surfaces
+    // that raw string, without changing the enum/thresholds themselves.
+    useReadiness.mockReturnValue({
+      loading: false,
+      error: null,
+      data: {
+        overallReadiness: 88,
+        status: 'Exam Ready',
+        readinessMetric: 'Concept Progress',
+        components: { mastery: 40, coverage: 18, diversity: 13, recentPerformance: 17 },
+        distribution: { priority: 1, focus: 2, reinforced: 3, ontrack: 10 },
+      },
+    })
+    buildAnalyticsData.mockReturnValue(makeData(3))
+    render(<AnalyticsDashboard onNavigate={NOOP} />)
+
+    expect(screen.getByText('CONCEPT PROGRESS')).toBeInTheDocument()
+    expect(screen.queryByText('Exam Ready')).toBeNull()
+    expect(screen.getByText('Strong Progress')).toBeInTheDocument()
   })
 })

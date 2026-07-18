@@ -5,6 +5,7 @@ import type {
   AnalyticsSnapshot,
 } from '../types/index.js';
 import type { IAnalyticsRepository, IExamSessionsRepository } from '../repositories/interfaces.js';
+import { filterSessionsByTrustCapability } from './sessionIntegrity.js';
 
 // ── USMLE Step 1 discipline yield weights ──────────────────────────────────
 const USMLE_STEP1_YIELD_MAP: Record<string, { weight: number; reason: string }> = {
@@ -204,40 +205,89 @@ function buildMistakeDiagnoses(sessions: ExamSession[]): MistakeDiagnosis[] {
   return diagnoses;
 }
 
+/** integrity_status values that are never called "unverified" — see sessionIntegrity.ts. */
+const COUNTABLE_STATUS = ['unverified_local', 'legacy_unverified'] as const;
+
+function countByStatus(sessions: ExamSession[], status: (typeof COUNTABLE_STATUS)[number]): number {
+  return sessions.filter((s) => s.integrity_status === status).length;
+}
+
 export class AnalyticsService {
   constructor(
     private analyticsRepo: IAnalyticsRepository,
     private sessionsRepo: IExamSessionsRepository,
   ) {}
 
+  /**
+   * Fetches a user's session window (most recent `limit`, per existing
+   * pagination behavior — this cap predates Phase 1.1 and is unchanged here).
+   * Every metric-specific eligible subset below is filtered from this exact
+   * same array, so counts are always internally consistent — an eligible
+   * count can never appear to exceed a count of "all" sessions because they
+   * were fetched from different queries. The tradeoff is the pre-existing
+   * one: a user with more than `limit` sessions only has their most recent
+   * `limit` considered by any of these calculations, eligible or not.
+   */
+  private async getSessionWindow(userId: string, limit: number): Promise<ExamSession[]> {
+    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit });
+    return result.data;
+  }
+
   async getAnalytics(userId: string): Promise<Record<string, unknown>> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = result.data;
+    const all = await this.getSessionWindow(userId, 50);
 
-    if (sessions.length === 0) return { empty: true };
+    const personalPerformanceSessions = filterSessionsByTrustCapability(all, 'includedInPersonalPerformanceAnalytics');
+    const medicaScoreSessions = filterSessionsByTrustCapability(all, 'includedInMedicaScore');
+    const readinessSessions = filterSessionsByTrustCapability(all, 'includedInReadiness');
 
-    const subjects = aggregateBreakdown(sessions, 'subject_breakdown');
-    const systems = aggregateBreakdown(sessions, 'system_breakdown');
-    const weakAreas = detectWeakAreas(sessions);
-    const studyPriorities = buildStudyPriorities(sessions);
-    const mistakeDiagnoses = buildMistakeDiagnoses(sessions);
+    const counts = {
+      allSessionCount: all.length,
+      personalPerformanceSessionCount: personalPerformanceSessions.length,
+      medicaScoreEligibleSessionCount: medicaScoreSessions.length,
+      readinessEligibleSessionCount: readinessSessions.length,
+      unverifiedSessionCount: countByStatus(all, 'unverified_local'),
+      legacySessionCount: countByStatus(all, 'legacy_unverified'),
+    };
 
-    const totalQuestions = sessions.reduce((s, sess) => s + Object.keys(sess.answers).length, 0);
-    const totalCorrect = sessions.reduce((s, sess) => s + sess.score, 0);
+    if (personalPerformanceSessions.length === 0) {
+      return { empty: true, ...counts };
+    }
+
+    const subjects = aggregateBreakdown(personalPerformanceSessions, 'subject_breakdown');
+    const systems = aggregateBreakdown(personalPerformanceSessions, 'system_breakdown');
+    const weakAreas = detectWeakAreas(personalPerformanceSessions);
+    const studyPriorities = buildStudyPriorities(personalPerformanceSessions);
+    const mistakeDiagnoses = buildMistakeDiagnoses(personalPerformanceSessions);
+
+    const totalQuestions = personalPerformanceSessions.reduce((s, sess) => s + Object.keys(sess.answers).length, 0);
+    const totalCorrect = personalPerformanceSessions.reduce((s, sess) => s + sess.score, 0);
     const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
-    const scores = sessions.filter((s) => s.medica_score != null).map((s) => s.medica_score);
-    const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+
+    // Medica Score / readiness: standardized evidence only (server_issued).
+    // No eligible session means no evidence, not a score of zero.
+    //
+    // latestReadiness is the standardized "Step 1 Readiness" metric shown in
+    // the frontend (AnalyticsDashboard.jsx's Score Trajectory card) — it is
+    // deliberately distinct from ProgressTrackingService's mastery-derived
+    // "Concept Progress" metric, which may include client_selected_verified
+    // Practice/Coach activity. Field name unchanged for API stability; see
+    // Phase 1.2 report for the terminology split.
+    const scores = medicaScoreSessions.filter((s) => s.medica_score != null).map((s) => s.medica_score);
+    const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+    const latestMedicaScore = medicaScoreSessions.length > 0 ? (medicaScoreSessions[0]!.medica_score ?? null) : null;
+    const latestReadiness = readinessSessions.length > 0 ? (readinessSessions[0]!.readiness_label ?? null) : null;
 
     return {
       empty: false,
       overview: {
-        totalSessions: sessions.length,
+        totalSessions: personalPerformanceSessions.length,
+        ...counts,
         totalQuestions,
         totalCorrect,
         overallAccuracy,
         avgMedicaScore,
-        latestMedicaScore: sessions[0]?.medica_score ?? 0,
-        latestReadiness: sessions[0]?.readiness_label ?? 'N/A',
+        latestMedicaScore,
+        latestReadiness,
       },
       subjectBreakdown: subjects,
       systemBreakdown: systems,
@@ -247,32 +297,55 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Fire-and-forget daily snapshot (see routes/exams.ts). This table currently
+   * has no live reader anywhere in the app (frontend renders its own
+   * client-side analytics — see analyticsEngine.js) and `average_score` is a
+   * NOT NULL NUMERIC column with no nullable variant, so rather than invent a
+   * 0 for a user with no standardized evidence, the write is gated on having
+   * at least one Medica-Score-eligible (server_issued) session — the same
+   * "never fabricate a stored score" rule Part 5 requires for the live API,
+   * applied at the persistence layer. subject/system mastery and weak-area
+   * fields still draw from the broader personal-performance tier (verified
+   * client-selected content is real evidence for those), so a user with
+   * personal-performance evidence but zero standardized evidence still
+   * doesn't get a snapshot row at all today — a documented limitation of a
+   * feature nothing currently reads.
+   */
   async saveSnapshot(userId: string): Promise<void> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = result.data;
-    if (sessions.length === 0) return;
+    const all = await this.getSessionWindow(userId, 50);
+    const personalPerformanceSessions = filterSessionsByTrustCapability(all, 'includedInPersonalPerformanceAnalytics');
+    const medicaScoreSessions = filterSessionsByTrustCapability(all, 'includedInMedicaScore');
+    if (medicaScoreSessions.length === 0) return;
 
-    const subjects = aggregateBreakdown(sessions, 'subject_breakdown');
-    const systems = aggregateBreakdown(sessions, 'system_breakdown');
-    const scores = sessions.filter((s) => s.medica_score != null).map((s) => s.medica_score);
-    const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const subjects = aggregateBreakdown(personalPerformanceSessions, 'subject_breakdown');
+    const systems = aggregateBreakdown(personalPerformanceSessions, 'system_breakdown');
+    const scores = medicaScoreSessions.filter((s) => s.medica_score != null).map((s) => s.medica_score);
+    const avgMedicaScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 
     await this.analyticsRepo.upsert({
       user_id: userId,
       snapshot_date: new Date(),
-      total_sessions: sessions.length,
+      total_sessions: personalPerformanceSessions.length,
       average_score: avgMedicaScore,
       subject_mastery: Object.fromEntries(subjects.map((s) => [s.name, s.percentage])),
       system_mastery: Object.fromEntries(systems.map((s) => [s.name, s.percentage])),
-      weak_areas: detectWeakAreas(sessions),
-      study_priorities: buildStudyPriorities(sessions),
-      mistake_diagnoses: buildMistakeDiagnoses(sessions),
+      weak_areas: detectWeakAreas(personalPerformanceSessions),
+      study_priorities: buildStudyPriorities(personalPerformanceSessions),
+      mistake_diagnoses: buildMistakeDiagnoses(personalPerformanceSessions),
     });
   }
 
+  /**
+   * Cohort/benchmark comparison requires standardized evidence: a
+   * client-selected set (even fully verified) is not a representative sample
+   * to compare against a cohort, so it must not slip in merely because its
+   * mode happens to be 'exam' with 40 answered questions.
+   */
   async getBenchmark(userId: string): Promise<Record<string, unknown>> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 100 });
-    const examSessions = result.data.filter(
+    const all = await this.getSessionWindow(userId, 100);
+    const cohortEligible = filterSessionsByTrustCapability(all, 'includedInCohortComparison');
+    const examSessions = cohortEligible.filter(
       (s) => s.mode === 'exam' && Object.keys(s.answers).length === 40,
     );
 
@@ -309,9 +382,17 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Progress-over-time is a Medica Score trend — it must use the same
+   * standardized-evidence tier as Medica Score itself (see getAnalytics),
+   * not the broader personal-performance tier, or a burst of client-selected
+   * practice could manufacture an artificial "improvement" in the score
+   * trajectory.
+   */
   async getProgressGains(userId: string): Promise<unknown[]> {
-    const result = await this.sessionsRepo.findByUserId(userId, { page: 1, limit: 50 });
-    const sessions = [...result.data].reverse(); // chronological
+    const all = await this.getSessionWindow(userId, 50);
+    const eligible = filterSessionsByTrustCapability(all, 'includedInMedicaScore');
+    const sessions = [...eligible].reverse(); // chronological
     if (sessions.length < 2) return [];
 
     return sessions.slice(1).map((sess, i) => {

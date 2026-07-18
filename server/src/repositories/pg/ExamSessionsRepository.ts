@@ -19,6 +19,7 @@ interface SessionRow extends QueryResultRow {
   completed_at: Date;
   duration_seconds: number;
   difficulty: string;
+  integrity_status: ExamSession['integrity_status'];
 }
 
 function toSession(row: SessionRow): ExamSession {
@@ -38,6 +39,7 @@ function toSession(row: SessionRow): ExamSession {
     completed_at: row.completed_at,
     duration_seconds: Number(row.duration_seconds),
     difficulty: row.difficulty,
+    integrity_status: row.integrity_status,
   };
 }
 
@@ -89,8 +91,8 @@ export class PgExamSessionsRepository implements IExamSessionsRepository {
       `INSERT INTO exam_sessions
          (id, user_id, mode, questions, answers, score, percentage, medica_score,
           readiness_label, subject_breakdown, system_breakdown, missed_questions,
-          completed_at, duration_seconds, difficulty)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          completed_at, duration_seconds, difficulty, integrity_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         id,
@@ -108,6 +110,7 @@ export class PgExamSessionsRepository implements IExamSessionsRepository {
         session.completed_at,
         session.duration_seconds,
         session.difficulty,
+        session.integrity_status,
       ],
     );
     return toSession(res.rows[0]!);

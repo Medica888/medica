@@ -694,6 +694,15 @@ describe('ExamService — v8.2 canonical concept bridge', () => {
       id: 'q-canonical-001',
       canonicalConcepts: ['Acute Myocardial Infarction'],
     };
+    // Trust boundary (Phase 1): mastery only accrues for verifiable content.
+    // Seed the id as an authoritative bank match so this session classifies
+    // as client_selected_verified rather than unverified_local — this test's
+    // purpose is the concept-mapping bridge, not integrity classification
+    // (that has its own dedicated describe block below).
+    await questionsRepo.upsertByExternalId('q-canonical-001', {
+      subject: 'Cardiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'q-canonical-001', stem: sampleQuestion.text, options: sampleQuestion.options, correct: sampleQuestion.correct_answer },
+    });
 
     await service.createSession(
       'user-bridge-1',
@@ -724,6 +733,10 @@ describe('ExamService — v8.2 canonical concept bridge', () => {
       system: 'Cardiovascular',
       canonicalConcepts: ['Coronary Artery Disease'],
     };
+    await questionsRepo.upsertByExternalId('q-canonical-002', {
+      subject: 'Cardiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'q-canonical-002', stem: sampleQuestion.text, options: sampleQuestion.options, correct: sampleQuestion.correct_answer },
+    });
 
     await service.createSession(
       'user-bridge-2',
@@ -1212,5 +1225,183 @@ describe('ExamService — reserveGeneratedExamSnapshot', () => {
   it('returns reserved:false without throwing when there are no questions to store', async () => {
     const result = await service.reserveGeneratedExamSnapshot('user-1', 'f5555555-5555-4555-8555-555555555555', []);
     expect(result.reserved).toBe(false);
+  });
+});
+
+// ── Phase 1 — session integrity classification ─────────────────────────────────
+
+describe('ExamService — session integrity classification', () => {
+  let sessionsRepo: InMemoryExamSessionsRepository;
+  let attemptsRepo: InMemoryQuestionAttemptsRepository;
+  let questionsRepo: InMemoryQuestionsRepository;
+  let conceptsRepo: InMemoryConceptsRepository;
+  let questionConceptsRepo: InMemoryQuestionConceptsRepository;
+  let masteryRepo: InMemoryUserConceptMasteryRepository;
+  let reservationsRepo: InMemoryExamSessionReservationsRepository;
+  let service: ExamService;
+
+  beforeEach(() => {
+    sessionsRepo = new InMemoryExamSessionsRepository();
+    attemptsRepo = new InMemoryQuestionAttemptsRepository();
+    questionsRepo = new InMemoryQuestionsRepository();
+    conceptsRepo = new InMemoryConceptsRepository();
+    questionConceptsRepo = new InMemoryQuestionConceptsRepository();
+    masteryRepo = new InMemoryUserConceptMasteryRepository();
+    reservationsRepo = new InMemoryExamSessionReservationsRepository();
+    const conceptMapping = new ConceptMappingService(conceptsRepo, questionConceptsRepo);
+    const conceptMastery = new ConceptMasteryService(masteryRepo, questionConceptsRepo, conceptsRepo);
+    service = new ExamService(
+      sessionsRepo, attemptsRepo, questionsRepo, conceptMapping, conceptMastery, reservationsRepo,
+    );
+  });
+
+  it('classifies a session completed against a server_issued reservation as server_issued, and credits mastery', async () => {
+    const clientSessionId = 'a1111111-1111-4111-8111-111111111111';
+    const q = { ...sampleQuestion, canonicalConcepts: ['Acute Myocardial Infarction'] };
+    await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [q]);
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { [q.id]: 'Acute inferior MI' }),
+      mode: 'exam',
+      clientSessionId,
+    });
+
+    expect(session.integrity_status).toBe('server_issued');
+    expect((await masteryRepo.findByUserId('user-1')).length).toBeGreaterThan(0);
+  });
+
+  it('classifies a session completed against a client_selected reservation as client_selected_verified, and credits mastery', async () => {
+    await questionsRepo.upsertByExternalId('bank-q-client-sel', {
+      subject: 'Cardiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'bank-q-client-sel', stem: QUESTION_TEXT, options: ['A opt', 'B opt'], correct: 'A' },
+    });
+    const clientSessionId = 'a2222222-2222-4222-8222-222222222222';
+    const reserved = await service.reserveSession('user-1', { clientSessionId, questionIds: ['bank-q-client-sel'] });
+    expect(reserved.reserved).toBe(true);
+
+    const q = { id: 'bank-q-client-sel', text: 'client copy', options: ['A opt', 'B opt'], correct_answer: 'A opt' };
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { 'bank-q-client-sel': 'A' }),
+      mode: 'exam',
+      clientSessionId,
+    });
+
+    expect(session.integrity_status).toBe('client_selected_verified');
+  });
+
+  it('mode-blindness: a Practice-mode session with no reservation and no authoritative match classifies as unverified_local (mode does not launder trust) and withholds mastery credit', async () => {
+    const q = { ...sampleQuestion, canonicalConcepts: ['Acute Myocardial Infarction'] };
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { [q.id]: 'Acute inferior MI' }),
+      mode: 'practice',
+    });
+
+    expect(session.integrity_status).toBe('unverified_local');
+    expect(await masteryRepo.findByUserId('user-1')).toHaveLength(0);
+  });
+
+  it('mode-blindness: a Coach-mode session with no reservation and no authoritative match classifies as unverified_local', async () => {
+    const session = await service.createSession('user-1', {
+      ...makeInput([sampleQuestion], { [sampleQuestion.id]: 'Acute inferior MI' }),
+      mode: 'coach',
+    });
+
+    expect(session.integrity_status).toBe('unverified_local');
+  });
+
+  it('mode-blindness: an unverifiable question set submitted as exam vs practice vs coach receives the identical (unverified_local) classification — changing only the mode does not change integrity or mastery eligibility', async () => {
+    const q = { ...sampleQuestion, canonicalConcepts: ['Acute Myocardial Infarction'] };
+    const examSession = await service.createSession('user-mode-a', { ...makeInput([q], { [q.id]: 'Acute inferior MI' }), mode: 'exam' });
+    const practiceSession = await service.createSession('user-mode-b', { ...makeInput([q], { [q.id]: 'Acute inferior MI' }), mode: 'practice' });
+    const coachSession = await service.createSession('user-mode-c', { ...makeInput([q], { [q.id]: 'Acute inferior MI' }), mode: 'coach' });
+
+    expect(examSession.integrity_status).toBe('unverified_local');
+    expect(practiceSession.integrity_status).toBe('unverified_local');
+    expect(coachSession.integrity_status).toBe('unverified_local');
+    expect(await masteryRepo.findByUserId('user-mode-a')).toHaveLength(0);
+    expect(await masteryRepo.findByUserId('user-mode-b')).toHaveLength(0);
+    expect(await masteryRepo.findByUserId('user-mode-c')).toHaveLength(0);
+  });
+
+  it('a question set labeled practice/coach cannot gain STRONGER integrity than the identical content labeled exam: a full authoritative bank match yields client_selected_verified regardless of mode', async () => {
+    await questionsRepo.upsertByExternalId('bank-q-mode-blind', {
+      subject: 'Cardiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'bank-q-mode-blind', stem: QUESTION_TEXT, options: ['A opt', 'B opt'], correct: 'A' },
+    });
+    const q = { id: 'bank-q-mode-blind', text: 'client copy', options: ['A opt', 'B opt'], correct_answer: 'A opt' };
+
+    const examSession = await service.createSession('user-mode-d', { ...makeInput([q], { 'bank-q-mode-blind': 'A' }), mode: 'exam' });
+    const practiceSession = await service.createSession('user-mode-e', { ...makeInput([q], { 'bank-q-mode-blind': 'A' }), mode: 'practice' });
+
+    expect(examSession.integrity_status).toBe('client_selected_verified');
+    expect(practiceSession.integrity_status).toBe('client_selected_verified');
+  });
+
+  it('a real server-issued reservation yields server_issued regardless of the session mode it is later completed under (the ExamService-layer classifier is mode-agnostic, even though routes/ai.ts today only calls reserveGeneratedExamSnapshot for Exam mode)', async () => {
+    const clientSessionId = 'a9999999-9999-4999-8999-999999999999';
+    const q = { ...sampleQuestion, id: 'q-mode-agnostic-issuance' };
+    await service.reserveGeneratedExamSnapshot('user-1', clientSessionId, [q]);
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { [q.id]: 'Acute inferior MI' }),
+      mode: 'practice',
+      clientSessionId,
+    });
+
+    expect(session.integrity_status).toBe('server_issued');
+    expect((await masteryRepo.findByUserId('user-1')).length).toBeGreaterThan(0);
+  });
+
+  it('classifies an Exam-mode session with NO reservation and NO authoritative match as unverified_local, and withholds mastery credit', async () => {
+    const q = { ...sampleQuestion, canonicalConcepts: ['Acute Myocardial Infarction'] };
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { [q.id]: 'Acute inferior MI' }),
+      mode: 'exam',
+      // No clientSessionId — Exam mode is supposed to always reserve via
+      // applyExamStudentView; a completion with nothing to verify against
+      // (and no pre-existing authoritative bank match) cannot be proven
+      // server-issued or client-verified.
+    });
+
+    expect(session.integrity_status).toBe('unverified_local');
+    expect(await masteryRepo.findByUserId('user-1')).toHaveLength(0);
+  });
+
+  it('classifies an Exam-mode session with no reservation but a full authoritative bank match as client_selected_verified', async () => {
+    await questionsRepo.upsertByExternalId('bank-q-exam-noresv', {
+      subject: 'Cardiology', system: 'Cardiovascular', source: 'authored', bankStatus: 'approved',
+      body: { id: 'bank-q-exam-noresv', stem: QUESTION_TEXT, options: ['A opt', 'B opt'], correct: 'A' },
+    });
+    const q = { id: 'bank-q-exam-noresv', text: 'client copy', options: ['A opt', 'B opt'], correct_answer: 'A opt' };
+
+    const session = await service.createSession('user-1', {
+      ...makeInput([q], { 'bank-q-exam-noresv': 'A' }),
+      mode: 'exam',
+    });
+
+    expect(session.integrity_status).toBe('client_selected_verified');
+  });
+
+  it('a session that predates integrity classification retains its stored value unchanged when re-fetched (no reinterpretation)', async () => {
+    const legacy = await sessionsRepo.create({
+      user_id: 'user-1',
+      mode: 'exam',
+      questions: [],
+      answers: {},
+      score: 5,
+      percentage: 100,
+      medica_score: 90,
+      readiness_label: 'Strong',
+      subject_breakdown: {},
+      system_breakdown: {},
+      missed_questions: [],
+      completed_at: new Date(),
+      duration_seconds: 60,
+      difficulty: 'Balanced',
+      integrity_status: 'legacy_unverified',
+    });
+
+    const found = await sessionsRepo.findById(legacy.id);
+    expect(found!.integrity_status).toBe('legacy_unverified');
   });
 });

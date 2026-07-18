@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { ExamSessionReservation, Question } from '../../types/index.js';
+import type { ExamSessionReservation, ExamSessionReservationSource, Question } from '../../types/index.js';
 import type { IExamSessionReservationsRepository } from '../interfaces.js';
 
 function key(userId: string, clientSessionId: string): string {
@@ -10,7 +10,7 @@ export class InMemoryExamSessionReservationsRepository implements IExamSessionRe
   private store = new Map<string, ExamSessionReservation>();
 
   async create(
-    reservation: { userId: string; clientSessionId: string; questions: Question[] },
+    reservation: { userId: string; clientSessionId: string; questions: Question[]; source: ExamSessionReservationSource },
     _tx?: unknown,
   ): Promise<ExamSessionReservation> {
     const k = key(reservation.userId, reservation.clientSessionId);
@@ -22,6 +22,7 @@ export class InMemoryExamSessionReservationsRepository implements IExamSessionRe
       user_id: reservation.userId,
       client_session_id: reservation.clientSessionId,
       questions: reservation.questions,
+      source: reservation.source,
       created_at: new Date(),
     };
     this.store.set(k, created);

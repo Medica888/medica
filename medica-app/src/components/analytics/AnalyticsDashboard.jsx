@@ -181,13 +181,36 @@ export default function AnalyticsDashboard({ onNavigate }) {
                     Predicted score over {overview.totalSessions} session{overview.totalSessions !== 1 ? 's' : ''}
                   </div>
                 </div>
-                {overview.latestMedicaScore != null && (
+                {overview.latestMedicaScore != null ? (
                   <div className="an-traj-badge">
                     <span className="an-traj-score">{overview.latestMedicaScore}</span>
                     <span className="an-traj-badge-lbl">CURRENT</span>
                   </div>
+                ) : (
+                  <p className="an-intel-muted" data-testid="medica-score-unavailable">
+                    Medica Score not available yet — complete a standardized Step 1 exam block to establish your score.
+                  </p>
                 )}
               </div>
+
+              {/*
+                Step 1 Readiness: the standardized counterpart to Medica Score
+                above — both come from the same server_issued-only evidence
+                tier (see AnalyticsService.getAnalytics's overview.latestReadiness).
+                Kept as its own line, separate from Concept Progress (the
+                mastery-derived metric in the card on the right), so the two
+                "readiness" concepts are never presented as one thing.
+              */}
+              {overview.latestReadiness != null ? (
+                <p className="an-intel-muted" data-testid="step1-readiness-value">
+                  Step 1 Readiness: <strong>{overview.latestReadiness}</strong> — based on standardized, server-issued exam sessions.
+                </p>
+              ) : (
+                <p className="an-intel-muted" data-testid="step1-readiness-unavailable">
+                  Step 1 Readiness not available yet. Complete a standardized Step 1 exam block to establish this metric.
+                </p>
+              )}
+
               {trends.length >= 2 ? (
                 <div className="an-traj-chart-wrap">
                   <p className="sr-only">
@@ -466,6 +489,26 @@ const READINESS_STATUS_COLOR = {
   'Needs Intensive Review':  'var(--status-critical)',
 }
 
+// Display-only remap for the Concept Progress card. The backend's
+// ReadinessStatus enum/thresholds (used for scoring logic, DailyStudyPlan,
+// TopicReadiness, etc.) are untouched — 'Exam Ready' and 'Approaching
+// Readiness' are still the real underlying values. But showing those exact
+// words inside a card titled "CONCEPT PROGRESS" would recreate the exact
+// standardized-vs-mastery conflation this phase exists to remove, so only
+// the rendered text in this one card is translated to progress-oriented
+// language. Keyed by the raw status so color lookups above stay unaffected.
+const CONCEPT_PROGRESS_STATUS_TEXT = {
+  'Exam Ready':              'Strong Progress',
+  'Approaching Readiness':   'Approaching Target',
+  'Developing':              'Developing',
+  'Needs Intensive Review':  'Needs Review',
+}
+
+// Mastery-derived concept progress — may include eligible client_selected_verified
+// Practice/Coach activity (see ProgressTrackingService.getReadiness() on the backend).
+// Deliberately distinct from Step 1 Readiness (the standardized, server_issued-only
+// metric shown in the Score Trajectory card above) — never label this card "Readiness"
+// alone, and never imply it is standardized exam evidence.
 function ReadinessCard({ localPct, localRows, rdHook }) {
   const rd = rdHook.data
 
@@ -480,15 +523,16 @@ function ReadinessCard({ localPct, localRows, rdHook }) {
   const displayPct   = rd ? rd.overallReadiness : localPct
   const statusLabel  = rd?.status ?? null
   const statusColor  = statusLabel ? (READINESS_STATUS_COLOR[statusLabel] ?? '#2E64C8') : null
-  const metricLabel  = rd?.readinessMetric ?? 'Concept Readiness'
+  const statusText   = statusLabel ? (CONCEPT_PROGRESS_STATUS_TEXT[statusLabel] ?? statusLabel) : null
+  const metricLabel  = rd?.readinessMetric ?? 'Concept Progress'
   const totalConcepts = rd ? (rd.distribution.priority + rd.distribution.focus + rd.distribution.reinforced + rd.distribution.ontrack) : null
 
   return (
     <div className="an-readiness-card">
       <div className="an-readiness-label">{metricLabel.toUpperCase()}</div>
-      <div className="an-readiness-pct">
+      <div className="an-readiness-pct" data-testid="concept-progress-pct">
         {displayPct}<span className="an-readiness-pct-unit">%</span>
-        <span className="an-readiness-ready"> readiness</span>
+        <span className="an-readiness-ready"> progress</span>
       </div>
 
       {statusLabel && (
@@ -496,12 +540,16 @@ function ReadinessCard({ localPct, localRows, rdHook }) {
           <span
             className="an-readiness-badge"
             style={{ borderColor: statusColor, color: statusColor }}
-            aria-label={`Readiness status: ${statusLabel}`}
+            aria-label={`Progress status: ${statusText}`}
           >
-            {statusLabel}
+            {statusText}
           </span>
         </div>
       )}
+
+      <p className="an-readiness-hint" data-testid="concept-progress-distinction">
+        Your progress across studied systems and concepts, based on eligible Exam, Practice, and Coach activity — separate from standardized Step 1 Readiness.
+      </p>
 
       {totalConcepts != null && totalConcepts > 0 && totalConcepts < 20 && (
         <p className="an-readiness-hint">

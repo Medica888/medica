@@ -1,6 +1,7 @@
 import { normalizeTopicForAnalytics } from './topicNormalizer.js'
 import { getRangeStartDate, isTimestampInRange } from './dateRange.js'
 import { normalizeSubjectLabel, normalizeSystemLabel } from './usmleTaxonomy.js'
+import { filterSessionsByTrustCapability } from './sessionTrust.js'
 
 export { getRangeStartDate }
 
@@ -88,23 +89,46 @@ export function buildAnalyticsData(storageData, range = 'all', now = new Date())
     return { empty: true, rangeEmpty: range !== 'all' && allSessions.length > 0 }
   }
 
-  const overview = _computeOverview(sessions)
-  const subjectBreakdown = _aggregateSubjects(sessions)
-  const systemBreakdown = _aggregateSystems(sessions)
-  const usmleContentBreakdown = _aggregateNamedBreakdown(sessions, 'usmleContentBreakdown')
-  const physicianTaskBreakdown = _aggregateNamedBreakdown(sessions, 'physicianTaskBreakdown')
-  const topicBreakdown = _aggregateTopics(sessions)
+  // Trust boundary (Phase 1.1): personal history (`sessions`, returned below)
+  // may include every session regardless of integrity — it is never filtered,
+  // hidden, or deleted. Beyond that, eligibility is metric-specific rather
+  // than one broad "trusted" flag:
+  //  - personalPerformanceSessions: verified evidence of the learner's own
+  //    performance (server_issued OR client_selected_verified). Feeds
+  //    subject/system/topic breakdowns, weak areas, study priorities, and
+  //    mistake patterns — genuine personal signal even when the learner (not
+  //    the server) picked the questions.
+  //  - medicaScoreSessions / readinessSessions: standardized evidence only
+  //    (server_issued). A verified-but-client-selected session is not a
+  //    representative sample, so it must not move the comparable Medica
+  //    Score or readiness number, even though it's fully genuine data.
+  // See sessionTrust.js for the shared capability policy.
+  const personalPerformanceSessions = filterSessionsByTrustCapability(sessions, 'includedInPersonalPerformanceAnalytics')
+  const medicaScoreSessions = filterSessionsByTrustCapability(sessions, 'includedInMedicaScore')
+  const readinessSessions = filterSessionsByTrustCapability(sessions, 'includedInReadiness')
+
+  const overview = _computeOverview(sessions, personalPerformanceSessions, medicaScoreSessions, readinessSessions)
+  const subjectBreakdown = _aggregateSubjects(personalPerformanceSessions)
+  const systemBreakdown = _aggregateSystems(personalPerformanceSessions)
+  const usmleContentBreakdown = _aggregateNamedBreakdown(personalPerformanceSessions, 'usmleContentBreakdown')
+  const physicianTaskBreakdown = _aggregateNamedBreakdown(personalPerformanceSessions, 'physicianTaskBreakdown')
+  const topicBreakdown = _aggregateTopics(personalPerformanceSessions)
   const weaknesses = _detectWeaknesses(subjectBreakdown, systemBreakdown, topicBreakdown, usmleContentBreakdown, physicianTaskBreakdown)
-  const mistakeDiagnosis = _diagnoseMistakes(sessions)
+  const mistakeDiagnosis = _diagnoseMistakes(personalPerformanceSessions)
   const studyPrescription = _prescribeStudy(weaknesses, overview)
-  const sessionComparison = _compareSessions(sessions)
-  const trends = _computeTrends(sessions)
-  const flashcardSummary = _buildFlashcardSummary(sessions)
-  const repeatedMistakes = _detectRepeatedMistakes(sessions)
-  const repeatedPatterns = _detectRepeatedPatterns(sessions)
-  const improvingTopics = _detectImprovingTopics(sessions)
+  // Score trajectory / session-to-session comparison is a Medica Score
+  // trend — it must use the same standardized-evidence tier as Medica Score
+  // itself, not the broader personal-performance tier.
+  const sessionComparison = _compareSessions(medicaScoreSessions)
+  const trends = _computeTrends(medicaScoreSessions)
+  const flashcardSummary = _buildFlashcardSummary(personalPerformanceSessions)
+  const repeatedMistakes = _detectRepeatedMistakes(personalPerformanceSessions)
+  const repeatedPatterns = _detectRepeatedPatterns(personalPerformanceSessions)
+  const improvingTopics = _detectImprovingTopics(personalPerformanceSessions)
   const flashcardsData = _buildFlashcardsData(flashcards)
   const flashcardMastery = _buildFlashcardMastery(flashcardReviewEvents)
+  // Study streak is engagement (did the student show up today), not a
+  // performance calculation — computed from the full, unfiltered history.
   const studyStreak = _computeStreak(sessions)
   const nextSession = _recommendNextSession(weaknesses, overview, topicBreakdown, flashcardMastery.weakConcepts)
 
@@ -150,28 +174,40 @@ function _buildSessions(rawHistory, lastPractice, lastCoach) {
   return sessions.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
 }
 
-function _computeOverview(sessions) {
-  const totalSessions = sessions.length
-  const totalQuestions = sessions.reduce((sum, s) => sum + (s.total || 0), 0)
-  const totalCorrect = sessions.reduce((sum, s) => sum + (s.correct || 0), 0)
+function _computeOverview(allSessions, personalPerformanceSessions, medicaScoreSessions, readinessSessions) {
+  const totalSessions = personalPerformanceSessions.length
+  const totalQuestions = personalPerformanceSessions.reduce((sum, s) => sum + (s.total || 0), 0)
+  const totalCorrect = personalPerformanceSessions.reduce((sum, s) => sum + (s.correct || 0), 0)
   const overallAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0
 
-  const scores = sessions.filter(s => s.medicaScore != null).map(s => s.medicaScore)
-  const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+  // Medica Score / readiness: standardized evidence only. No eligible
+  // session means no evidence — null, never an invented 0 or 'N/A'.
+  //
+  // latestReadiness is "Step 1 Readiness" in the UI (AnalyticsDashboard.jsx's
+  // Score Trajectory card) — deliberately distinct from the mastery-derived
+  // "Concept Progress" card (ReadinessCard/rdHook), which may include
+  // eligible client_selected_verified Practice/Coach activity. Field name
+  // kept for API/consumer stability; see Phase 1.2 report.
+  const scores = medicaScoreSessions.filter(s => s.medicaScore != null).map(s => s.medicaScore)
+  const avgMedicaScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
 
-  const latest = sessions[0]
-  const latestMedicaScore = latest?.medicaScore ?? 0
-  const latestReadiness = latest?.readinessLabel ?? 'N/A'
+  const latestScoreSession = medicaScoreSessions[0]
+  const latestMedicaScore = latestScoreSession ? (latestScoreSession.medicaScore ?? null) : null
 
-  const practiceSessions = sessions.filter(s => s.mode === 'practice')
-  const coachSessions    = sessions.filter(s => s.mode === 'coach')
-  const examSessions     = sessions.filter(s => s.mode === 'exam')
+  const latestReadinessSession = readinessSessions[0]
+  const latestReadiness = latestReadinessSession ? (latestReadinessSession.readinessLabel || null) : null
+
+  const practiceSessions = personalPerformanceSessions.filter(s => s.mode === 'practice')
+  const coachSessions    = personalPerformanceSessions.filter(s => s.mode === 'coach')
+  const examSessions     = personalPerformanceSessions.filter(s => s.mode === 'exam')
 
   const _acc = (arr) => {
     const c = arr.reduce((sum, s) => sum + (s.correct || 0), 0)
     const t = arr.reduce((sum, s) => sum + (s.total || 0), 0)
     return t > 0 ? Math.round((c / t) * 100) : null
   }
+
+  const _countByStatus = (status) => allSessions.filter(s => s.integrityStatus === status).length
 
   return {
     totalSessions,
@@ -187,6 +223,13 @@ function _computeOverview(sessions) {
     practiceAccuracy: _acc(practiceSessions),
     coachAccuracy:    _acc(coachSessions),
     examAccuracy:     _acc(examSessions),
+    // Unambiguous counts — never call a trusted-only count "total sessions".
+    allSessionCount: allSessions.length,
+    personalPerformanceSessionCount: personalPerformanceSessions.length,
+    medicaScoreEligibleSessionCount: medicaScoreSessions.length,
+    readinessEligibleSessionCount: readinessSessions.length,
+    unverifiedSessionCount: _countByStatus('unverified_local'),
+    legacySessionCount: _countByStatus('legacy_unverified'),
   }
 }
 

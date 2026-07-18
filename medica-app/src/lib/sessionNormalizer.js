@@ -81,6 +81,7 @@ export function normalizeBackendSession(s) {
     percentage:            s.percentage ?? 0,
     medicaScore:           s.medica_score ?? 0,
     readinessLabel:        s.readiness_label ?? '',
+    integrityStatus:       s.integrity_status ?? 'legacy_unverified',
     subjectBreakdown:      _toArray(s.subject_breakdown),
     systemBreakdown:       _toArray(s.system_breakdown),
     missedQuestions:       Array.isArray(s.missed_questions) ? s.missed_questions : [],

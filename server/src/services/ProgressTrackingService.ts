@@ -202,6 +202,14 @@ export class ProgressTrackingService {
    *   confidence  × 0.20
    *   trend       × 0.15   (improvement rate, normalized to ±10%/session band)
    *   consistency × 0.15   (fraction of concepts NOT in priority tier)
+   *
+   * Mastery-derived concept progress — not standardized Step 1 readiness.
+   * UserConceptMastery rows include eligible client_selected_verified
+   * Practice/Coach activity (see sessionIntegrity.ts), so this score can move
+   * from self-selected practice alone. Displayed to users as "Concept
+   * Progress"; the separate standardized metric (AnalyticsService's
+   * overview.latestReadiness, server_issued sessions only) is displayed as
+   * "Step 1 Readiness". See Phase 1.2 report for the full terminology split.
    */
   async getReadiness(userId: string, prefetchedRows?: UserConceptMastery[]): Promise<ReadinessScore> {
     const [rows, trend] = await Promise.all([
@@ -212,7 +220,7 @@ export class ProgressTrackingService {
     const empty: ReadinessScore = {
       overallReadiness: 0,
       status:           'Needs Intensive Review',
-      label:            'Concept Readiness',
+      label:            'Concept Progress',
       components:       { mastery: 0, confidence: 0, trend: 0, consistency: 0 },
       distribution:     { priority: 0, focus: 0, reinforced: 0, ontrack: 0 },
     };
@@ -282,7 +290,7 @@ export class ProgressTrackingService {
       return {
         overallReadiness: 0,
         status: 'Needs Intensive Review',
-        label: 'Concept Readiness',
+        label: 'Concept Progress',
         components: {
           mastery: 0,
           confidence: 0,
@@ -328,7 +336,7 @@ export class ProgressTrackingService {
     return {
       overallReadiness: conceptReadiness,
       status: conceptStatus,
-      label: 'Concept Readiness',
+      label: 'Concept Progress',
       components: {
         mastery: round4(readinessMastery * 45),
         confidence: round4(legacyInternal.components.confidence),
