@@ -3,6 +3,7 @@ import { buildAnalyticsData } from '../lib/analyticsEngine'
 import { getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
 import { DEFAULT_CONFIG, STANDARDIZED_STEP1_BLOCK, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
 import { useSessionHistory } from '../hooks/useSessionHistory'
+import MedicaLogo from './brand/MedicaLogo'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -193,7 +194,7 @@ export default function Dashboard({ onNavigate }) {
         <section className="db-welcome">
           <div className="db-welcome-text">
             <div className="db-welcome-brand">
-              <IconMedicaShield />
+              <MedicaLogo size={20} tone="deep" wordmark={false} />
               <span className="db-eyebrow">MEDICA · STEP 1 MASTERY ENGINE</span>
             </div>
             <h1 className="db-heading">{getGreeting()} — let's get to work.</h1>
@@ -522,25 +523,6 @@ function SnapCard({ value, label, accent }) {
       <div className="db-snap-value">{value}</div>
       <div className="db-snap-label">{label}</div>
     </div>
-  )
-}
-
-function IconMedicaShield() {
-  return (
-    <svg width="18" height="20" viewBox="0 0 28 32" fill="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="db-shield-lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#2A82E0" />
-          <stop offset="1" stopColor="#1250A0" />
-        </linearGradient>
-      </defs>
-      <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#db-shield-lg)" />
-      <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" stroke="rgba(255,255,255,.15)" strokeWidth=".6" fill="none" />
-      <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white" />
-      <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white" />
-      <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-      <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-    </svg>
   )
 }
 

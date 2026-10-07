@@ -791,7 +791,6 @@ export default function App() {
       <Sidebar
         activeNav={selectedSkill ? null : activeNav}
         onNav={handleNav}
-        onHome={handleHome}
         flashcardsDue={flashcardsDue}
         authUser={authUser}
       />

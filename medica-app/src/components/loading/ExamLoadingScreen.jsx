@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { getGenerationTimeoutMs, isHardMedicalReviewGeneration } from '../../lib/ai/generateAIQuestions'
 import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
+import MedicaLogo from '../brand/MedicaLogo'
 
 const STAGES = [
   'Analyzing your configuration',
@@ -124,23 +125,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
 
         {/* Header row */}
         <div className="els-top">
-          <div className="els-logo">
-            <svg width="20" height="23" viewBox="0 0 28 32" fill="none" aria-hidden="true">
-              <defs>
-                <linearGradient id="els-lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#2A82E0" />
-                  <stop offset="1" stopColor="#1250A0" />
-                </linearGradient>
-              </defs>
-              <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#els-lg)" />
-              <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" stroke="rgba(255,255,255,.12)" strokeWidth=".6" fill="none" />
-              <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white" />
-              <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white" />
-              <path d="M10 13.5c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-              <path d="M10 18c0 0 1.8 1.8 4 0 2.2 1.8 4 0 4 0" stroke="white" strokeWidth="1.1" strokeLinecap="round" fill="none" />
-            </svg>
-            <span className="els-logo-text">MEDICA</span>
-          </div>
+          <MedicaLogo size={23} tone="deep" />
           <div className="els-mode-badge" data-mode={config.mode}>{modeLabel} Mode</div>
         </div>
 

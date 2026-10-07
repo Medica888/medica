@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import MedicaLogo from './brand/MedicaLogo'
 
 export default function Header({ onHome, pageTitle, readinessStatus }) {
   const [dark, setDark] = useState(() => {
@@ -15,19 +16,9 @@ export default function Header({ onHome, pageTitle, readinessStatus }) {
 
   return (
     <header className="header">
-      {/* Left - compact wordmark (home button) */}
-      <button className="hdr-home" onClick={onHome} aria-label="Go to dashboard">
-        <svg width="16" height="18" viewBox="0 0 28 32" fill="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="hdr-lg" x1="14" y1="0" x2="14" y2="32" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#5FA8FF" />
-              <stop offset="1" stopColor="#2A6FCF" />
-            </linearGradient>
-          </defs>
-          <path d="M14 .5L27.5 5.2V16C27.5 24.5 21.5 30.2 14 32.5C6.5 30.2 .5 24.5 .5 16V5.2L14 .5Z" fill="url(#hdr-lg)" />
-          <rect x="13.2" y="9.5" width="1.6" height="14" rx=".8" fill="white" />
-          <path d="M14 9.5C14 9.5 11.2 7.2 11.8 4.8C12.2 3.2 14 1.8 14 1.8s1.8 1.4 2.2 3c.6 2.4-2.2 4.7-2.2 4.7Z" fill="white" />
-        </svg>
+      {/* Left - Medica logo (home button) */}
+      <button className="hdr-home" onClick={onHome} aria-label="Medica — go to dashboard">
+        <MedicaLogo size={26} tagline="Step 1 Mastery" />
       </button>
 
       {/* Divider */}
