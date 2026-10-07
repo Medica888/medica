@@ -1,4 +1,10 @@
-import { MODE_FEATURES, getDifficultyDisplayLabel, getSystemLabel, isStandardized40QuestionBlock } from '../../lib/quizTypes'
+import {
+  STEP1_BLOCK_MINUTES,
+  getDifficultyDisplayLabel,
+  getModeFeatures,
+  getSystemLabel,
+  isStandardized40QuestionBlock,
+} from '../../lib/quizTypes'
 
 const MODE_NOTES = {
   exam:     (n) => `This ${n}-question timed block simulates board-style USMLE testing conditions.`,
@@ -11,10 +17,10 @@ export default function LivePreview({ config }) {
   const { mode, subject, system, topic, questionCount, difficulty } = config
   const timed    = mode === 'exam'
   const standardized = isStandardized40QuestionBlock(config)
-  const features = MODE_FEATURES[mode] || []
+  const features = getModeFeatures(config)
 
   const modeLabel = { exam: 'Exam', practice: 'Practice', coach: 'Coach' }[mode]
-  const timeLabel = standardized ? '30 min' : (timed ? `${questionCount} min` : 'No time limit')
+  const timeLabel = standardized ? `${STEP1_BLOCK_MINUTES} min` :(timed ? `${questionCount} min` : 'No time limit')
   const formatLabel = standardized ? 'Step 1 Block' : 'Custom Set'
   const noteText  = (MODE_NOTES[mode] ?? MODE_NOTES.exam)(questionCount)
 

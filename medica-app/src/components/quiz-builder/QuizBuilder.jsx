@@ -4,6 +4,8 @@ import { useAuthState } from '../../hooks/useAuthState'
 import {
   DEFAULT_CONFIG,
   STANDARDIZED_STEP1_BLOCK,
+  STEP1_BLOCK_MINUTES,
+  STEP1_BLOCK_QUESTIONS,
   isStandardized40QuestionBlock,
   normalizeDifficultyForMode,
   normalizeQuizConfigForGeneration,
@@ -201,12 +203,12 @@ export default function QuizBuilder({ onStart, generationError = null, initialMo
                 <div>
                   <div className="qb-locked-title">Step 1 Block</div>
                   <div className="qb-locked-desc">
-                    Uses the 20-question format and a balanced mix of Step 1 content areas.
+                    Uses the {STEP1_BLOCK_QUESTIONS}-question format and a balanced mix of Step 1 content areas.
                   </div>
                   <div className="qb-locked-pills">
                     <span className="qb-locked-pill">Exam Mode</span>
-                    <span className="qb-locked-pill">20 Questions</span>
-                    <span className="qb-locked-pill">30 Minutes</span>
+                    <span className="qb-locked-pill">{STEP1_BLOCK_QUESTIONS} Questions</span>
+                    <span className="qb-locked-pill">{STEP1_BLOCK_MINUTES} Minutes</span>
                     <span className="qb-locked-pill">All Subjects</span>
                     <span className="qb-locked-pill">All Systems</span>
                     <span className="qb-locked-pill">Balanced Content Areas</span>

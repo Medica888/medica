@@ -668,6 +668,7 @@ describe('App quiz phase routing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Step 1 Block' }))
     expect(await screen.findByText('Quiz Builder Mock')).toBeInTheDocument()
+    expect(screen.getByTestId('header')).toHaveTextContent('Session Builder')
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Exam Flow' }))
     expect(await screen.findByText(/Loading Mock ready/)).toBeInTheDocument()

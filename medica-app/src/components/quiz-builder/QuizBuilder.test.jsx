@@ -104,6 +104,8 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     expect(screen.getByText('20 Questions')).toBeInTheDocument()
     expect(screen.getByText('30 Minutes')).toBeInTheDocument()
     expect(screen.getByText('Balanced Content Areas')).toBeInTheDocument()
+    expect(screen.getByText('1.5 minutes / question')).toBeInTheDocument()
+    expect(screen.queryByText('1 minute / question')).not.toBeInTheDocument()
     expect(screen.getByText('Step 1 Block uses Exam mode.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Exam' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Practice' })).toBeDisabled()
@@ -144,4 +146,3 @@ describe('QuizBuilder current USMLE Step 1 preset', () => {
     expect(screen.getByText('Harder questions with deep teaching, traps, and weak-spot repair.')).toBeInTheDocument()
   })
 })
-

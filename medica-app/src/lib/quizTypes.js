@@ -116,6 +116,9 @@ export const STANDARDIZED_STEP1_BLOCK = 'standardized-step1-block-2026'
 // migrate cleanly to the current USMLE delivery format.
 export const STANDARDIZED_40Q_BLOCK = 'standardized-40-question-block'
 
+export const STEP1_BLOCK_QUESTIONS = 20
+export const STEP1_BLOCK_MINUTES = 30
+
 export function isStandardized40QuestionBlock(config) {
   return [STANDARDIZED_STEP1_BLOCK, STANDARDIZED_40Q_BLOCK].includes(config?.blockType)
 }
@@ -125,7 +128,7 @@ export function normalizeQuizConfigForGeneration(config) {
   return {
     ...config,
     mode: 'exam',
-    questionCount: 20,
+    questionCount: STEP1_BLOCK_QUESTIONS,
     subject: 'All Subjects',
     system: 'All Systems',
     topic: '',
@@ -153,10 +156,12 @@ export const MODES = [
   },
 ]
 
+const EXAM_PACE_FEATURE = '1 minute / question'
+
 export const MODE_FEATURES = {
   exam: [
     'Timed block',
-    '1 minute / question',
+    EXAM_PACE_FEATURE,
     'No explanations until submit',
     'Mark / skip / review',
   ],
@@ -174,6 +179,23 @@ export const MODE_FEATURES = {
     'Reference-style guide',
     'Flashcards',
   ],
+}
+
+/** Feature list for the preview; the Step 1 block replaces the default exam pace with its own. */
+export function getModeFeatures(config) {
+  const features = MODE_FEATURES[config?.mode] || []
+  if (!isStandardized40QuestionBlock(config)) return features
+  const minutesPerQuestion = STEP1_BLOCK_MINUTES / STEP1_BLOCK_QUESTIONS
+  return features.map(feature =>
+    feature === EXAM_PACE_FEATURE ? `${minutesPerQuestion} minutes / question` : feature,
+  )
+}
+
+/** Exam countdown length in seconds for a session config and question count. */
+export function getExamDurationSeconds(config, questionCount) {
+  return isStandardized40QuestionBlock(config)
+    ? STEP1_BLOCK_MINUTES * 60
+    : questionCount * 60
 }
 
 /** @type {QuizConfig} */

@@ -199,7 +199,7 @@ export default function App() {
   const pageTitle = useMemo(() => {
     const map = {
       dashboard:          'Mission Control',
-      'create-quiz':      'Build Block',
+      'create-quiz':      'Session Builder',
       qbank:              'QBank',
       flashcards:         'Flashcards',
       analytics:          'Analytics',
