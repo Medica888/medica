@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { getGenerationTimeoutMs, isHardMedicalReviewGeneration } from '../../lib/ai/generateAIQuestions'
 import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
-import MedicaLogo from '../brand/MedicaLogo'
+import logoUrl from '../../assets/medica-logo.png'
 
 const STAGES = [
   'Analyzing your configuration',
@@ -125,7 +125,7 @@ export default function ExamLoadingScreen({ config, session, onComplete, onError
 
         {/* Header row */}
         <div className="els-top">
-          <MedicaLogo size={23} tone="deep" />
+          <img className="els-logo" src={logoUrl} alt="MEDICA — Medical Education Centre" />
           <div className="els-mode-badge" data-mode={config.mode}>{modeLabel} Mode</div>
         </div>
 

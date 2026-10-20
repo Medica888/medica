@@ -549,7 +549,7 @@
 
 .els-overlay {
   position: absolute; inset: 0;
-  background: #060C17;
+  background: #002247;
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
   animation: els-fadein .3s ease;
@@ -694,3 +694,5 @@
 }
 .els-err-btn.secondary:hover { border-color: #3D5C7A; color: #98B0CA; }
 
+
+.els-logo { display: block; height: 34px; width: auto; }

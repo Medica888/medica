@@ -3,7 +3,6 @@ import { buildAnalyticsData } from '../lib/analyticsEngine'
 import { getFlashcards, getFlashcardReviewEvents, getLastPracticeResults, getLastCoachResults, saveLastQuizConfig, clearLastQuizConfig } from '../lib/storage'
 import { DEFAULT_CONFIG, STANDARDIZED_STEP1_BLOCK, SUBJECTS, SYSTEMS, getDifficultyDisplayLabel } from '../lib/quizTypes'
 import { useSessionHistory } from '../hooks/useSessionHistory'
-import MedicaLogo from './brand/MedicaLogo'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -194,7 +193,6 @@ export default function Dashboard({ onNavigate }) {
         <section className="db-welcome">
           <div className="db-welcome-text">
             <div className="db-welcome-brand">
-              <MedicaLogo size={20} tone="deep" wordmark={false} />
               <span className="db-eyebrow">MEDICA · STEP 1 MASTERY ENGINE</span>
             </div>
             <h1 className="db-heading">{getGreeting()} — let's get to work.</h1>

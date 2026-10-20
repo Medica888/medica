@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import MedicaLogo from './brand/MedicaLogo'
+import logoUrl from '../assets/medica-logo.png'
 
 export default function Header({ onHome, pageTitle, readinessStatus }) {
   const [dark, setDark] = useState(() => {
@@ -18,7 +18,7 @@ export default function Header({ onHome, pageTitle, readinessStatus }) {
     <header className="header">
       {/* Left - Medica logo (home button) */}
       <button className="hdr-home" onClick={onHome} aria-label="Medica — go to dashboard">
-        <MedicaLogo size={26} tagline="Step 1 Mastery" />
+        <img className="hdr-logo" src={logoUrl} alt="MEDICA — Medical Education Centre" />
       </button>
 
       {/* Divider */}

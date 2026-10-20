@@ -2,14 +2,14 @@
 :root {
   --bg:         #EEF3FA;
   --card:       #FFFFFF;
-  --nav:        #080F1C;
-  --nav2:       #0D1729;
-  --nav-line:   rgba(255,255,255,0.06);
+  --nav:        #19375F;
+  --nav2:       #002247;
+  --nav-line:   rgba(255,255,255,0.12);
   --nav-hover:  rgba(255,255,255,0.06);
   --nav-active: rgba(24,110,210,0.22);
 
-  --blue:       #1769C8;
-  --blue-h:     #1359AA;
+  --blue:       #00519B;
+  --blue-h:     #003F7A;
   --blue-10:    #E6F0FB;
   --blue-20:    #C8DEFA;
   --blue-glow:  rgba(23,105,200,0.28);
@@ -40,24 +40,24 @@
   --r-lg: 16px;
   --r-xl: 20px;
   --sidebar: 222px;
-  --hdr: 54px;
+  --hdr: 64px;
 }
 
 /* -- DARK MODE TOKENS ---------------------------------------------- */
 .dark {
-  --bg:         #07111F;
-  --card:       #0F1C2E;
-  --nav:        #050D18;
-  --nav2:       #081422;
-  --nav-line:   rgba(148,163,184,0.10);
+  --bg:         #001B3A;
+  --card:       #0A2A4F;
+  --nav:        #002247;
+  --nav2:       #001B3A;
+  --nav-line:   rgba(255,255,255,0.12);
   --nav-hover:  rgba(148,163,184,0.07);
-  --nav-active: rgba(95,168,255,0.16);
+  --nav-active: rgba(71,153,214,0.20);
 
-  --blue:    #5FA8FF;
-  --blue-h:  #4A96F0;
-  --blue-10: rgba(95,168,255,0.12);
-  --blue-20: rgba(95,168,255,0.22);
-  --blue-glow: rgba(95,168,255,0.22);
+  --blue:    #4799D6;
+  --blue-h:  #5AA7E2;
+  --blue-10: rgba(71,153,214,0.14);
+  --blue-20: rgba(71,153,214,0.24);
+  --blue-glow: rgba(71,153,214,0.22);
 
   --t1: #EEF5FF;
   --t2: #B7C7DA;
@@ -114,6 +114,7 @@ html, body, #root {
   cursor: pointer; transition: opacity .14s;
 }
 .hdr-home:hover { opacity: .8; }
+.hdr-logo { display: block; height: 46px; width: auto; }
 .hdr-home:focus-visible { outline: 2px solid var(--blue); outline-offset: -4px; border-radius: 6px; }
 
 .medica-logo { display: inline-flex; align-items: center; gap: 10px; }
