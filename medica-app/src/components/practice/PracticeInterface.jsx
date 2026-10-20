@@ -28,6 +28,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const [openDrawer, setOpenDrawer]     = useState(null)
   const [notes, setNotes]               = useState(() => ({ ...(initialSession.notes || {}) }))
   const [highlights, setHighlights]     = useState(() => ({ ...(initialSession.highlights || {}) }))
+  const [eliminated, setEliminated]   = useState(() => ({ ...(initialSession.eliminated || {}) }))
   const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
 
   const questions  = session.questions
@@ -38,12 +39,21 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const isLastQ    = currentIndex === totalQ - 1
 
   useEffect(() => {
-    saveQuizSession({ ...session, answers, currentIndex, revealed, notes, highlights })
-  }, [answers, currentIndex, revealed, notes, highlights, session])
+    saveQuizSession({ ...session, answers, currentIndex, revealed, notes, highlights, eliminated })
+  }, [answers, currentIndex, revealed, notes, highlights, eliminated, session])
 
   const handleAnswer = (letter) => {
     if (revealed[question.id]) return
     setAnswers(prev => ({ ...prev, [question.id]: letter }))
+    setEliminated(prev => ({ ...prev, [question.id]: (prev[question.id] || []).filter(l => l !== letter) }))
+  }
+
+  const handleToggleEliminate = (letter) => {
+    setEliminated(prev => {
+      const current = prev[question.id] || []
+      const next = current.includes(letter) ? current.filter(l => l !== letter) : [...current, letter]
+      return { ...prev, [question.id]: next }
+    })
   }
 
   const handleCheckAnswer = () => {
@@ -60,7 +70,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   }
 
   const handleFinish = () => {
-    const sessionWithAnswers = { ...session, answers, currentIndex, revealed, notes, highlights }
+    const sessionWithAnswers = { ...session, answers, currentIndex, revealed, notes, highlights, eliminated }
     const results = calculatePracticeResults(sessionWithAnswers)
     onComplete(results, sessionWithAnswers)
   }
@@ -131,6 +141,8 @@ export default function PracticeInterface({ session: initialSession, onComplete,
             openDrawer={openDrawer}
             onToggle={(d) => setOpenDrawer(prev => prev === d ? null : d)}
             hasNotes={!!notes[question.id]}
+            eliminated={eliminated[question.id] || []}
+            onToggleEliminate={handleToggleEliminate}
           />
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import PracticeQuestion from './PracticeQuestion'
 
 vi.mock('../../lib/storage', () => ({
@@ -135,5 +135,40 @@ describe('PracticeQuestion — normalized option state (coloring)', () => {
     })
     expect(container.querySelector('.pi-option.wrong')).toBeNull()
     expect(container.querySelector('.pi-option.correct')).toBeTruthy()
+  })
+})
+
+// ── Cross-out (eliminate) ─────────────────────────────────────────────────────
+
+describe('PracticeQuestion — cross out options', () => {
+  const base = { question: makeQ(), questionNumber: 1, answered: null, revealed: false, onAnswer: NOOP, onCheckAnswer: NOOP }
+
+  it('calls onToggleEliminate with the option letter', () => {
+    const onToggleEliminate = vi.fn()
+    setup({ ...base, onToggleEliminate })
+    fireEvent.click(screen.getByRole('button', { name: 'Cross out choice B' }))
+    expect(onToggleEliminate).toHaveBeenCalledWith('B')
+  })
+
+  it('shows eliminated options as restorable and marks them struck', () => {
+    setup({ ...base, eliminated: ['C'], onToggleEliminate: NOOP })
+    const restore = screen.getByRole('button', { name: 'Restore choice C' })
+    expect(restore).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Loop diuretic').closest('.pi-option')).toHaveClass('eliminated')
+  })
+
+  it('does not allow crossing out the selected answer', () => {
+    setup({ ...base, answered: 'A', onToggleEliminate: NOOP })
+    expect(screen.getByRole('button', { name: 'Cross out choice A' })).toBeDisabled()
+  })
+
+  it('renders no cross-out controls when the handler is absent', () => {
+    setup(base)
+    expect(screen.queryByRole('button', { name: /cross out choice/i })).toBeNull()
+  })
+
+  it('locks cross-out controls after the answer is revealed', () => {
+    setup({ ...base, answered: 'A', revealed: true, onToggleEliminate: NOOP })
+    expect(screen.getByRole('button', { name: 'Cross out choice B' })).toBeDisabled()
   })
 })

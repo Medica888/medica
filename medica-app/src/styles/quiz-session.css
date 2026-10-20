@@ -405,6 +405,21 @@
 .pi-option.selected:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-10); transform: translateX(2px); }
 .pi-option.selected .pi-opt-letter { border-color: var(--blue); color: var(--blue); background: var(--blue-10); }
 
+.pi-option-row { display: flex; align-items: stretch; gap: 6px; }
+.pi-option-row .pi-option { flex: 1; min-width: 0; width: auto; }
+.pi-opt-cross {
+  flex-shrink: 0; width: 34px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--t3);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: border-color .14s, color .14s, background .14s;
+}
+.pi-opt-cross:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.pi-opt-cross:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.pi-opt-cross:disabled { opacity: .35; cursor: default; }
+.pi-opt-cross.active { border-color: var(--blue); color: var(--blue); background: var(--blue-10); }
+.pi-option.eliminated:not(.correct):not(.wrong) { opacity: .45; }
+.pi-option.eliminated:not(.correct):not(.wrong) .pi-opt-text { text-decoration: line-through; }
+
 .pi-check-btn {
   width: 100%; padding: 12px 0;
   border-radius: 10px; border: none;

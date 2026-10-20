@@ -23,9 +23,11 @@ import { getDifficultyDisplayLabel } from '../../lib/quizTypes'
  *   openDrawer?: string | null
  *   onToggle?: (drawer: string) => void
  *   hasNotes?: boolean
+ *   eliminated?: string[]
+ *   onToggleEliminate?: (letter: import('../../lib/quizTypes').OptionLetter) => void
  * }} props
  */
-export default function PracticeQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer, highlights = [], activeHighlightColor = 'yellow', onHighlight, onChangeHighlightColor, onClearHighlights, openDrawer = null, onToggle, hasNotes = false }) {
+export default function PracticeQuestion({ question, questionNumber, answered, revealed, onAnswer, onCheckAnswer, highlights = [], activeHighlightColor = 'yellow', onHighlight, onChangeHighlightColor, onClearHighlights, openDrawer = null, onToggle, hasNotes = false, eliminated = [], onToggleEliminate }) {
   const options = normalizeOptions(question.options)
   const normalizedCorrect  = getQuestionCorrectLetter(question)
   const normalizedAnswered = normalizeAnswerLetter(answered)
@@ -81,6 +83,8 @@ export default function PracticeQuestion({ question, questionNumber, answered, r
             state={getOptionState(opt)}
             disabled={revealed}
             onClick={() => onAnswer(opt.letter)}
+            eliminated={eliminated.includes(opt.letter)}
+            onToggleEliminate={onToggleEliminate && (() => onToggleEliminate(opt.letter))}
           />
         ))}
       </div>
