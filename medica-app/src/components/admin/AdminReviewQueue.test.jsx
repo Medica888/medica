@@ -5,9 +5,10 @@ import AdminReviewQueue from './AdminReviewQueue'
 vi.mock('../../hooks/useAdminReview', () => ({
   useReviewQueue: vi.fn(),
   useBulkReviewActions: vi.fn(),
+  useBulkReviewMetadata: vi.fn(),
 }))
 
-import { useBulkReviewActions, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewQueue } from '../../hooks/useAdminReview'
 
 const makeQuestion = (overrides = {}) => ({
   externalId:      'fp-test-1',
@@ -36,6 +37,7 @@ const makePage = (questions, overrides = {}) => ({
 beforeEach(() => {
   useReviewQueue.mockReturnValue({ data: null, loading: false, error: null, refetch: vi.fn() })
   useBulkReviewActions.mockReturnValue({ pending: false, error: null, actBulk: vi.fn() })
+  useBulkReviewMetadata.mockReturnValue({ pending: false, error: null, applyBulk: vi.fn() })
 })
 
 describe('AdminReviewQueue', () => {
@@ -228,5 +230,64 @@ describe('AdminReviewQueue', () => {
     // "Quarantined" appears in filter tab + badge - verify badge class exists
     const badges = document.querySelectorAll('.adm-badge-quarantined')
     expect(badges.length).toBeGreaterThan(0)
+  })
+})
+
+describe('AdminReviewQueue bulk review metadata', () => {
+  const selectRow = (id) => fireEvent.click(screen.getByLabelText(`Select question ${id}`))
+  const openPanel = () => fireEvent.click(screen.getByRole('button', { name: /mark reviewed/i }))
+  const completePanel = () => {
+    fireEvent.change(screen.getByLabelText(/source references/i), { target: { value: 'First Aid 2025' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /i checked the medical content/i }))
+  }
+  const twoQuestions = () => makePage([makeQuestion({ externalId: 'q-1' }), makeQuestion({ externalId: 'q-2' })])
+
+  it('disables Mark reviewed until a question is selected', () => {
+    useReviewQueue.mockReturnValue({ data: makePage([makeQuestion()]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /mark reviewed/i })).toBeDisabled()
+  })
+
+  it('applies reviewed metadata with a passing accuracy status to the selected questions and refetches', async () => {
+    const applyBulk = vi.fn().mockResolvedValue({ succeeded: ['q-1', 'q-2'], failed: [] })
+    const refetch = vi.fn()
+    useBulkReviewMetadata.mockReturnValue({ pending: false, error: null, applyBulk })
+    useReviewQueue.mockReturnValue({ data: twoQuestions(), loading: false, error: null, refetch })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    selectRow('q-1'); selectRow('q-2')
+    openPanel(); completePanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark 2 reviewed' }))
+    await screen.findByText('2 marked reviewed.')
+    expect(applyBulk).toHaveBeenCalledWith(['q-1', 'q-2'], {
+      reviewStatus: 'source_checked',
+      sourceRefs: ['First Aid 2025'],
+      reviewNotes: null,
+      medicalAccuracyStatus: 'pass',
+    })
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  it('keeps failed questions selected so the reviewer can retry', async () => {
+    const applyBulk = vi.fn().mockResolvedValue({ succeeded: ['q-1'], failed: [{ id: 'q-2', error: new Error('x') }] })
+    useBulkReviewMetadata.mockReturnValue({ pending: false, error: null, applyBulk })
+    useReviewQueue.mockReturnValue({ data: twoQuestions(), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    selectRow('q-1'); selectRow('q-2')
+    openPanel(); completePanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark 2 reviewed' }))
+    await screen.findByText('1 marked reviewed, 1 failed.')
+    expect(screen.getByLabelText('Select question q-2')).toBeChecked()
+    expect(screen.getByLabelText('Select question q-1')).not.toBeChecked()
+  })
+
+  it('requires Expert reviewed when a hard-mode question is selected', () => {
+    useReviewQueue.mockReturnValue({
+      data: makePage([makeQuestion({ externalId: 'q-h', difficulty: 'UWorld Challenge' })]),
+      loading: false, error: null, refetch: vi.fn(),
+    })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    selectRow('q-h')
+    openPanel(); completePanel()
+    expect(screen.getByRole('button', { name: 'Mark 1 reviewed' })).toBeDisabled()
   })
 })

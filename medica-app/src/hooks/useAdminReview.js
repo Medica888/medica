@@ -88,39 +88,52 @@ export function useReviewActions() {
   return { pending, error, act }
 }
 
-export function useBulkReviewActions() {
+/** Runs `task(id)` for each unique id and reports which succeeded or failed. */
+async function settleBulk(ids, task) {
+  const uniqueIds = [...new Set((ids || []).map(id => String(id || '').trim()).filter(Boolean))]
+  const results = await Promise.allSettled(uniqueIds.map(task))
+  const succeeded = []
+  const failed = []
+  results.forEach((result, index) => {
+    const id = uniqueIds[index]
+    if (result.status === 'fulfilled') succeeded.push(id)
+    else failed.push({ id, error: result.reason })
+  })
+  return { succeeded, failed }
+}
+
+function useBulkRunner(task) {
   const [pending, setPending] = useState(false)
   const [error,   setError]   = useState(null)
 
-  const actBulk = useCallback(async (ids, status) => {
-    const uniqueIds = [...new Set((ids || []).map(id => String(id || '').trim()).filter(Boolean))]
-    if (uniqueIds.length === 0) return { succeeded: [], failed: [] }
-
+  const run = useCallback(async (ids, arg) => {
     setPending(true)
     setError(null)
     try {
-      const results = await Promise.allSettled(
-        uniqueIds.map(id => governance.updateStatus(id, status)),
-      )
-      const succeeded = []
-      const failed = []
-      results.forEach((result, index) => {
-        const id = uniqueIds[index]
-        if (result.status === 'fulfilled') succeeded.push(id)
-        else failed.push({ id, error: result.reason })
-      })
-      if (failed.length > 0) {
-        const bulkError = new Error(`${failed.length} review action${failed.length === 1 ? '' : 's'} failed.`)
-        bulkError.failed = failed
+      const result = await settleBulk(ids, id => task(id, arg))
+      if (result.failed.length > 0) {
+        const bulkError = new Error(`${result.failed.length} review action${result.failed.length === 1 ? '' : 's'} failed.`)
+        bulkError.failed = result.failed
         setError(bulkError)
       }
-      return { succeeded, failed }
+      return result
     } finally {
       setPending(false)
     }
-  }, [])
+  }, [task])
 
-  return { pending, error, actBulk }
+  return { pending, error, run }
+}
+
+export function useBulkReviewActions() {
+  const { pending, error, run } = useBulkRunner(governance.updateStatus)
+  return { pending, error, actBulk: run }
+}
+
+/** Applies the same review metadata (status, sources, accuracy) to many questions. */
+export function useBulkReviewMetadata() {
+  const { pending, error, run } = useBulkRunner(governance.updateReviewMetadata)
+  return { pending, error, applyBulk: run }
 }
 
 export function useReviewMetadataActions() {

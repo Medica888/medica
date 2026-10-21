@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useBulkReviewActions, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewQueue } from '../../hooks/useAdminReview'
+import BulkReviewPanel from './BulkReviewPanel'
 
 const STATUS_FILTERS = [
   { value: '',                    label: 'All' },
@@ -16,6 +17,9 @@ const SORT_MODES = [
 ]
 
 const PAGE_SIZE = 50
+
+// Mirrors the server gate: these difficulties are only student-visible once expert reviewed.
+const HARD_MODE_DIFFICULTIES = new Set(['NBME Difficult', 'UWorld Challenge'])
 
 const REVIEW_FILTERS = [
   { value: '', label: 'All review states' },
@@ -81,7 +85,9 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const [page,         setPage]         = useState(1)
   const [selectedIds,  setSelectedIds]  = useState([])
   const [bulkMessage,  setBulkMessage]  = useState('')
+  const [reviewPanelOpen, setReviewPanelOpen] = useState(false)
   const { pending: bulkPending, error: bulkError, actBulk } = useBulkReviewActions()
+  const { pending: metaPending, error: metaError, applyBulk } = useBulkReviewMetadata()
 
   const { data, loading, error, refetch } = useReviewQueue({
     status: filterStatus || undefined,
@@ -99,6 +105,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const visibleIds = questions.map(q => q.externalId).filter(Boolean)
   const selectedVisibleIds = selectedIds.filter(id => visibleIds.includes(id))
   const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length
+  const selectedHardCount = questions.filter(q => selectedVisibleIds.includes(q.externalId) && HARD_MODE_DIFFICULTIES.has(q.difficulty)).length
 
   const setFilterAndClear = (setter, val) => {
     setter(val)
@@ -127,6 +134,15 @@ export default function AdminReviewQueue({ onSelectDetail }) {
     const result = await actBulk(selectedVisibleIds, status)
     setBulkMessage(`${result.succeeded.length} updated${result.failed.length ? `, ${result.failed.length} failed` : ''}.`)
     setSelectedIds([])
+    refetch()
+  }
+
+  const handleBulkReview = async (metadata) => {
+    setBulkMessage('')
+    const result = await applyBulk(selectedVisibleIds, { ...metadata, medicalAccuracyStatus: 'pass' })
+    setBulkMessage(`${result.succeeded.length} marked reviewed${result.failed.length ? `, ${result.failed.length} failed` : ''}.`)
+    setReviewPanelOpen(false)
+    setSelectedIds(result.failed.map(f => f.id))
     refetch()
   }
 
@@ -221,9 +237,28 @@ export default function AdminReviewQueue({ onSelectDetail }) {
         >
           Restore
         </button>
+        <button
+          className="adm-bulk-btn"
+          disabled={bulkPending || metaPending || selectedVisibleIds.length === 0}
+          aria-expanded={reviewPanelOpen}
+          onClick={() => setReviewPanelOpen(open => !open)}
+        >
+          Mark reviewed...
+        </button>
         {bulkMessage && <span className="adm-bulk-ok" role="status">{bulkMessage}</span>}
         {bulkError && <span className="adm-bulk-error" role="alert">{bulkError.message}</span>}
+        {metaError && <span className="adm-bulk-error" role="alert">{metaError.message}</span>}
       </div>
+
+      {reviewPanelOpen && selectedVisibleIds.length > 0 && (
+        <BulkReviewPanel
+          selectedCount={selectedVisibleIds.length}
+          hardCount={selectedHardCount}
+          pending={metaPending}
+          onSubmit={handleBulkReview}
+          onCancel={() => setReviewPanelOpen(false)}
+        />
+      )}
 
       {error && (
         <div className="adm-error" role="alert">
