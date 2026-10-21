@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import PracticeQuestion from './PracticeQuestion'
+import { usePerQuestionState } from '../../hooks/usePerQuestionState'
 import { saveQuizSession } from '../../lib/storage'
 import { normalizeQuestion } from '../../lib/mockQuestions'
 import { calculatePracticeResults } from '../../lib/practiceScoring'
@@ -28,9 +29,9 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const [answers, setAnswers]           = useState(() => ({ ...(initialSession.answers || {}) }))
   const [revealed, setRevealed]         = useState(() => ({ ...(initialSession.revealed || {}) }))
   const [openDrawer, setOpenDrawer]     = useState(null)
-  const [notes, setNotes]               = useState(() => ({ ...(initialSession.notes || {}) }))
-  const [highlights, setHighlights]     = useState(() => ({ ...(initialSession.highlights || {}) }))
-  const [eliminated, setEliminated]     = useState(() => ({ ...(initialSession.eliminated || {}) }))
+  const [notes, updateNotes]           = usePerQuestionState(initialSession.notes)
+  const [highlights, updateHighlights]  = usePerQuestionState(initialSession.highlights)
+  const [eliminated, updateEliminated]  = usePerQuestionState(initialSession.eliminated)
   const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
 
   const questions  = session.questions
@@ -60,15 +61,13 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const handleAnswer = (letter) => {
     if (revealed[question.id]) return
     setAnswers(prev => ({ ...prev, [question.id]: letter }))
-    setEliminated(prev => ({ ...prev, [question.id]: (prev[question.id] || []).filter(l => l !== letter) }))
+    updateEliminated(question.id, (cur = []) => cur.filter(l => l !== letter))
   }
 
   const handleToggleEliminate = (letter) => {
-    setEliminated(prev => {
-      const current = prev[question.id] || []
-      const next = current.includes(letter) ? current.filter(l => l !== letter) : [...current, letter]
-      return { ...prev, [question.id]: next }
-    })
+    updateEliminated(question.id, (cur = []) =>
+      cur.includes(letter) ? cur.filter(l => l !== letter) : [...cur, letter]
+    )
   }
 
   const handleCheckAnswer = () => {
@@ -94,10 +93,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const closeDrawer = () => setOpenDrawer(null)
 
   const handleHighlight = (start, end, color) => {
-    setHighlights(h => ({
-      ...h,
-      [question.id]: [...(h[question.id] || []), { start, end, color }],
-    }))
+    updateHighlights(question.id, (cur = []) => [...cur, { start, end, color }])
   }
 
   if (!question) {
@@ -153,7 +149,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
             activeHighlightColor={activeHighlightColor}
             onHighlight={handleHighlight}
             onChangeHighlightColor={setActiveHighlightColor}
-            onClearHighlights={() => setHighlights(h => ({ ...h, [question.id]: [] }))}
+            onClearHighlights={() => updateHighlights(question.id, () => [])}
             openDrawer={openDrawer}
             onToggle={(d) => setOpenDrawer(prev => prev === d ? null : d)}
             hasNotes={!!notes[question.id]}
@@ -235,7 +231,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
         onClose={closeDrawer}
         questionId={question.id}
         notes={notes}
-        onNotesChange={(id, val) => setNotes(n => ({ ...n, [id]: val }))}
+        onNotesChange={(id, val) => updateNotes(id, () => val)}
       />
     </div>
   )
