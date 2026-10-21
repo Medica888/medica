@@ -29,7 +29,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--blue);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -46,7 +46,7 @@
   max-width: 680px;
   margin: 7px 0 0;
   color: var(--t3);
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.55;
 }
 
@@ -67,7 +67,7 @@
 .qbk-inventory span {
   margin-top: 5px;
   color: var(--t3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .qbk-toolbar {
@@ -93,7 +93,7 @@
 .qbk-search-field label,
 .qbk-filter-field label {
   color: var(--t3);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -108,7 +108,7 @@
   background: var(--bg);
   color: var(--t1);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .qbk-search-field input:focus,
@@ -126,7 +126,7 @@
   justify-content: space-between;
   gap: 16px;
   color: var(--t3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .qbk-list-header strong { color: var(--t1); }
@@ -140,7 +140,7 @@
   background: transparent;
   color: var(--t2);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -221,7 +221,7 @@
   border-radius: 4px;
   color: var(--t3);
   background: var(--bg);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.2;
 }
 
@@ -235,7 +235,7 @@
   display: block;
   margin-bottom: 5px;
   color: var(--t1);
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.4;
 }
 
@@ -246,7 +246,7 @@
   overflow: hidden;
   margin: 0;
   color: var(--t3);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -263,7 +263,7 @@
   border-radius: 8px;
   background: var(--card);
   color: var(--t3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .qbk-empty strong { color: var(--t1); font-size: 14px; }
@@ -280,7 +280,7 @@
   border-radius: 8px;
   background: var(--card);
   color: var(--t3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .qbk-catalog-error {
@@ -291,13 +291,13 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--status-warn) 8%, transparent);
   color: var(--status-warn);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .qbk-start-error {
   margin: 8px 0 0;
   color: var(--status-critical);
-  font-size: 11.5px;
+  font-size: 12.5px;
   text-align: center;
 }
 
@@ -309,7 +309,7 @@
   justify-content: center;
   gap: 12px;
   color: var(--t3);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .qbk-pagination button { padding: 7px 11px; }
@@ -338,7 +338,7 @@
 }
 
 .qbk-selection-count strong { color: var(--t1); font-size: 20px; line-height: 1; }
-.qbk-selection-count span { margin-top: 5px; color: var(--t3); font-size: 10.5px; }
+.qbk-selection-count span { margin-top: 5px; color: var(--t3); font-size: 11.5px; }
 
 .qbk-mode {
   display: flex;
@@ -356,7 +356,7 @@
   background: transparent;
   color: var(--t3);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -375,7 +375,7 @@
   background: var(--blue);
   color: white;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -454,12 +454,12 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--t2);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
 }
 
-.qbk-preview-option p { margin: 2px 0 0; color: var(--t2); font-size: 12.5px; line-height: 1.5; }
-.qbk-preview-note { margin: 16px 0 0; color: var(--t3); font-size: 11px; }
+.qbk-preview-option p { margin: 2px 0 0; color: var(--t2); font-size: 13px; line-height: 1.5; }
+.qbk-preview-note { margin: 16px 0 0; color: var(--t3); font-size: 12px; }
 
 /* ── Progress filter strip ──────────────────────────────────────────────── */
 
@@ -481,7 +481,7 @@
   background: transparent;
   color: var(--t2);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   cursor: pointer;
   transition: border-color .15s, background .15s, color .15s;
@@ -499,7 +499,7 @@
   padding: 1px 5px;
   border-radius: 10px;
   background: var(--bg);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -511,7 +511,7 @@
 /* ── Status badges (per-row) ────────────────────────────────────────────── */
 
 .qbk-status {
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.2;
 }
 
@@ -538,7 +538,7 @@
 
 .qbk-attempt-meta {
   color: var(--t3) !important;
-  font-size: 10.5px !important;
+  font-size: 11.5px !important;
 }
 
 /* ── Resume session banner ──────────────────────────────────────────────── */
@@ -555,7 +555,7 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--status-warn) 6%, var(--card));
   color: var(--t2);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .qbk-resume-banner strong { color: var(--t1); }
@@ -568,7 +568,7 @@
   background: transparent;
   color: var(--status-warn);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
   transition: background .15s;
