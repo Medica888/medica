@@ -32,6 +32,15 @@ export interface SeedUpsertResult {
 }
 
 /**
+ * A reseed must never undo a review decision made through the admin queue, or an approved
+ * question would silently drop out of the student catalog on the next deploy. Review
+ * metadata is only taken from the seed file while the stored row is still unreviewed or
+ * validator-passed; once a reviewer has acted on it, the stored metadata (and the copy
+ * mirrored into body) wins. Question content still updates from the seed file.
+ */
+const KEEP_HUMAN_REVIEW = `COALESCE(questions.review_metadata->>'reviewStatus', 'unreviewed') NOT IN ('unreviewed', 'validator_passed')`;
+
+/**
  * Batched upsert of authored questions (single unnest statement — see CLAUDE.md
  * "Batch inserts — use unnest, never loop"). The ON CONFLICT WHERE clause makes this
  * safe to re-run at any time:
@@ -73,13 +82,18 @@ export async function upsertAuthoredQuestions(pool: Pool, questions: AuthoredQue
      ON CONFLICT (external_id) DO UPDATE
        SET subject     = EXCLUDED.subject,
            system      = EXCLUDED.system,
-           body        = EXCLUDED.body,
+           body        = CASE WHEN ${KEEP_HUMAN_REVIEW}
+                              THEN EXCLUDED.body || jsonb_build_object(
+                                     'reviewMetadata', questions.review_metadata,
+                                     'reviewStatus',   questions.review_metadata->>'reviewStatus',
+                                     'sourceRefs',     COALESCE(questions.review_metadata->'sourceRefs', '[]'::jsonb))
+                              ELSE EXCLUDED.body END,
            source      = EXCLUDED.source,
            bank_status = EXCLUDED.bank_status,
            mode        = EXCLUDED.mode,
            difficulty  = EXCLUDED.difficulty,
            fingerprint = EXCLUDED.fingerprint,
-           review_metadata = EXCLUDED.review_metadata
+           review_metadata = CASE WHEN ${KEEP_HUMAN_REVIEW} THEN questions.review_metadata ELSE EXCLUDED.review_metadata END
      WHERE questions.source IN ('authored', 'unknown')
        AND questions.bank_status NOT IN ('quarantined', 'rejected', 'validation_failed', 'restored')
      RETURNING (xmax = 0) AS inserted`,

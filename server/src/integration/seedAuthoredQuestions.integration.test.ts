@@ -144,6 +144,44 @@ describe('seedAuthoredQuestions — lifecycle protection', () => {
     expect(result).toEqual({ inserted: 1, updated: 0, skipped: 1 });
   });
 
+  // ─── A reseed must not undo admin review decisions ──────────────────────────
+  // render.yaml runs db:seed-authored on every deploy. If it overwrote review_metadata,
+  // every approved question would revert to the seed file's status and vanish from the
+  // student catalog on the next deploy.
+
+  const reviewed = { reviewStatus: 'source_checked', sourceRefs: ['First Aid 2025'], medicalAccuracyStatus: 'pass' };
+  const unreviewed = { reviewStatus: 'unreviewed', sourceRefs: [], medicalAccuracyStatus: 'unknown' };
+
+  it('keeps an admin approval (stored review_metadata and its body copy) when the seed file still says unreviewed', async () => {
+    await upsertAuthoredQuestions(pool, [makeQuestion('q1', { reviewMetadata: unreviewed })]);
+    await pool.query(
+      `UPDATE questions SET review_metadata = $2::jsonb WHERE external_id = $1`,
+      ['q1', JSON.stringify(reviewed)],
+    );
+
+    await upsertAuthoredQuestions(pool, [makeQuestion('q1', { reviewMetadata: unreviewed, subject: 'Neurology' })]);
+
+    const row = await getRow(pool, 'q1');
+    expect(row.review_metadata.reviewStatus).toBe('source_checked');
+    expect(row.body.reviewMetadata.reviewStatus).toBe('source_checked');
+    expect(row.body.reviewStatus).toBe('source_checked');
+    expect(row.body.sourceRefs).toEqual(['First Aid 2025']);
+    expect(row.subject).toBe('Neurology'); // content still updates
+
+    const repo = new PgQuestionsRepository(pool);
+    const catalog = await repo.findStudentCatalog({ limit: 10 });
+    expect(catalog.total).toBe(1);
+  });
+
+  it('still upgrades an unreviewed row when the seed file now carries review metadata', async () => {
+    await upsertAuthoredQuestions(pool, [makeQuestion('q1', { reviewMetadata: unreviewed })]);
+    await upsertAuthoredQuestions(pool, [makeQuestion('q1', { reviewMetadata: reviewed })]);
+
+    const row = await getRow(pool, 'q1');
+    expect(row.review_metadata.reviewStatus).toBe('source_checked');
+    expect(row.body.reviewStatus).toBe('source_checked');
+  });
+
   // ─── Real seed data must be visible to students, not just insertable ────────
   // Regression guard: findStudentCatalog requires commercial-readiness metadata
   // (source_checked/expert_reviewed + sourceRefs + medicalAccuracyStatus: pass).
