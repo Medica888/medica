@@ -60,7 +60,7 @@ export default function BulkReviewPanel({ selectedCount, hardCount, pending, onS
 
       <label className="adm-bulk-attest">
         <input type="checkbox" checked={attested} onChange={e => setAttested(e.target.checked)} />
-        I checked the medical content of these {selectedCount} questions against the cited source.
+        I checked the medical content of {selectedCount === 1 ? 'this question' : `these ${selectedCount} questions`} against the cited source.
       </label>
 
       <div className="adm-bulk-review-actions">
