@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import PracticeInterface from './PracticeInterface'
+import { saveQuizSession } from '../../lib/storage'
 
 vi.mock('../../lib/storage', () => ({ saveQuizSession: vi.fn() }))
 vi.mock('../../lib/mockQuestions', () => ({ normalizeQuestion: (q) => q }))
@@ -31,6 +32,7 @@ const session = {
 }
 
 const NOOP = vi.fn()
+const SAVE_WAIT = 500
 
 describe('PracticeInterface — Question Navigator wiring', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -91,5 +93,78 @@ describe('PracticeInterface — Question Navigator wiring', () => {
 
     expect(screen.getByText('Stem q2')).toBeInTheDocument()
     expect(container.querySelector('.pi-option.selected')).toHaveTextContent('Option B')
+  })
+})
+
+describe('PracticeInterface — cross-out and session persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  const lastSaved = () => saveQuizSession.mock.calls.at(-1)[0]
+
+  it('persists a cross-out after the debounce window', () => {
+    render(<PracticeInterface session={session} onComplete={NOOP} onExit={NOOP} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cross out choice B' }))
+    act(() => { vi.advanceTimersByTime(SAVE_WAIT) })
+    expect(lastSaved().eliminated).toEqual({ q1: ['B'] })
+  })
+
+  it('restores crossed-out options from a saved session', () => {
+    const saved = { ...session, eliminated: { q1: ['C'] } }
+    render(<PracticeInterface session={saved} onComplete={NOOP} onExit={NOOP} />)
+    expect(screen.getByRole('button', { name: 'Restore choice C' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Cross out choice B' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('selecting a crossed-out option un-crosses it', () => {
+    const saved = { ...session, eliminated: { q1: ['C'] } }
+    render(<PracticeInterface session={saved} onComplete={NOOP} onExit={NOOP} />)
+    fireEvent.click(screen.getByRole('button', { name: /option c/i }))
+    expect(screen.getByRole('button', { name: 'Cross out choice C' })).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(SAVE_WAIT) })
+    expect(lastSaved().eliminated.q1).toEqual([])
+  })
+
+  it('disables cross-out once the answer is revealed', () => {
+    render(<PracticeInterface session={session} onComplete={NOOP} onExit={NOOP} />)
+    fireEvent.click(screen.getByRole('button', { name: /option a/i }))
+    fireEvent.click(screen.getByRole('button', { name: /check answer/i }))
+    expect(screen.getByRole('button', { name: 'Cross out choice B' })).toBeDisabled()
+  })
+
+  it('debounces rapid changes into a single write', () => {
+    render(<PracticeInterface session={session} onComplete={NOOP} onExit={NOOP} />)
+    const cross = screen.getByRole('button', { name: 'Cross out choice B' })
+    fireEvent.click(cross)
+    fireEvent.click(screen.getByRole('button', { name: 'Restore choice B' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cross out choice D' }))
+    expect(saveQuizSession).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(SAVE_WAIT) })
+    expect(saveQuizSession).toHaveBeenCalledTimes(1)
+    expect(lastSaved().eliminated).toEqual({ q1: ['D'] })
+  })
+
+  it('flushes pending changes on unmount', () => {
+    const { unmount } = render(<PracticeInterface session={session} onComplete={NOOP} onExit={NOOP} />)
+    saveQuizSession.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Cross out choice B' }))
+    unmount()
+    expect(lastSaved().eliminated).toEqual({ q1: ['B'] })
+  })
+
+  it('does not re-save the session on unmount after finishing', () => {
+    const { unmount } = render(
+      <PracticeInterface session={{ ...session, questions: [makeQ('q1')] }} onComplete={NOOP} onExit={NOOP} />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /option a/i }))
+    fireEvent.click(screen.getByRole('button', { name: /check answer/i }))
+    fireEvent.click(screen.getByRole('button', { name: /finish practice/i }))
+    saveQuizSession.mockClear()
+    unmount()
+    act(() => { vi.advanceTimersByTime(SAVE_WAIT) })
+    expect(saveQuizSession).not.toHaveBeenCalled()
   })
 })

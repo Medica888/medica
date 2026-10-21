@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import PracticeQuestion from './PracticeQuestion'
 import { saveQuizSession } from '../../lib/storage'
 import { normalizeQuestion } from '../../lib/mockQuestions'
@@ -15,6 +15,8 @@ import CalculatorDrawer from '../session/CalculatorDrawer'
  *   onExit: () => void
  * }} props
  */
+const SAVE_DEBOUNCE_MS = 400
+
 export default function PracticeInterface({ session: initialSession, onComplete, onExit }) {
   const normalizedQuestions = initialSession.questions.map(normalizeQuestion)
   const [session] = useState({ ...initialSession, questions: normalizedQuestions })
@@ -28,7 +30,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const [openDrawer, setOpenDrawer]     = useState(null)
   const [notes, setNotes]               = useState(() => ({ ...(initialSession.notes || {}) }))
   const [highlights, setHighlights]     = useState(() => ({ ...(initialSession.highlights || {}) }))
-  const [eliminated, setEliminated]   = useState(() => ({ ...(initialSession.eliminated || {}) }))
+  const [eliminated, setEliminated]     = useState(() => ({ ...(initialSession.eliminated || {}) }))
   const [activeHighlightColor, setActiveHighlightColor] = useState('yellow')
 
   const questions  = session.questions
@@ -38,9 +40,22 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const isRevealed = revealed[question?.id] ?? false
   const isLastQ    = currentIndex === totalQ - 1
 
+  // Debounced so typing in notes doesn't write on every keystroke. The latest
+  // snapshot is flushed on unmount, unless the session was finished (the caller
+  // clears it then, and a flush would resurrect it).
+  const latestSession = useRef(null)
+  const finished = useRef(false)
+
   useEffect(() => {
-    saveQuizSession({ ...session, answers, currentIndex, revealed, notes, highlights, eliminated })
+    const snapshot = { ...session, answers, currentIndex, revealed, notes, highlights, eliminated }
+    latestSession.current = snapshot
+    const timer = setTimeout(() => saveQuizSession(snapshot), SAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
   }, [answers, currentIndex, revealed, notes, highlights, eliminated, session])
+
+  useEffect(() => () => {
+    if (!finished.current && latestSession.current) saveQuizSession(latestSession.current)
+  }, [])
 
   const handleAnswer = (letter) => {
     if (revealed[question.id]) return
@@ -72,6 +87,7 @@ export default function PracticeInterface({ session: initialSession, onComplete,
   const handleFinish = () => {
     const sessionWithAnswers = { ...session, answers, currentIndex, revealed, notes, highlights, eliminated }
     const results = calculatePracticeResults(sessionWithAnswers)
+    finished.current = true
     onComplete(results, sessionWithAnswers)
   }
 
