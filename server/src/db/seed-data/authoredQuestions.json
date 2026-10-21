@@ -301,7 +301,7 @@
   },
   {
     "id": "q012",
-    "subject": "Neurology",
+    "subject": "Anatomy",
     "system": "Neurology",
     "difficulty": "Balanced",
     "testedConcept": "Pontine stroke localization — ipsilateral CN VI and VII fascicles with contralateral hemiplegia",
@@ -351,7 +351,7 @@
   },
   {
     "id": "q013",
-    "subject": "Neurology",
+    "subject": "Pathology",
     "system": "Neurology",
     "difficulty": "Balanced",
     "testedConcept": "Multiple sclerosis — McDonald criteria: disseminated in space and time",
@@ -1445,7 +1445,7 @@
   },
   {
     "id": "q054",
-    "subject": "Neurology",
+    "subject": "Anatomy",
     "system": "Neurology",
     "difficulty": "Balanced",
     "testedConcept": "Broca aphasia — left inferior frontal gyrus lesion and non-fluent expressive aphasia",
@@ -7769,7 +7769,7 @@
   },
   {
     "id": "qCOVPREG004",
-    "subject": "Endocrinology",
+    "subject": "Pathology",
     "system": "Reproductive",
     "difficulty": "Balanced",
     "testedConcept": "Routine gestational diabetes screening at 24 to 28 weeks",
@@ -8131,7 +8131,7 @@
   },
   {
     "id": "q006",
-    "subject": "Physiology",
+    "subject": "Pathology",
     "system": "Renal / Urinary",
     "difficulty": "NBME Difficult",
     "testedConcept": "Pyelonephritis — mechanism of acute creatinine elevation (prerenal)",
@@ -8231,7 +8231,7 @@
   },
   {
     "id": "q026",
-    "subject": "Cardiology",
+    "subject": "Pathology",
     "system": "Cardiovascular",
     "difficulty": "NBME Difficult",
     "testedConcept": "Inferior STEMI — RCA territory and right ventricular infarction management",
