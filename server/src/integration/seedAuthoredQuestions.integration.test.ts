@@ -4,6 +4,7 @@ import { join } from 'path';
 import { Pool } from 'pg';
 import { upsertAuthoredQuestions, type AuthoredQuestion } from '../db/seedAuthoredQuestions.js';
 import { PgQuestionsRepository } from '../repositories/pg/QuestionsRepository.js';
+import { isCommerciallyContentReady } from '../lib/reviewedContentMetadata.js';
 import { createTestPool, truncateAll } from './helpers.js';
 
 function makeQuestion(id: string, overrides: Partial<AuthoredQuestion> = {}): AuthoredQuestion {
@@ -159,8 +160,19 @@ describe('seedAuthoredQuestions — lifecycle protection', () => {
     const result = await upsertAuthoredQuestions(pool, questions);
     expect(result.inserted).toBe(questions.length);
 
+    // Only reviewed content is student-visible. Unreviewed AI-authored questions are seeded
+    // (so the admin review queue can find them) but must stay out of the student catalog.
+    const reviewedCount = questions.filter((q) => isCommerciallyContentReady({
+      bankStatus: 'approved',
+      difficulty: q.difficulty,
+      reviewMetadata: q.reviewMetadata,
+      source: 'authored',
+      body: q,
+    })).length;
+    expect(reviewedCount).toBeGreaterThan(0);
+
     const repo = new PgQuestionsRepository(pool);
     const catalog = await repo.findStudentCatalog({ limit: 1 });
-    expect(catalog.total).toBe(questions.length);
+    expect(catalog.total).toBe(reviewedCount);
   });
 });
