@@ -276,13 +276,13 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
     return;
   }
 
-  const { status, reviewStatus, commercialReady, difficulty, limit: rawLimit, page, offset: rawOffset, sort } = parsed.data;
+  const { status, reviewStatus, commercialReady, difficulty, subject, system, limit: rawLimit, page, offset: rawOffset, sort } = parsed.data;
   const limit = rawLimit ?? 50;
   const effectiveOffset = page != null ? (page - 1) * limit : (rawOffset ?? 0);
 
   try {
     const repos = getRepositories();
-    const filters = { status, reviewStatus, commercialReady, difficulty };
+    const filters = { status, reviewStatus, commercialReady, difficulty, subject, system };
     const [questions, total] = await Promise.all([
       repos.questions.findGeneratedBankReview({ ...filters, limit, offset: effectiveOffset, sort }),
       repos.questions.countGeneratedBankReview(filters),
@@ -299,6 +299,15 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
   } catch (err) {
     logger.error('[generated-question-bank/review]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Generated question bank review failed', code: 'GENERATED_BANK_REVIEW_FAILED' });
+  }
+});
+
+router.get('/generated-question-bank/facets', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    res.json(await getRepositories().questions.getReviewFacets());
+  } catch (err) {
+    logger.error('[generated-question-bank/facets]', { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: 'Review facets failed', code: 'GENERATED_BANK_FACETS_FAILED' });
   }
 });
 

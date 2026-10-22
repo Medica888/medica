@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useBulkReviewActions, useBulkReviewMetadata, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
 import BulkReviewPanel from './BulkReviewPanel'
 
 const STATUS_FILTERS = [
@@ -89,6 +89,8 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const [reviewStatus, setReviewStatus] = useState('')
   const [readyFilter,  setReadyFilter]  = useState('')
   const [difficultyFilter, setDifficultyFilter] = useState('')
+  const [subjectFilter, setSubjectFilter] = useState('')
+  const [systemFilter,  setSystemFilter]  = useState('')
   const [sort,         setSort]         = useState('priority')
   const [page,         setPage]         = useState(1)
   const [selectedIds,  setSelectedIds]  = useState([])
@@ -96,12 +98,15 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false)
   const { pending: bulkPending, error: bulkError, actBulk } = useBulkReviewActions()
   const { pending: metaPending, error: metaError, applyBulk } = useBulkReviewMetadata()
+  const { data: facets, error: facetsError } = useReviewFacets()
 
   const { data, loading, error, refetch } = useReviewQueue({
     status: filterStatus || undefined,
     reviewStatus: reviewStatus || undefined,
     commercialReady: readyFilter === '' ? undefined : readyFilter === 'true',
     difficulty: difficultyFilter || undefined,
+    subject: subjectFilter || undefined,
+    system: systemFilter || undefined,
     sort,
     page,
     limit: PAGE_SIZE,
@@ -220,6 +225,26 @@ export default function AdminReviewQueue({ onSelectDetail }) {
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+          <label className="adm-sort-label" htmlFor="adm-subject-select">Subject</label>
+          <select
+            id="adm-subject-select"
+            className="adm-sort-select"
+            value={subjectFilter}
+            onChange={e => setFilterAndClear(setSubjectFilter, e.target.value)}
+          >
+            <option value="">Any subject</option>
+            {(facets?.subjects ?? []).map(label => <option key={label} value={label}>{label}</option>)}
+          </select>
+          <label className="adm-sort-label" htmlFor="adm-system-select">System</label>
+          <select
+            id="adm-system-select"
+            className="adm-sort-select"
+            value={systemFilter}
+            onChange={e => setFilterAndClear(setSystemFilter, e.target.value)}
+          >
+            <option value="">Any system</option>
+            {(facets?.systems ?? []).map(label => <option key={label} value={label}>{label}</option>)}
+          </select>
           <label className="adm-sort-label" htmlFor="adm-sort-select">Sort</label>
           <select
             id="adm-sort-select"
@@ -233,6 +258,10 @@ export default function AdminReviewQueue({ onSelectDetail }) {
           </select>
         </div>
       </div>
+
+      {facetsError && (
+        <p className="adm-bulk-error" role="alert">Subject and system filter options could not be loaded.</p>
+      )}
 
       <div className="adm-bulk-bar" aria-label="Bulk review actions">
         <span className="adm-bulk-count">{selectedVisibleIds.length} selected</span>

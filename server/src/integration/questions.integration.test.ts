@@ -135,6 +135,40 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       expect(await repo.countGeneratedBankReview({})).toBe(3);
     });
 
+    it('findGeneratedBankReview and countGeneratedBankReview filter by subject and system', async () => {
+      const cardio = makeQuestionData({ source: 'authored', bankStatus: 'approved', subject: 'Pharmacology', system: 'Cardiovascular' });
+      const renal = makeQuestionData({ source: 'authored', bankStatus: 'approved', subject: 'Pharmacology', system: 'Renal' });
+      const path = makeQuestionData({ source: 'ai', bankStatus: 'validated_generated', subject: 'Pathology', system: 'Cardiovascular' });
+      for (const q of [cardio, renal, path]) await repo.upsertByExternalId(q.externalId, q.data);
+
+      const bySubject = await repo.findGeneratedBankReview({ subject: 'Pharmacology', limit: 50 });
+      expect(bySubject.map((r) => r['externalId']).sort()).toEqual([cardio.externalId, renal.externalId].sort());
+      expect(await repo.countGeneratedBankReview({ subject: 'Pharmacology' })).toBe(2);
+      expect(await repo.countGeneratedBankReview({ system: 'Cardiovascular' })).toBe(2);
+      expect(await repo.countGeneratedBankReview({ subject: 'Pharmacology', system: 'Cardiovascular' })).toBe(1);
+      expect(await repo.countGeneratedBankReview({ subject: 'No Such Subject' })).toBe(0);
+    });
+
+    it('getReviewFacets returns the distinct sorted labels of reviewable content only', async () => {
+      const rows = [
+        makeQuestionData({ source: 'authored', subject: 'Pharmacology', system: 'Renal', difficulty: 'Balanced' }),
+        makeQuestionData({ source: 'ai', subject: 'Anatomy', system: 'Renal', difficulty: 'NBME Difficult' }),
+        makeQuestionData({ source: 'ai', subject: 'Anatomy', system: 'Cardiovascular', difficulty: 'Balanced' }),
+        makeQuestionData({ source: 'import', subject: 'Excluded Subject', system: 'Excluded System', difficulty: 'Excluded' }),
+      ];
+      for (const q of rows) await repo.upsertByExternalId(q.externalId, q.data);
+
+      expect(await repo.getReviewFacets()).toEqual({
+        subjects: ['Anatomy', 'Pharmacology'],
+        systems: ['Cardiovascular', 'Renal'],
+        difficulties: ['Balanced', 'NBME Difficult'],
+      });
+    });
+
+    it('getReviewFacets returns empty lists when nothing is reviewable', async () => {
+      expect(await repo.getReviewFacets()).toEqual({ subjects: [], systems: [], difficulties: [] });
+    });
+
     it('countGeneratedBankReview matches findGeneratedBankReview length', async () => {
       const { externalId: e1, data: d1 } = makeQuestionData({ bankStatus: 'validated_generated' });
       const { externalId: e2, data: d2 } = makeQuestionData({ bankStatus: 'validated_generated' });

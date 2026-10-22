@@ -73,6 +73,8 @@ export const generatedQuestionBankReviewQuerySchema = z.object({
   reviewStatus:    reviewStatusSchema.optional(),
   commercialReady: queryBooleanSchema.optional(),
   difficulty:      z.string().trim().min(1).max(50).optional(),
+  subject:         z.string().trim().min(1).max(100).optional(),
+  system:          z.string().trim().min(1).max(100).optional(),
   limit:           z.coerce.number().int().min(1).max(200).optional(),
   page:            z.coerce.number().int().min(1).max(500).optional(),
   offset:          z.coerce.number().int().min(0).max(10000).optional(),

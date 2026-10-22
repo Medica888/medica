@@ -6,9 +6,10 @@ vi.mock('../../hooks/useAdminReview', () => ({
   useReviewQueue: vi.fn(),
   useBulkReviewActions: vi.fn(),
   useBulkReviewMetadata: vi.fn(),
+  useReviewFacets: vi.fn(),
 }))
 
-import { useBulkReviewActions, useBulkReviewMetadata, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
 
 const makeQuestion = (overrides = {}) => ({
   externalId:      'fp-test-1',
@@ -38,6 +39,7 @@ beforeEach(() => {
   useReviewQueue.mockReturnValue({ data: null, loading: false, error: null, refetch: vi.fn() })
   useBulkReviewActions.mockReturnValue({ pending: false, error: null, actBulk: vi.fn() })
   useBulkReviewMetadata.mockReturnValue({ pending: false, error: null, applyBulk: vi.fn() })
+  useReviewFacets.mockReturnValue({ data: { subjects: [], systems: [], difficulties: [] }, loading: false, error: null })
 })
 
 describe('AdminReviewQueue', () => {
@@ -142,6 +144,37 @@ describe('AdminReviewQueue', () => {
       difficulty: 'NBME Difficult',
       page: 1,
     }))
+  })
+
+  it('offers the subject and system labels that exist in the database and passes the choice to the queue query', () => {
+    useReviewFacets.mockReturnValue({
+      data: { subjects: ['Anatomy', 'Pharmacology'], systems: ['Cardiovascular', 'Renal'], difficulties: [] },
+      loading: false,
+      error: null,
+    })
+    useReviewQueue.mockReturnValue({ data: makePage([]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    expect(screen.getByRole('option', { name: 'Pharmacology' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Renal' })).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Pharmacology' } })
+    fireEvent.change(screen.getByLabelText('System'), { target: { value: 'Cardiovascular' } })
+
+    expect(useReviewQueue).toHaveBeenLastCalledWith(expect.objectContaining({
+      subject: 'Pharmacology',
+      system: 'Cardiovascular',
+      page: 1,
+    }))
+  })
+
+  it('shows a visible error when the filter options cannot be loaded, without breaking the queue', () => {
+    useReviewFacets.mockReturnValue({ data: null, loading: false, error: new Error('boom') })
+    useReviewQueue.mockReturnValue({ data: makePage([makeQuestion()]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    expect(screen.getByRole('alert').textContent).toMatch(/filter options could not be loaded/i)
+    expect(screen.getByLabelText('Subject')).toBeTruthy()
   })
 
   it('renders review state and commercial readiness columns', () => {

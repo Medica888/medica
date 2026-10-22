@@ -6,6 +6,8 @@ export function useReviewQueue({
   reviewStatus,
   commercialReady,
   difficulty,
+  subject,
+  system,
   sort = 'priority',
   page = 1,
   limit = 50,
@@ -17,16 +19,34 @@ export function useReviewQueue({
   const fetch = useCallback(() => {
     setLoading(true)
     setError(null)
-    governance.list({ status, reviewStatus, commercialReady, difficulty, sort, page, limit })
+    governance.list({ status, reviewStatus, commercialReady, difficulty, subject, system, sort, page, limit })
       .then(setData)
       .catch(setError)
       .finally(() => setLoading(false))
-  }, [status, reviewStatus, commercialReady, difficulty, sort, page, limit])
+  }, [status, reviewStatus, commercialReady, difficulty, subject, system, sort, page, limit])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch() }, [fetch])
 
   return { data, loading, error, refetch: fetch }
+}
+
+/** Distinct subject/system labels present in reviewable content, for the queue's filter selectors. */
+export function useReviewFacets() {
+  const [data,    setData]    = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    governance.facets()
+      .then(result => { if (!cancelled) setData(result) })
+      .catch(err => { if (!cancelled) setError(err) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  return { data, loading, error }
 }
 
 export function useReviewDetail(id) {

@@ -254,6 +254,8 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -279,6 +281,14 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     if (params.difficulty) {
       values.push(params.difficulty);
       clauses.push(`difficulty = $${values.length}`);
+    }
+    if (params.subject) {
+      values.push(params.subject);
+      clauses.push(`subject = $${values.length}`);
+    }
+    if (params.system) {
+      values.push(params.system);
+      clauses.push(`system = $${values.length}`);
     }
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
     const offset = Math.max(0, Number(params.offset) || 0);
@@ -331,11 +341,26 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     return res.rows.map(row => this.withReviewMetadata(row));
   }
 
+  async getReviewFacets(): Promise<{ subjects: string[]; systems: string[]; difficulties: string[] }> {
+    const distinct = async (column: 'subject' | 'system' | 'difficulty'): Promise<string[]> => {
+      const res = await this.pool.query<{ value: string }>(
+        `SELECT DISTINCT ${column} AS value FROM questions
+         WHERE source IN ('ai', 'authored') AND ${column} IS NOT NULL AND ${column} <> ''
+         ORDER BY ${column} LIMIT 200`,
+      );
+      return res.rows.map(r => r.value);
+    };
+    const [subjects, systems, difficulties] = await Promise.all([distinct('subject'), distinct('system'), distinct('difficulty')]);
+    return { subjects, systems, difficulties };
+  }
+
   async countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
   }): Promise<number> {
     const values: unknown[] = [];
     const clauses = ["source IN ('ai', 'authored')"];
@@ -354,6 +379,14 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     if (params.difficulty) {
       values.push(params.difficulty);
       clauses.push(`difficulty = $${values.length}`);
+    }
+    if (params.subject) {
+      values.push(params.subject);
+      clauses.push(`subject = $${values.length}`);
+    }
+    if (params.system) {
+      values.push(params.system);
+      clauses.push(`system = $${values.length}`);
     }
     const res = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM questions WHERE ${clauses.join(' AND ')}`,

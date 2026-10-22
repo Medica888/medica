@@ -245,6 +245,18 @@ describe('governance.list', () => {
     expect(url.searchParams.get('page')).toBe('2');
   });
 
+  it('sends subject and system filters and requests the facets from the admin endpoint', async () => {
+    mockResponse({ questions: [], total: 0 });
+    await governance.list({ subject: 'Pharmacology', system: 'Renal' });
+    const url = new URL(mockFetch.mock.calls[0][0], 'http://localhost');
+    expect(url.searchParams.get('subject')).toBe('Pharmacology');
+    expect(url.searchParams.get('system')).toBe('Renal');
+
+    mockResponse({ subjects: [], systems: [], difficulties: [] });
+    await governance.facets();
+    expect(new URL(mockFetch.mock.calls[1][0], 'http://localhost').pathname).toBe('/api/generated-question-bank/facets');
+  });
+
   it('omits the difficulty parameter when no difficulty is selected', async () => {
     mockResponse({ questions: [], total: 0 });
     await governance.list({});

@@ -240,6 +240,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -273,6 +275,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
         if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
         if (params.difficulty && entry.difficulty !== params.difficulty) return false;
+        if (params.subject && entry.subject !== params.subject) return false;
+        if (params.system && entry.system !== params.system) return false;
         return true;
       })
       .sort(sorter(params.sort))
@@ -280,11 +284,24 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       .map(([externalId, entry]) => this.enrichEntry(externalId, entry));
   }
 
+  async getReviewFacets(): Promise<{ subjects: string[]; systems: string[]; difficulties: string[] }> {
+    const reviewable = [...this.store.values()].filter(e => e.source === 'ai' || e.source === 'authored');
+    const distinct = (pick: (e: (typeof reviewable)[number]) => string | null | undefined): string[] =>
+      [...new Set(reviewable.map(pick).filter((v): v is string => Boolean(v)))].sort().slice(0, 200);
+    return {
+      subjects: distinct(e => e.subject),
+      systems: distinct(e => e.system),
+      difficulties: distinct(e => e.difficulty),
+    };
+  }
+
   async countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
   }): Promise<number> {
     return [...this.store.entries()].filter(([externalId, entry]) => {
       if (entry.source !== 'ai' && entry.source !== 'authored') return false;
@@ -294,6 +311,8 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
       if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
       if (params.difficulty && entry.difficulty !== params.difficulty) return false;
+      if (params.subject && entry.subject !== params.subject) return false;
+      if (params.system && entry.system !== params.system) return false;
       return true;
     }).length;
   }

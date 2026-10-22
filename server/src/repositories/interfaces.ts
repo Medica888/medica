@@ -141,11 +141,15 @@ export interface IQuestionsRepository {
     mode?: string;
     limit?: number;
   }): Promise<Record<string, unknown>[]>;
+  /** Distinct subject/system/difficulty labels present in reviewable (ai + authored) content. */
+  getReviewFacets(): Promise<{ subjects: string[]; systems: string[]; difficulties: string[] }>;
   countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
   }): Promise<number>;
   findGeneratedBankReview(params: {
     externalId?: string;
@@ -153,6 +157,8 @@ export interface IQuestionsRepository {
     reviewStatus?: string;
     commercialReady?: boolean;
     difficulty?: string;
+    subject?: string;
+    system?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';

@@ -45,6 +45,10 @@ test.describe('Admin bulk review makes questions student-visible', () => {
     await page.getByLabel('Review', { exact: true }).selectOption('unreviewed');
     const queueBody = (await (await filteredResponsePromise).json()) as { questions: QueueQuestion[] };
 
+    // Subject/System options come from the live database, not a hardcoded list.
+    await expect(page.getByLabel('Subject', { exact: true }).locator('option')).not.toHaveCount(1);
+    await expect(page.getByLabel('System', { exact: true }).locator('option')).not.toHaveCount(1);
+
     // The server applied the difficulty filter: every row is Balanced.
     expect(queueBody.questions.length).toBeGreaterThan(0);
     expect(queueBody.questions.every((q) => q.difficulty === 'Balanced')).toBe(true);

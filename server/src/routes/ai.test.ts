@@ -1597,6 +1597,34 @@ describe('generated question bank', () => {
     expect(res.body.code).toBe('FORBIDDEN');
   });
 
+  it('returns 403 for non-admin user on GET /facets', async () => {
+    const res = await request(app)
+      .get('/api/generated-question-bank/facets')
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns the distinct review facets to an admin and filters the queue by subject and system', async () => {
+    const pharm = await seedBankQuestion({ subject: 'Pharmacology', system: 'Cardiovascular', testedConcept: 'Facet pharm concept', topic: 'facet pharm' });
+    await seedBankQuestion({ subject: 'Physiology', system: 'Renal / Urinary', testedConcept: 'Facet physio concept', topic: 'facet physio' });
+
+    const facets = await request(app)
+      .get('/api/generated-question-bank/facets')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+    expect(facets.body.subjects).toEqual(expect.arrayContaining(['Pharmacology', 'Physiology']));
+    expect(facets.body.systems).toEqual(expect.arrayContaining(['Cardiovascular', 'Renal / Urinary']));
+    expect(facets.body.difficulties).toContain('Balanced');
+
+    const filtered = await request(app)
+      .get(`/api/generated-question-bank/review?subject=Pharmacology&system=${encodeURIComponent('Cardiovascular')}`)
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+    expect(filtered.body.total).toBe(1);
+    expect(filtered.body.questions.map((q: any) => q.externalId)).toEqual([pharm.fingerprint]);
+  });
+
   it('returns 403 for non-admin user on GET /metrics', async () => {
     const res = await request(app)
       .get('/api/generated-question-bank/metrics')
