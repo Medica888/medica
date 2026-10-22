@@ -120,6 +120,21 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       expect(pending[0]['bankStatus']).toBe('validated_generated');
     });
 
+    it('findGeneratedBankReview and countGeneratedBankReview filter by difficulty', async () => {
+      const hard = makeQuestionData({ source: 'authored', bankStatus: 'approved', difficulty: 'NBME Difficult' });
+      const balanced = makeQuestionData({ source: 'authored', bankStatus: 'approved', difficulty: 'Balanced' });
+      const other = makeQuestionData({ source: 'ai', bankStatus: 'validated_generated', difficulty: 'UWorld Challenge' });
+      for (const q of [hard, balanced, other]) await repo.upsertByExternalId(q.externalId, q.data);
+
+      const rows = await repo.findGeneratedBankReview({ difficulty: 'NBME Difficult', limit: 50 });
+      expect(rows.map((r) => r['externalId'])).toEqual([hard.externalId]);
+      expect(await repo.countGeneratedBankReview({ difficulty: 'NBME Difficult' })).toBe(1);
+
+      expect(await repo.countGeneratedBankReview({ difficulty: 'Balanced', commercialReady: false })).toBe(1);
+      expect(await repo.countGeneratedBankReview({ difficulty: 'No Such Difficulty' })).toBe(0);
+      expect(await repo.countGeneratedBankReview({})).toBe(3);
+    });
+
     it('countGeneratedBankReview matches findGeneratedBankReview length', async () => {
       const { externalId: e1, data: d1 } = makeQuestionData({ bankStatus: 'validated_generated' });
       const { externalId: e2, data: d2 } = makeQuestionData({ bankStatus: 'validated_generated' });

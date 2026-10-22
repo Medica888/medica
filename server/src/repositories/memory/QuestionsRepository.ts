@@ -239,6 +239,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -271,6 +272,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
         const metadata = enriched.reviewMetadata as Record<string, unknown>;
         if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
         if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
+        if (params.difficulty && entry.difficulty !== params.difficulty) return false;
         return true;
       })
       .sort(sorter(params.sort))
@@ -282,6 +284,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
   }): Promise<number> {
     return [...this.store.entries()].filter(([externalId, entry]) => {
       if (entry.source !== 'ai' && entry.source !== 'authored') return false;
@@ -290,6 +293,7 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       const metadata = enriched.reviewMetadata as Record<string, unknown>;
       if (params.reviewStatus && metadata.reviewStatus !== params.reviewStatus) return false;
       if (typeof params.commercialReady === 'boolean' && Boolean(enriched.commercialReady) !== params.commercialReady) return false;
+      if (params.difficulty && entry.difficulty !== params.difficulty) return false;
       return true;
     }).length;
   }

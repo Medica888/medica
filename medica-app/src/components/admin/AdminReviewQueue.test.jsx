@@ -132,6 +132,18 @@ describe('AdminReviewQueue', () => {
     })
   })
 
+  it('passes the difficulty filter to the queue query and resets to the first page', () => {
+    useReviewQueue.mockReturnValue({ data: makePage([]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Difficulty'), { target: { value: 'NBME Difficult' } })
+
+    expect(useReviewQueue).toHaveBeenLastCalledWith(expect.objectContaining({
+      difficulty: 'NBME Difficult',
+      page: 1,
+    }))
+  })
+
   it('renders review state and commercial readiness columns', () => {
     const q = makeQuestion({
       reviewMetadata: { reviewStatus: 'expert_reviewed' },

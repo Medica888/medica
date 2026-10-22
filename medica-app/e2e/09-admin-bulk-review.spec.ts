@@ -36,15 +36,19 @@ test.describe('Admin bulk review makes questions student-visible', () => {
 
     const isQueueGet = (res: { url(): string; request(): { method(): string } }) =>
       res.url().includes('/generated-question-bank/review') && res.request().method() === 'GET';
+    // Hard-mode difficulties need Expert reviewed, so batch plain Balanced items for Source checked.
+    await page.getByLabel('Difficulty', { exact: true }).selectOption('Balanced');
     const filteredResponsePromise = page.waitForResponse(
-      (res) => isQueueGet(res) && res.url().includes('reviewStatus=unreviewed'),
+      (res) => isQueueGet(res) && res.url().includes('reviewStatus=unreviewed') && res.url().includes('difficulty=Balanced'),
       { timeout: 20_000 },
     );
     await page.getByLabel('Review', { exact: true }).selectOption('unreviewed');
     const queueBody = (await (await filteredResponsePromise).json()) as { questions: QueueQuestion[] };
 
-    // Hard-mode difficulties need Expert reviewed, so pick plain unreviewed items for Source checked.
-    const candidates = queueBody.questions.filter((q) => !q.commercialReady && q.difficulty === 'Balanced');
+    // The server applied the difficulty filter: every row is Balanced.
+    expect(queueBody.questions.length).toBeGreaterThan(0);
+    expect(queueBody.questions.every((q) => q.difficulty === 'Balanced')).toBe(true);
+    const candidates = queueBody.questions.filter((q) => !q.commercialReady);
     expect(candidates.length).toBeGreaterThanOrEqual(3);
     const [first, second, untouched] = candidates.map((q) => q.externalId);
 

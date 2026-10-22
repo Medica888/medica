@@ -5,6 +5,7 @@ export function useReviewQueue({
   status,
   reviewStatus,
   commercialReady,
+  difficulty,
   sort = 'priority',
   page = 1,
   limit = 50,
@@ -16,11 +17,11 @@ export function useReviewQueue({
   const fetch = useCallback(() => {
     setLoading(true)
     setError(null)
-    governance.list({ status, reviewStatus, commercialReady, sort, page, limit })
+    governance.list({ status, reviewStatus, commercialReady, difficulty, sort, page, limit })
       .then(setData)
       .catch(setError)
       .finally(() => setLoading(false))
-  }, [status, reviewStatus, commercialReady, sort, page, limit])
+  }, [status, reviewStatus, commercialReady, difficulty, sort, page, limit])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch() }, [fetch])

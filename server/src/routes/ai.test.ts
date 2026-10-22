@@ -1686,6 +1686,24 @@ describe('generated question bank', () => {
 
   // ── Audit log ─────────────────────────────────────────────────────────────────
 
+
+  it('filters the review queue by difficulty and rejects an invalid difficulty value', async () => {
+    const hard = await seedBankQuestion({ difficulty: 'NBME Difficult', testedConcept: 'Difficulty filter hard concept', topic: 'difficulty filter hard' });
+    await seedBankQuestion({ difficulty: 'Balanced', testedConcept: 'Difficulty filter balanced concept', topic: 'difficulty filter balanced' });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review?difficulty=NBME%20Difficult')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.questions.map((q: any) => q.externalId)).toEqual([hard.fingerprint]);
+
+    await request(app)
+      .get(`/api/generated-question-bank/review?difficulty=${'x'.repeat(51)}`)
+      .set('Authorization', authHeader('user-1'))
+      .expect(400);
+  });
   it('writes an audit log entry on quarantine', async () => {
     const { fingerprint } = await seedBankQuestion();
 

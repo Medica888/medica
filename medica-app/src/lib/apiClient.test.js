@@ -14,6 +14,7 @@ import {
   exams,
   flashcards,
   generate,
+  governance,
   health,
 } from './apiClient.js';
 
@@ -230,6 +231,25 @@ describe('exams.create', () => {
     mockResponse({ session: { id: 'sess1' } }, 201);
     const result = await exams.create({ mode: 'practice' });
     expect(result.session.id).toBe('sess1');
+  });
+});
+
+describe('governance.list', () => {
+  it('sends the difficulty filter alongside the other queue filters', async () => {
+    mockResponse({ questions: [], total: 0 });
+    await governance.list({ reviewStatus: 'unreviewed', difficulty: 'NBME Difficult', page: 2 });
+    const url = new URL(mockFetch.mock.calls[0][0], 'http://localhost');
+    expect(url.pathname).toBe('/api/generated-question-bank/review');
+    expect(url.searchParams.get('difficulty')).toBe('NBME Difficult');
+    expect(url.searchParams.get('reviewStatus')).toBe('unreviewed');
+    expect(url.searchParams.get('page')).toBe('2');
+  });
+
+  it('omits the difficulty parameter when no difficulty is selected', async () => {
+    mockResponse({ questions: [], total: 0 });
+    await governance.list({});
+    const url = new URL(mockFetch.mock.calls[0][0], 'http://localhost');
+    expect(url.searchParams.has('difficulty')).toBe(false);
   });
 });
 

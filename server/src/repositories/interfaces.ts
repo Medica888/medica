@@ -145,12 +145,14 @@ export interface IQuestionsRepository {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
   }): Promise<number>;
   findGeneratedBankReview(params: {
     externalId?: string;
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';

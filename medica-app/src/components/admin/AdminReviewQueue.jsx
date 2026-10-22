@@ -36,6 +36,13 @@ const READY_FILTERS = [
   { value: 'true', label: 'Commercial ready' },
 ]
 
+const DIFFICULTY_FILTERS = [
+  { value: '', label: 'Any difficulty' },
+  { value: 'Balanced', label: 'Balanced' },
+  { value: 'NBME Difficult', label: 'NBME Difficult' },
+  { value: 'UWorld Challenge', label: 'UWorld Challenge' },
+]
+
 const STATUS_CLASS = {
   approved:           'adm-badge adm-badge-approved',
   quarantined:        'adm-badge adm-badge-quarantined',
@@ -81,6 +88,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const [filterStatus, setFilterStatus] = useState('')
   const [reviewStatus, setReviewStatus] = useState('')
   const [readyFilter,  setReadyFilter]  = useState('')
+  const [difficultyFilter, setDifficultyFilter] = useState('')
   const [sort,         setSort]         = useState('priority')
   const [page,         setPage]         = useState(1)
   const [selectedIds,  setSelectedIds]  = useState([])
@@ -93,6 +101,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
     status: filterStatus || undefined,
     reviewStatus: reviewStatus || undefined,
     commercialReady: readyFilter === '' ? undefined : readyFilter === 'true',
+    difficulty: difficultyFilter || undefined,
     sort,
     page,
     limit: PAGE_SIZE,
@@ -197,6 +206,17 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             onChange={e => setFilterAndClear(setReadyFilter, e.target.value)}
           >
             {READY_FILTERS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          <label className="adm-sort-label" htmlFor="adm-difficulty-select">Difficulty</label>
+          <select
+            id="adm-difficulty-select"
+            className="adm-sort-select"
+            value={difficultyFilter}
+            onChange={e => setFilterAndClear(setDifficultyFilter, e.target.value)}
+          >
+            {DIFFICULTY_FILTERS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>

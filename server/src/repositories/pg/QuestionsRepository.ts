@@ -253,6 +253,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
     limit?: number;
     offset?: number;
     sort?: 'priority' | 'newest' | 'score' | 'usage';
@@ -274,6 +275,10 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     if (typeof params.commercialReady === 'boolean') {
       const commercialReadySql = this.commercialReadySql();
       clauses.push(params.commercialReady ? commercialReadySql : `NOT ${commercialReadySql}`);
+    }
+    if (params.difficulty) {
+      values.push(params.difficulty);
+      clauses.push(`difficulty = $${values.length}`);
     }
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
     const offset = Math.max(0, Number(params.offset) || 0);
@@ -330,6 +335,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     status?: GeneratedBankStatus;
     reviewStatus?: string;
     commercialReady?: boolean;
+    difficulty?: string;
   }): Promise<number> {
     const values: unknown[] = [];
     const clauses = ["source IN ('ai', 'authored')"];
@@ -344,6 +350,10 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     if (typeof params.commercialReady === 'boolean') {
       const commercialReadySql = this.commercialReadySql();
       clauses.push(params.commercialReady ? commercialReadySql : `NOT ${commercialReadySql}`);
+    }
+    if (params.difficulty) {
+      values.push(params.difficulty);
+      clauses.push(`difficulty = $${values.length}`);
     }
     const res = await this.pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM questions WHERE ${clauses.join(' AND ')}`,
