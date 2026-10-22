@@ -571,6 +571,77 @@ function runQuestionsContractSuite(label: string, setup: () => Promise<IQuestion
       expect(result.map((q) => q['id'])).not.toContain(externalId);
     });
 
+    // ── findGeneratedBankQuestions: AI reuse pool is gated on commercial readiness ──
+
+    async function seedAiReusePoolRow(overrides: Record<string, unknown>): Promise<string> {
+      const { externalId, data } = makeQuestionData({
+        source: 'ai', subject: 'Pharmacology', system: 'Cardiovascular', ...overrides,
+      });
+      data.body['id'] = externalId;
+      await repo.upsertByExternalId(externalId, data);
+      return externalId;
+    }
+
+    async function reusableIds(): Promise<unknown[]> {
+      const rows = await repo.findGeneratedBankQuestions({ subject: 'Pharmacology', system: 'Cardiovascular', limit: 50 });
+      return rows.map((q) => q['id']);
+    }
+
+    it.each(['approved', 'restored'] as const)(
+      'findGeneratedBankQuestions returns a %s AI question with passing review metadata',
+      async (bankStatus) => {
+        const id = await seedAiReusePoolRow({ bankStatus, reviewMetadata: READY_METADATA });
+        expect(await reusableIds()).toContain(id);
+      },
+    );
+
+    it.each(['validated_generated', 'quarantined', 'rejected'] as const)(
+      'findGeneratedBankQuestions excludes a %s AI question even with passing review metadata',
+      async (bankStatus) => {
+        const id = await seedAiReusePoolRow({ bankStatus, reviewMetadata: READY_METADATA });
+        expect(await reusableIds()).not.toContain(id);
+      },
+    );
+
+    it('findGeneratedBankQuestions excludes an approved AI question with no review metadata', async () => {
+      const id = await seedAiReusePoolRow({ bankStatus: 'approved', reviewMetadata: undefined });
+      expect(await reusableIds()).not.toContain(id);
+    });
+
+    it('findGeneratedBankQuestions excludes an approved AI question whose medical accuracy did not pass', async () => {
+      const id = await seedAiReusePoolRow({
+        bankStatus: 'approved',
+        reviewMetadata: { ...READY_METADATA, medicalAccuracyStatus: 'unknown' },
+      });
+      expect(await reusableIds()).not.toContain(id);
+    });
+
+    it('findGeneratedBankQuestions excludes an approved AI question with a failed item-writing review', async () => {
+      const id = await seedAiReusePoolRow({
+        bankStatus: 'approved',
+        reviewMetadata: { ...READY_METADATA, itemWritingStatus: 'fail' },
+      });
+      expect(await reusableIds()).not.toContain(id);
+    });
+
+    it('findGeneratedBankQuestions requires expert review for hard-mode AI questions', async () => {
+      const sourceChecked = await seedAiReusePoolRow({
+        bankStatus: 'approved', difficulty: 'NBME Difficult', reviewMetadata: READY_METADATA,
+      });
+      const expertReviewed = await seedAiReusePoolRow({
+        bankStatus: 'approved', difficulty: 'NBME Difficult',
+        reviewMetadata: { ...READY_METADATA, reviewStatus: 'expert_reviewed' },
+      });
+      const ids = await reusableIds();
+      expect(ids).not.toContain(sourceChecked);
+      expect(ids).toContain(expertReviewed);
+    });
+
+    it('findGeneratedBankQuestions never returns authored questions', async () => {
+      const id = await seedAiReusePoolRow({ source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA });
+      expect(await reusableIds()).not.toContain(id);
+    });
+
     it('findReviewedAuthoredQuestions filters by subject and system', async () => {
       const { externalId: match, data: matchData } = makeQuestionData({
         source: 'authored', bankStatus: 'approved', reviewMetadata: READY_METADATA,

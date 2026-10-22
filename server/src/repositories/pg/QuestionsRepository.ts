@@ -162,16 +162,9 @@ export class PgQuestionsRepository implements IQuestionsRepository {
     difficulty?: string;
     mode?: string;
     limit?: number;
-    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]> {
     const values: unknown[] = [];
-    const bankStatusClause = params.approvedOnly
-      ? "bank_status IN ('approved', 'restored')"
-      : "bank_status IN ('validated_generated', 'approved', 'restored')";
-    const clauses = [
-      "source = 'ai'",
-      bankStatusClause,
-    ];
+    const clauses = ["source = 'ai'", this.commercialReadySql()];
 
     const addExact = (column: string, value?: string, allLabels: string[] = []) => {
       const trimmed = String(value || '').trim();
@@ -206,7 +199,7 @@ export class PgQuestionsRepository implements IQuestionsRepository {
       `SELECT body
        FROM questions
        WHERE ${clauses.join(' AND ')}
-       ORDER BY CASE WHEN bank_status IN ('approved', 'restored') THEN 0 ELSE 1 END, created_at DESC
+       ORDER BY created_at DESC
        LIMIT $${values.length}`,
       values,
     );

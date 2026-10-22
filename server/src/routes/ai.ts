@@ -52,7 +52,7 @@ import { taxonomyResolutionService } from '../services/TaxonomyResolutionService
 import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata.js';
-import { getGeneratedBankReusePolicy, config } from '../config.js';
+import { config } from '../config.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
 import { shuffleQuestionForExam, toStudentExamQuestion } from '../lib/examStudentView.js';
@@ -2312,7 +2312,18 @@ async function _filterQuarantinedFingerprints(questions: Record<string, any>[]):
   }
 }
 
-async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number, approvedOnly = false): Promise<Record<string, any>[]> {
+/**
+ * Bank reuse is always limited to commercially-ready (human-reviewed) rows — the repository
+ * enforces it, so these telemetry fields are constants kept for response compatibility.
+ */
+const BANK_REUSE_POLICY_TELEMETRY = {
+  reusePolicy: 'commercial-ready',
+  approvedOnly: true,
+  approvedOnlyMode: true,
+  validatedFallbackAllowed: false,
+} as const;
+
+async function _getReusableGeneratedBankQuestions(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
   const repo = getRepositories().questions;
   const scope = resolveScope(config);
   const rawBank = await repo.findGeneratedBankQuestions({
@@ -2321,7 +2332,6 @@ async function _getReusableGeneratedBankQuestions(config: Record<string, any>, t
     difficulty: config.difficulty || 'Balanced',
     mode:       config.mode,
     limit:      Math.min(targetCount * 3, 200),
-    approvedOnly,
   });
 
   // Scope filter runs on the raw stored body BEFORE normalizeQuestion is called,
@@ -2413,15 +2423,15 @@ const isStandardizedBlockType = (blockType: unknown): boolean =>
  * 20-question target risks missing a thin area by sampling variance alone,
  * even when the DB has enough of that area overall.
  */
-async function _getExamBankPool(config: Record<string, any>, targetCount: number, approvedOnly: boolean): Promise<Record<string, any>[]> {
-  if (config.mode !== 'exam') return _getReusableGeneratedBankQuestions(config, targetCount, approvedOnly);
+async function _getExamBankPool(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
+  if (config.mode !== 'exam') return _getReusableGeneratedBankQuestions(config, targetCount);
 
   const poolFetchCount = isStandardizedBlockType(config.blockType)
     ? Math.max(targetCount * 10, 200)
     : targetCount;
 
   const [generated, authored] = await Promise.all([
-    _getReusableGeneratedBankQuestions(config, poolFetchCount, approvedOnly),
+    _getReusableGeneratedBankQuestions(config, poolFetchCount),
     _getReviewedAuthoredQuestions(config, poolFetchCount),
   ]);
 
@@ -2632,9 +2642,7 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
-    const reusePolicy = getGeneratedBankReusePolicy();
-    const approvedOnly = reusePolicy.approvedOnly;
-    const generatedBankQuestions = await _getExamBankPool(config, targetCount, approvedOnly);
+    const generatedBankQuestions = await _getExamBankPool(config, targetCount);
     const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       let questions: Record<string, any>[];
@@ -2691,13 +2699,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         unknownConcepts:               [],
         stoppedReason:          'generated_bank_covered_request',
         medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
-        reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
-        approvedOnly,
-        validatedFallbackAllowed: !approvedOnly,
+        ...BANK_REUSE_POLICY_TELEMETRY,
         approvedReuseCount,
         liveGeneratedCount: 0,
         validatedQueueCount,
-        approvedOnlyMode: approvedOnly,
       };
       const examView = await applyExamStudentView(questions, { mode: config.mode, clientSessionId, userId: req.userId! });
       res.json({
@@ -2759,14 +2764,11 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
             topicPasses: 0, topicWarnings: 0, topicFailures: 0, unknownTopics: [],
             conceptPasses: 0, conceptWarnings: 0, conceptFailures: 0, unknownConcepts: [],
             medicalReviewFailureCategories: emptyMedicalReviewFailureCategories(),
-            reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
-            approvedOnly,
-            validatedFallbackAllowed: !approvedOnly,
+            ...BANK_REUSE_POLICY_TELEMETRY,
             approvedReuseCount,
             liveGeneratedCount: 0,
             validatedQueueCount,
-            approvedOnlyMode: approvedOnly,
-            studentView: examView.studentView,
+                studentView: examView.studentView,
             reserved: examView.reserved,
           },
           generationStrategy: 'generated-bank',
@@ -3045,13 +3047,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       bankPoolUsed: bankPool.length,
       stoppedReason,
       medicalReviewFailureCategories: totalMrFailureCategories,
-      reusePolicy: approvedOnly ? 'approved-only' : 'approved-first',
-      approvedOnly,
-      validatedFallbackAllowed: !approvedOnly,
+      ...BANK_REUSE_POLICY_TELEMETRY,
       approvedReuseCount,
       liveGeneratedCount,
       validatedQueueCount,
-      approvedOnlyMode: approvedOnly,
     };
     const log = createLogger((req as any).requestId);
     log.info('[generate-questions]', { telemetry: JSON.stringify(telemetry) });

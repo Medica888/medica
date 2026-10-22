@@ -43,6 +43,13 @@ import {
 
 let _idCounter = 0;
 
+/** Review metadata that satisfies the commercial-readiness gate for non-hard-mode content. */
+const REVIEWED_METADATA = {
+  reviewStatus: 'source_checked',
+  sourceRefs: ['First Aid 2025'],
+  medicalAccuracyStatus: 'pass',
+};
+
 function authHeader(userId = 'user-1') {
   return `Bearer ${jwt.sign({ sub: userId }, config.jwtSecret)}`;
 }
@@ -1025,7 +1032,7 @@ describe('generated question bank', () => {
   async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
     const q = makePromotableQuestion(overrides);
     const fingerprint = fingerprintOf(q);
-    const bankStatus = String(config.bankStatus || 'validated_generated');
+    const bankStatus = config.reviewed ? 'approved' : String(config.bankStatus || 'validated_generated');
     await getRepositories().questions.upsertByExternalId(fingerprint, {
       subject: String(q.subject || ''),
       system:  String(q.system  || ''),
@@ -1041,6 +1048,7 @@ describe('generated question bank', () => {
       bankStatus,
       mode: String(config.mode || ''),
       difficulty: String(q.difficulty || config.difficulty || 'Balanced'),
+      ...(config.reviewed ? { reviewMetadata: REVIEWED_METADATA } : {}),
     });
     return { question: q, fingerprint };
   }
@@ -1061,7 +1069,7 @@ describe('generated question bank', () => {
   it('serves bank questions before requiring live AI', async () => {
     const seeded = makePromotableQuestion();
     const seededFingerprint = fingerprintOf(seeded);
-    await seedBankQuestion(seeded);
+    await seedBankQuestion(seeded, { mode: 'practice', difficulty: 'Balanced', reviewed: true });
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -1148,7 +1156,7 @@ describe('generated question bank', () => {
       testedConcept: 'melanoma asymmetric border recognition',
       questionAngle: 'diagnosis',
       stem: 'A 64-year-old man with fair skin presents with an enlarging asymmetric pigmented lesion with irregular borders and color variation on his upper back. Which diagnosis best explains this lesion?',
-    });
+    }, { mode: 'practice', difficulty: 'Balanced', reviewed: true });
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -1177,12 +1185,13 @@ describe('generated question bank', () => {
         ...legacyQuestion,
         id: fingerprint,
         source: 'ai',
-        bankStatus: 'validated_generated',
+        bankStatus: 'approved',
         validationStatus: 'pass',
         validationScore: 90,
         mode: 'practice',
         difficulty: 'Balanced',
       },
+      reviewMetadata: REVIEWED_METADATA,
     });
 
     const res = await request(app)
@@ -1204,7 +1213,7 @@ describe('generated question bank', () => {
       testedConcept: 'afferent arteriole constriction lowers glomerular filtration rate',
       questionAngle: 'mechanism',
       stem: 'A 52-year-old man receives a medication that constricts the afferent arteriole. Which change in glomerular filtration rate is expected from this renal hemodynamic effect?',
-    });
+    }, { mode: 'practice', difficulty: 'Balanced', reviewed: true });
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -1438,7 +1447,7 @@ describe('generated question bank', () => {
     expect(res.body.code).toBe('TAXONOMY_CANDIDATE_NOT_FOUND');
   });
 
-  it('prefers approved generated-bank questions over unapproved validated candidates', async () => {
+  it('serves reviewed bank questions and skips unreviewed validated candidates', async () => {
     await seedBankQuestion(
       {
         testedConcept: 'ACE inhibitor bradykinin cough mechanism',
@@ -1454,7 +1463,7 @@ describe('generated question bank', () => {
         topic: 'Beta blockers',
         questionAngle: 'mechanism',
       },
-      { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' },
+      { mode: 'practice', difficulty: 'Balanced', reviewed: true },
     );
 
     const res = await request(app)
@@ -1564,7 +1573,7 @@ describe('generated question bank', () => {
   });
 
   it('keeps 40-question exam blocks strict when generated bank is partial and AI is unavailable', async () => {
-    await seedBankQuestion({}, { mode: 'exam', difficulty: 'Balanced' });
+    await seedBankQuestion({}, { mode: 'exam', difficulty: 'Balanced', reviewed: true });
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -1853,10 +1862,13 @@ describe('hybrid question bank fill', () => {
         ...q,
         id: fingerprint,
         source: 'ai',
-        bankStatus: 'validated_generated',
+        bankStatus: 'approved',
         mode: config.mode || '',
         difficulty: q.difficulty || config.difficulty || 'Balanced',
       },
+      source: 'ai',
+      bankStatus: 'approved',
+      reviewMetadata: REVIEWED_METADATA,
     });
   }
 
@@ -2111,9 +2123,8 @@ describe('hybrid question bank fill', () => {
       .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
 
     // Exactly 2 bank rows: original + AI fill. Not 3 — bank question was not re-saved.
-    const bankRows = await getRepositories().questions.findGeneratedBankQuestions({
-      subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced', mode: 'practice', limit: 10,
-    });
+    // Read through the admin review view: the fresh AI fill is unreviewed, so the gated reuse query hides it.
+    const bankRows = await getRepositories().questions.findGeneratedBankReview({ limit: 10 });
     expect(bankRows).toHaveLength(2);
   });
 
@@ -2163,14 +2174,11 @@ describe('hybrid question bank fill', () => {
     expect(returnedId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(returnedId).toBe(fingerprintOf(aiQuestion));
 
-    // A second identical request reuses the bank row keyed by that exact id — proving the
-    // client-visible id and the persisted external_id are the same value.
-    const secondRes = await request(app)
-      .post('/api/generate-questions')
-      .set('Authorization', authHeader())
-      .send({ config: { mode: 'practice', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } });
-    expect(secondRes.body.source).toBe('generated-bank');
-    expect(secondRes.body.questions[0].id).toBe(returnedId);
+    // The persisted bank row is keyed by that exact id — proving the client-visible id and the
+    // persisted external_id are the same value. It is unreviewed, so it is not yet reusable.
+    const persisted = await getRepositories().questions.findGeneratedBankReview({ externalId: returnedId, limit: 1 });
+    expect(persisted).toHaveLength(1);
+    expect((persisted[0] as any).bankStatus).toBe('validated_generated');
   });
 
   it('corrects AI-generated Cardiology subject into Cardiovascular system before saving to bank', async () => {
@@ -2193,9 +2201,7 @@ describe('hybrid question bank fill', () => {
     expect(res.body.questions[0].subject).not.toBe('Cardiology');
     expect(res.body.questions[0].system).toBe('Cardiovascular');
 
-    const bankRows = await getRepositories().questions.findGeneratedBankQuestions({
-      system: 'Cardiovascular', difficulty: 'Balanced', mode: 'practice', limit: 10,
-    });
+    const bankRows = await getRepositories().questions.findGeneratedBankReview({ limit: 10 });
     expect(bankRows).toHaveLength(1);
     expect(bankRows[0].subject).not.toBe('Cardiology');
     expect(bankRows[0].system).toBe('Cardiovascular');
@@ -2366,9 +2372,10 @@ describe('exam-mode server-owned student view', () => {
     await getRepositories().questions.upsertByExternalId(fingerprint, {
       subject: String(q.subject || ''),
       system:  String(q.system  || ''),
-      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'validated_generated', mode, difficulty: q.difficulty || 'Balanced' },
+      body: { ...q, id: fingerprint, source: 'ai', bankStatus: 'approved', mode, difficulty: q.difficulty || 'Balanced' },
       source: 'ai',
-      bankStatus: 'validated_generated',
+      bankStatus: 'approved',
+      reviewMetadata: REVIEWED_METADATA,
       mode,
       difficulty: String(q.difficulty || 'Balanced'),
     });
@@ -3120,9 +3127,10 @@ describe('exam mode serves reviewed authored QBank content as student-view', () 
     await getRepositories().questions.upsertByExternalId('practice-short-1', {
       subject: 'Pharmacology',
       system: 'Cardiovascular',
-      body: { ...q, id: 'practice-short-1', source: 'ai', bankStatus: 'validated_generated', mode: 'practice', difficulty: 'Balanced' },
+      body: { ...q, id: 'practice-short-1', source: 'ai', bankStatus: 'approved', mode: 'practice', difficulty: 'Balanced' },
       source: 'ai',
-      bankStatus: 'validated_generated',
+      bankStatus: 'approved',
+      reviewMetadata: REVIEWED_METADATA,
       mode: 'practice',
       difficulty: 'Balanced',
       validationScore: 85,
@@ -3200,7 +3208,7 @@ describe('Phase 2 governance', () => {
   async function seedBankQuestion(overrides: Record<string, any> = {}, config: Record<string, any> = { mode: 'practice', difficulty: 'Balanced' }) {
     const q = makePromotableQuestion(overrides);
     const fingerprint = fingerprintOf(q);
-    const bankStatus = String(config.bankStatus || 'validated_generated');
+    const bankStatus = config.reviewed ? 'approved' : String(config.bankStatus || 'validated_generated');
     await getRepositories().questions.upsertByExternalId(fingerprint, {
       subject: String(q.subject || ''),
       system:  String(q.system  || ''),
@@ -3216,6 +3224,7 @@ describe('Phase 2 governance', () => {
       bankStatus,
       mode: String(config.mode || ''),
       difficulty: String(q.difficulty || config.difficulty || 'Balanced'),
+      ...(config.reviewed ? { reviewMetadata: REVIEWED_METADATA } : {}),
       validationScore: 85,
     });
     return { question: q, fingerprint };
@@ -3225,16 +3234,12 @@ describe('Phase 2 governance', () => {
     setRepositories(createInMemoryRepositories());
     seedAuthUsers();
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.REQUIRE_APPROVAL_FOR_PRODUCTION;
-    delete process.env.ALLOW_VALIDATED_REUSE;
     process.env.ADMIN_USER_IDS = 'user-1';
     app = createApp();
   });
 
   afterEach(() => {
     delete process.env.ADMIN_USER_IDS;
-    delete process.env.REQUIRE_APPROVAL_FOR_PRODUCTION;
-    delete process.env.ALLOW_VALIDATED_REUSE;
   });
 
   // ── P0: downgrade prevention ──────────────────────────────────────────────────
@@ -3304,10 +3309,7 @@ describe('Phase 2 governance', () => {
 
   // ── P1: approved-only reuse ───────────────────────────────────────────────────
 
-  it('REQUIRE_APPROVAL_FOR_PRODUCTION blocks validated_generated from bank reuse', async () => {
-    process.env.REQUIRE_APPROVAL_FOR_PRODUCTION = 'true';
-    app = createApp();
-
+  it('does not serve validated_generated bank rows (no review decision yet)', async () => {
     await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
 
     const res = await request(app)
@@ -3315,30 +3317,25 @@ describe('Phase 2 governance', () => {
       .set('Authorization', authHeader())
       .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
-    // With no approved questions and no API key, expect 503 (no API key) — not served from bank
+    // Nothing reusable and no API key: 503, not served from the bank.
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('NO_API_KEY');
   });
 
-  it('REQUIRE_APPROVAL_FOR_PRODUCTION allows approved questions to serve from bank', async () => {
-    process.env.REQUIRE_APPROVAL_FOR_PRODUCTION = 'true';
-    app = createApp();
-
+  it('does not serve approved bank rows that carry no review metadata', async () => {
     await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
 
     const res = await request(app)
       .post('/api/generate-questions')
       .set('Authorization', authHeader())
-      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
-      .expect(200);
+      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
 
-    expect(res.body.source).toBe('generated-bank');
-    expect(res.body.telemetry.approvedOnly).toBe(true);
-    expect(res.body.telemetry.reusePolicy).toBe('approved-only');
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('NO_API_KEY');
   });
 
-  it('default mode (no env flag) serves validated_generated from bank', async () => {
-    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
+  it('serves approved bank rows with passing review metadata and reports the commercial-ready policy', async () => {
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', reviewed: true });
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -3347,12 +3344,12 @@ describe('Phase 2 governance', () => {
       .expect(200);
 
     expect(res.body.source).toBe('generated-bank');
-    expect(res.body.telemetry.approvedOnly).toBe(false);
-    expect(res.body.telemetry.reusePolicy).toBe('approved-first');
-    expect(res.body.telemetry.validatedFallbackAllowed).toBe(true);
+    expect(res.body.telemetry.reusePolicy).toBe('commercial-ready');
+    expect(res.body.telemetry.approvedOnly).toBe(true);
+    expect(res.body.telemetry.validatedFallbackAllowed).toBe(false);
   });
 
-  it('production defaults to approved-only reuse without requiring an env flag', async () => {
+  it('production also refuses to reuse unreviewed bank rows', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = 'production';
@@ -3373,42 +3370,8 @@ describe('Phase 2 governance', () => {
     }
   });
 
-  it('ALLOW_VALIDATED_REUSE=false blocks validated_generated from bank reuse', async () => {
-    process.env.ALLOW_VALIDATED_REUSE = 'false';
-    app = createApp();
-
-    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'validated_generated' });
-
-    const res = await request(app)
-      .post('/api/generate-questions')
-      .set('Authorization', authHeader())
-      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } });
-
-    // validated_generated must not be served — no approved questions and no API key → 503
-    expect(res.status).toBe(503);
-    expect(res.body.code).toBe('NO_API_KEY');
-  });
-
-  it('ALLOW_VALIDATED_REUSE=false allows approved questions to serve from bank', async () => {
-    process.env.ALLOW_VALIDATED_REUSE = 'false';
-    app = createApp();
-
-    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
-
-    const res = await request(app)
-      .post('/api/generate-questions')
-      .set('Authorization', authHeader())
-      .send({ config: { mode: 'practice', questionCount: 1, difficulty: 'Balanced' } })
-      .expect(200);
-
-    expect(res.body.source).toBe('generated-bank');
-    expect(res.body.telemetry.approvedOnly).toBe(true);
-    expect(res.body.telemetry.reusePolicy).toBe('approved-only');
-    expect(res.body.telemetry.validatedFallbackAllowed).toBe(false);
-  });
-
   it('telemetry includes approvedReuseCount, liveGeneratedCount, approvedOnlyMode, validatedQueueCount', async () => {
-    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', bankStatus: 'approved' });
+    await seedBankQuestion({}, { mode: 'practice', difficulty: 'Balanced', reviewed: true });
     // seed a second validated_generated that is NOT served (counts toward queue)
     await seedBankQuestion(
       { testedConcept: 'pending queue item for telemetry', stem: 'A 30-year-old has a pending review question. What is the status?' },

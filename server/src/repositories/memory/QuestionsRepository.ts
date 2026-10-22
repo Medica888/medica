@@ -162,7 +162,6 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
     difficulty?: string;
     mode?: string;
     limit?: number;
-    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]> {
     const matchesRequested = (requested: string | undefined, actual: unknown, allLabels: string[]) => {
       const value = String(requested || '').trim();
@@ -182,24 +181,15 @@ export class InMemoryQuestionsRepository implements IQuestionsRepository {
       return searchLabels.includes(String(actual || ''));
     };
     const limit = Math.max(1, Math.min(Number(params.limit) || 100, 200));
-    const allowedStatuses = params.approvedOnly
-      ? ['approved', 'restored']
-      : ['validated_generated', 'approved', 'restored'];
     return [...this.store.values()]
       .filter(entry =>
         entry.source === 'ai'
-        && allowedStatuses.includes(entry.bankStatus)
+        && this.enrichEntry('', entry).commercialReady
         && matchesTaxonomy(params.subject, entry.subject, subjectSearchLabels, ['All Subjects'])
         && matchesTaxonomy(params.system, entry.system, systemSearchLabels, ['Mixed / All Systems', 'All Systems'])
         && matchesTaxonomy(params.difficulty, entry.difficulty, difficultySearchLabels, [])
         && matchesRequested(params.mode, entry.mode, []),
       )
-      .sort((a, b) => {
-        const aActive = a.bankStatus === 'approved' || a.bankStatus === 'restored';
-        const bActive = b.bankStatus === 'approved' || b.bankStatus === 'restored';
-        if (aActive !== bActive) return aActive ? -1 : 1;
-        return 0;
-      })
       .map(entry => this.enrichEntry('', entry).body as Record<string, unknown>)
       .slice(0, limit);
   }

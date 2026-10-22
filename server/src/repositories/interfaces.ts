@@ -133,13 +133,13 @@ export interface IQuestionsRepository {
     tx?: unknown,
   ): Promise<{ id: string }>;
   findByExternalId(externalId: string): Promise<{ id: string } | null>;
+  /** AI reuse pool for student serving. Only commercially-ready (human-reviewed) rows; there is no opt-out. */
   findGeneratedBankQuestions(params: {
     subject?: string;
     system?: string;
     difficulty?: string;
     mode?: string;
     limit?: number;
-    approvedOnly?: boolean;
   }): Promise<Record<string, unknown>[]>;
   countGeneratedBankReview(params: {
     status?: GeneratedBankStatus;

@@ -75,10 +75,6 @@ services:
         value: "1"
       - key: AUTH_DEV_TOKENS_ENABLED
         value: "false"
-      - key: ALLOW_VALIDATED_REUSE
-        value: "false"
-      - key: REQUIRE_APPROVAL_FOR_PRODUCTION
-        value: "true"
       - key: AI_REQUEST_BUDGET_PER_DAY
         value: "20"
       - key: AI_TOKEN_BUDGET_PER_DAY
