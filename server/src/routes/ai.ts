@@ -54,6 +54,7 @@ import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/valida
 import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata.js';
 import { config } from '../config.js';
 import { selectAdaptiveFromBank } from '../lib/adaptiveBankSelection.js';
+import { collectExcludedQuestionIds, preferUnseenQuestions } from '../lib/preferUnseenQuestions.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
 import { shuffleQuestionForExam, toStudentExamQuestion } from '../lib/examStudentView.js';
@@ -2654,7 +2655,13 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
-    const generatedBankQuestions = await _getExamBankPool(config, targetCount, Boolean(examAdaptiveBlueprint));
+    // Unseen questions are served first, but seen ones remain eligible so an exhausted scope still fills.
+    // A seen list also widens the fetch: reordering exactly targetCount rows could not surface unseen ones.
+    const seenQuestionIds = collectExcludedQuestionIds(req.body?.exclude);
+    const generatedBankQuestions = preferUnseenQuestions(
+      await _getExamBankPool(config, targetCount, Boolean(examAdaptiveBlueprint) || seenQuestionIds.size > 0),
+      seenQuestionIds,
+    );
     const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       let questions: Record<string, any>[];

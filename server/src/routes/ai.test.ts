@@ -2549,6 +2549,55 @@ describe('exam-mode server-owned student view', () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
+  async function seedReviewedPool(size: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < size; i++) {
+      const { fingerprint } = await seedBankQuestion({
+        testedConcept: `Seen Tracking Concept ${i}`,
+        topic: `Seen tracking topic ${i}`,
+        questionAngle: `seen-angle-${i}`,
+      });
+      ids.push(fingerprint);
+    }
+    return ids;
+  }
+
+  it('Exam prefers questions the client has not seen yet', async () => {
+    const ids = await seedReviewedPool(10);
+    const seen = ids.slice(0, 6);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 4, difficulty: 'Balanced' },
+        exclude: { questionIds: seen },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    const returned = res.body.questions.map((q: any) => q.id).sort();
+    expect(returned).toEqual(ids.slice(6).sort());
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it('Exam still fills the block from seen questions when the scope is exhausted instead of failing', async () => {
+    const ids = await seedReviewedPool(6);
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 4, difficulty: 'Balanced' },
+        exclude: { questionIds: ids },
+        clientSessionId: randomUUID(),
+      })
+      .expect(200);
+
+    expect(res.body.questions).toHaveLength(4);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
   it('Practice with a partial reviewed pool still tops up with live AI', async () => {
     await seedBankQuestion({
       testedConcept: 'ACE inhibitor bradykinin cough mechanism',
