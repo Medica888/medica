@@ -168,6 +168,19 @@ Cast arrays to the correct PG type — `uuid[]` for UUID columns, `text[]` for t
 
 ---
 
+## Reviewed Content (student-visible gate)
+
+A question reaches students only if it is **commercially ready**: `bank_status` approved/restored, `sourceRefs` present, `medicalAccuracyStatus = pass`, no failed item-writing/difficulty review, and `reviewStatus` of `source_checked` (or `expert_reviewed` — required for `NBME Difficult` / `UWorld Challenge`). The rule lives in `lib/reviewedContentMetadata.ts` (`isCommerciallyContentReady`) and `commercialReadySql()` in the PG repository; the in-memory repository reuses `enrichEntry().commercialReady` so the two cannot drift.
+
+- **Gate in the repository, never in the caller.** `findStudentCatalog`, `findByExternalIds`, `findReviewedAuthoredQuestions` and `findGeneratedBankQuestions` (the AI reuse pool) are all gated with no opt-out flag. Do not add a bypass parameter.
+- **Exam mode is reviewed-only.** It never calls live AI and never falls back to the frontend's bundled bank. A pool shortfall returns 503 `AI_INSUFFICIENT_COUNT`. Adaptive selection for Exam only re-ranks the reviewed pool (`lib/adaptiveBankSelection.ts`, matched by `extractConcepts` slugs); keep it separate from the live-AI `adaptiveBlueprint`, which skips the bank path.
+- **Practice/Coach may top up with live AI.** Those questions are tagged `reviewState: 'unreviewed_ai'` in the response only (never stored) and the UI shows a badge.
+- **Seen questions are deprioritised, never dropped** (`lib/preferUnseenQuestions.ts`), so an exhausted scope still fills a session.
+- **New authored questions need explicit `reviewMetadata`** in `server/src/db/seed-data/authoredQuestions.json`; without it they are seeded but hidden until an admin reviews them in the Review Queue (filter by difficulty/subject/system, bulk mark, or export CSV for offline review).
+- **Always run `npm run test:integration` (needs Docker) and the Playwright suite** (`npm run test:e2e` in `medica-app/`) for any change here. Unit suites alone once missed a catalog-empty regression for several commits.
+
+---
+
 ## Frontend Architecture
 
 ### Component rules
