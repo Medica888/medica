@@ -230,6 +230,24 @@ describe('QuizSession exam answer display', () => {
 // one option-rendering path in the app that previously had zero normalization
 // before keying by opt.letter.
 
+describe('QuizSession — unreviewed AI label', () => {
+  const practiceSession = (question) => ({
+    id: 'label-test', mode: 'practice', answers: {}, currentIndex: 0, questions: [question],
+  })
+
+  it('labels a live-generated question as AI-generated and not yet reviewed', () => {
+    render(<QuizSession session={practiceSession({ ...makeQ('q1', 'A'), reviewState: 'unreviewed_ai' })} onExit={vi.fn()} onComplete={vi.fn()} />)
+
+    expect(screen.getByText(/AI-generated · not yet reviewed/i)).toBeInTheDocument()
+  })
+
+  it('shows no review label for a question without the unreviewed flag', () => {
+    render(<QuizSession session={practiceSession(makeQ('q1', 'A'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+
+    expect(screen.queryByText(/not yet reviewed/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('QuizSession — duplicate option letters (malformed data)', () => {
   it('relabels malformed duplicate-lettered options uniquely and never warns about duplicate React keys', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})

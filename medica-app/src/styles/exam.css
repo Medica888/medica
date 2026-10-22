@@ -170,6 +170,10 @@
   text-transform: uppercase; padding: 3px 10px; border-radius: 5px;
   background: var(--blue-10); color: var(--blue);
 }
+.exam-q-tag--unreviewed {
+  background: color-mix(in srgb, var(--status-warn) 12%, transparent);
+  color: var(--status-warn);
+}
 
 /* ── Utility buttons (UWorld-style) ────────────────────────────── */
 .exam-utility-row {

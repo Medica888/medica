@@ -2505,6 +2505,13 @@ describe('exam-mode server-owned student view', () => {
 
     expect(mockMessagesCreate).toHaveBeenCalled();
     expect(res.body.questions).toHaveLength(2);
+    // Only the live-generated question is labelled unreviewed; the reviewed bank question is not.
+    const byConcept = new Map<string, any>(res.body.questions.map((q: any) => [q.testedConcept, q]));
+    expect(byConcept.get('calcium channel blocker vascular relaxation mechanism').reviewState).toBe('unreviewed_ai');
+    expect(byConcept.get('ACE inhibitor bradykinin cough mechanism').reviewState).toBeUndefined();
+    // The label is response-only: the stored bank row must not carry it.
+    const stored = await getRepositories().questions.findGeneratedBankReview({ limit: 10 });
+    for (const row of stored as any[]) expect(row.body.reviewState).toBeUndefined();
   });
 
   it('practice mode still returns full answer/explanation fields', async () => {

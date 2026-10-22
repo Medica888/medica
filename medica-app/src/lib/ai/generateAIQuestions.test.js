@@ -141,6 +141,16 @@ describe('generateAIQuestions - success path', () => {
     expect(result[0].physicianTask).toBeTruthy()
   })
 
+  it('keeps the server unreviewed-AI label on returned questions', async () => {
+    const questions = makeQuestions(5).map((q, i) => (i === 0 ? { ...q, reviewState: 'unreviewed_ai' } : q))
+    vi.stubGlobal('fetch', mockFetch([{ body: { questions } }]))
+
+    const result = await generateAIQuestions(baseConfig)
+
+    expect(result.find(q => q.id === 'uuid-0').reviewState).toBe('unreviewed_ai')
+    expect(result.filter(q => q.reviewState === 'unreviewed_ai')).toHaveLength(1)
+  })
+
   it('preserves server generation telemetry on the returned question array', async () => {
     const telemetry = {
       medicalReviewRequested: 12,

@@ -2316,6 +2316,8 @@ async function _filterQuarantinedFingerprints(questions: Record<string, any>[]):
  * Bank reuse is always limited to commercially-ready (human-reviewed) rows — the repository
  * enforces it, so these telemetry fields are constants kept for response compatibility.
  */
+const UNREVIEWED_AI_REVIEW_STATE = 'unreviewed_ai';
+
 const BANK_REUSE_POLICY_TELEMETRY = {
   reusePolicy: 'commercial-ready',
   approvedOnly: true,
@@ -2967,6 +2969,9 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     const bankContribQuestions = questions.filter(q => bankIdSet.has(String(q.id ?? '')));
     const approvedReuseCount = bankContribQuestions.filter(q => String(q.bankStatus) === 'approved').length;
     const liveGeneratedCount = questions.length - bankContribQuestions.length;
+    // Bank-served questions are reviewed; live-generated ones have no human review decision yet,
+    // so label them for the client. Stored bank rows come from allQuestions and stay untagged.
+    questions = questions.map(q => (bankIdSet.has(String(q.id ?? '')) ? q : { ...q, reviewState: UNREVIEWED_AI_REVIEW_STATE }));
     if (bankPool.length > 0) {
       const returnedBankFingerprints = questions
         .filter(q => bankPool.some(bankQ => computeQuestionFingerprint(bankQ.stem || '', bankQ.testedConcept || '') === computeQuestionFingerprint(q.stem || '', q.testedConcept || '')))
