@@ -847,23 +847,35 @@ describe('App — Phase 2 server-side session reservation', () => {
 })
 
 describe('shouldUseValidatedLocalFallback', () => {
-  it('allows hard-mode timeout fallback when the validated local bank has enough questions', () => {
+  it('allows hard-mode timeout fallback for Practice when the validated local bank has enough questions', () => {
     const result = shouldUseValidatedLocalFallback(
       { code: 'GENERATION_TIMEOUT' },
-      { mode: 'exam', difficulty: 'UWorld Challenge', questionCount: 40 },
+      { mode: 'practice', difficulty: 'UWorld Challenge', questionCount: 40 },
     )
 
     expect(result).toBe(true)
   })
 
-  it('allows hard-mode insufficient-count fallback when the validated local bank has enough questions', () => {
+  it('allows hard-mode insufficient-count fallback for Coach when the validated local bank has enough questions', () => {
     const result = shouldUseValidatedLocalFallback(
       { code: 'AI_INSUFFICIENT_COUNT', returned: 24, requested: 40 },
-      { mode: 'exam', difficulty: 'NBME Difficult', questionCount: 40 },
+      { mode: 'coach', difficulty: 'NBME Difficult', questionCount: 40 },
     )
 
     expect(result).toBe(true)
   })
+
+  it.each(['GENERATION_TIMEOUT', 'AI_INSUFFICIENT_COUNT'])(
+    'never uses the local bank for hard-mode Exam on %s — Exam is served only from the reviewed server pool',
+    (code) => {
+      const result = shouldUseValidatedLocalFallback(
+        { code, returned: 24, requested: 40 },
+        { mode: 'exam', difficulty: 'NBME Difficult', questionCount: 40 },
+      )
+
+      expect(result).toBe(false)
+    },
+  )
 
   it('does not use hard-bank fallback for Balanced generation', () => {
     const result = shouldUseValidatedLocalFallback(

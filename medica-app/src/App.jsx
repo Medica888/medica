@@ -52,6 +52,9 @@ function isHardMedicalReviewConfig(config) {
 // eslint-disable-next-line react-refresh/only-export-components
 export function shouldUseValidatedLocalFallback(aiErr, config) {
   if (!isHardMedicalReviewConfig(config)) return false
+  // Exam is served only from the server's reviewed, answer-stripped pool; the bundled
+  // local bank is unreviewed and answer-bearing, so a server shortfall must surface as an error.
+  if (config?.mode === 'exam') return false
 
   const recoverable = aiErr?.code === 'GENERATION_TIMEOUT'
     || aiErr?.code === 'AI_INSUFFICIENT_COUNT'

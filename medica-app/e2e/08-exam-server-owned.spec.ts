@@ -36,15 +36,10 @@ test.beforeAll(() => {
 
 test.describe('Authenticated Exam mode is server-owned end to end', () => {
   test.beforeEach(async ({ page }) => {
-    // A dedicated, freshly-registered user rather than the shared E2E user —
-    // by this point in the suite the shared user has completed several exam/
-    // practice sessions (specs 01-07), which is enough concept-mastery history
-    // to enable the adaptive blueprint (AdaptiveExamService.MIN_FOR_ADAPTIVE).
-    // Adaptive mode forces bankPool=[] and requires live AI to fill the whole
-    // block, which this environment has no ANTHROPIC_API_KEY for. A brand new
-    // user has zero mastery rows, so adaptive stays disabled and this test's
-    // routing through the reviewed-bank path is deterministic regardless of
-    // what other specs did to the shared user or what order they ran in.
+    // A dedicated, freshly-registered user rather than the shared E2E user, so this spec
+    // never depends on what specs 01-07 did to the shared user's history. Exam is served
+    // only from the reviewed pool (no live AI, no adaptive selection), so the outcome is
+    // deterministic for any user.
     await page.context().clearCookies();
     await page.goto('/');
     await register(page, makeTestEmail(), TEST_NAME, TEST_PASSWORD);

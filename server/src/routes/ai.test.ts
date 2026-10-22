@@ -2426,13 +2426,9 @@ describe('exam-mode server-owned student view', () => {
     expect(res.body.telemetry.studentView).toBe(true);
   });
 
-  it('live-AI path returns student-view questions with no reveal fields', async () => {
-    const q = makePromotableQuestion({
-      testedConcept: 'live-ai-exam-concept',
-      topic: 'Live AI Exam Topic',
-      questionAngle: 'live-ai',
-    });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+  it('Exam fails closed on a reviewed-pool shortfall without calling live AI', async () => {
+    // Nothing reviewed is seeded; live AI is configured and would succeed if it were reachable.
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([makePromotableQuestion({ testedConcept: 'live-ai-exam-concept' })]));
 
     const res = await request(app)
       .post('/api/generate-questions')
@@ -2440,12 +2436,75 @@ describe('exam-mode server-owned student view', () => {
       .send({
         config: { mode: 'exam', questionCount: 1, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
         clientSessionId: randomUUID(),
-      })
+      });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+    expect(res.body.returned).toBe(0);
+    expect(res.body.requested).toBe(1);
+    expect(res.body.questions).toBeUndefined();
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it('Exam fails closed on a partial reviewed pool instead of topping up with live AI', async () => {
+    await seedBankQuestion({ testedConcept: 'partial-pool-exam-concept' });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([makePromotableQuestion({ testedConcept: 'live-ai-exam-concept' })]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({
+        config: { mode: 'exam', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' },
+        clientSessionId: randomUUID(),
+      });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
+    expect(res.body.returned).toBe(1);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it('Exam for a user with enough mastery history for adaptive mode is served from the reviewed pool, not live AI', async () => {
+    const { userConceptMastery, concepts } = getRepositories();
+    for (let i = 0; i < 25; i++) {
+      const concept = await concepts.upsertBySlug(`adaptive-filler-${i}`, { name: `Adaptive Filler ${i}`, subject: 'Pharmacology', system: 'Cardiovascular' });
+      await userConceptMastery.upsertMany([{ userId: 'user-1', conceptId: concept.id, attempted: 10, correct: 5 }]);
+    }
+    await seedBankQuestion({ testedConcept: 'adaptive-user-exam-concept' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'exam', questionCount: 1, difficulty: 'Balanced' }, clientSessionId: randomUUID() })
       .expect(200);
 
-    expect(res.body.questions).toHaveLength(1);
+    expect(res.body.source).toBe('generated-bank');
     expectNoRevealFields(res.body.questions[0]);
-    expect(res.body.telemetry.studentView).toBe(true);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it('Practice with a partial reviewed pool still tops up with live AI', async () => {
+    await seedBankQuestion({
+      testedConcept: 'ACE inhibitor bradykinin cough mechanism',
+      topic: 'ACE inhibitors',
+      questionAngle: 'adverse-effect',
+    }, 'practice');
+    const fill = makePromotableQuestion({
+      testedConcept: 'calcium channel blocker vascular relaxation mechanism',
+      stem: 'A 52-year-old woman with essential hypertension is started on amlodipine 5 mg daily. After four weeks her systolic blood pressure decreases by 18 mmHg. Which mechanism accounts for the reduction?',
+      topic: 'Calcium channel blockers',
+      questionAngle: 'hemodynamics',
+    });
+    mockMessagesCreate.mockResolvedValue(aiResponseWith([fill]));
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'practice', questionCount: 2, subject: 'Pharmacology', system: 'Cardiovascular', difficulty: 'Balanced' } })
+      .expect(200);
+
+    expect(mockMessagesCreate).toHaveBeenCalled();
+    expect(res.body.questions).toHaveLength(2);
   });
 
   it('practice mode still returns full answer/explanation fields', async () => {
@@ -2498,7 +2557,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'Reservation Snapshot Topic',
       questionAngle: 'reservation-snapshot',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     const res = await request(app)
@@ -2524,7 +2583,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'Idempotent Reservation Topic',
       questionAngle: 'idempotent-reservation',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     await request(app)
@@ -2541,7 +2600,6 @@ describe('exam-mode server-owned student view', () => {
 
     // A second call with the same clientSessionId (e.g. a retry) must not disturb the snapshot,
     // even though a fresh shuffle would very likely produce a different option order.
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
     await request(app)
       .post('/api/generate-questions')
       .set('Authorization', authHeader())
@@ -2561,7 +2619,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'Idempotent Response Topic',
       questionAngle: 'idempotent-response',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     const firstRes = await request(app)
@@ -2578,7 +2636,6 @@ describe('exam-mode server-owned student view', () => {
     // before checking for an existing reservation would build this response
     // from a FRESH shuffle while the (unchanged) reservation still holds the
     // first shuffle — desyncing what the student sees from what gets scored.
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
     const secondRes = await request(app)
       .post('/api/generate-questions')
       .set('Authorization', authHeader())
@@ -2606,7 +2663,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'Idempotent Then Submit Topic',
       questionAngle: 'idempotent-then-submit',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     await request(app)
@@ -2619,7 +2676,6 @@ describe('exam-mode server-owned student view', () => {
       .expect(200);
 
     // Retry — the student answers using THIS second response, not the first.
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
     const retryRes = await request(app)
       .post('/api/generate-questions')
       .set('Authorization', authHeader())
@@ -2665,7 +2721,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'End To End Scoring Topic',
       questionAngle: 'end-to-end-scoring',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     const genRes = await request(app)
@@ -2726,7 +2782,7 @@ describe('exam-mode server-owned student view', () => {
       topic: 'Tamper Resistance Topic',
       questionAngle: 'tamper-resistance',
     });
-    mockMessagesCreate.mockResolvedValue(aiResponseWith([q]));
+    await seedBankQuestion(q);
     const clientSessionId = randomUUID();
 
     const genRes = await request(app)

@@ -2626,8 +2626,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     // A standardized Step 1 Standard Block is a fixed, non-personalized
     // content-area distribution by definition — adaptive mastery-driven
     // targeting must never override its blueprint quotas.
+    // Exam mode never uses live AI (see the reviewed-only gate below), and adaptive
+    // generation is live-AI-only, so Exam draws from the reviewed pool without it.
     let adaptiveBlueprint: AdaptiveBlueprint | null = null;
-    if (!specific && req.userId && !isStandardizedStep1Block) {
+    if (!specific && req.userId && !isStandardizedStep1Block && config.mode !== 'exam') {
       try {
         const { userConceptMastery, concepts } = getRepositories();
         const bp = await new AdaptiveExamService(userConceptMastery, concepts)
@@ -2719,25 +2721,24 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     // bankPool: bank questions to serve directly (skipped if adaptive); shortfall: how many AI must fill
     const bankPool = adaptiveBlueprint ? [] : generatedBankQuestions;
     const shortfall = targetCount - bankPool.length;
-    // Authenticated Exam mode must never silently serve a partial block: by
-    // the time execution reaches here, the "bank already covers the request"
-    // early return above has already ruled out bankPool.length >= targetCount
-    // for Exam mode, so any bankPool content seen here is inherently a
-    // shortfall. Practice/Coach keep the existing graceful partial-serve
-    // behavior — only Exam mode is strict.
+    // Exam mode is served only from reviewed content: a pool shortfall fails closed
+    // before any token budget or live AI is touched, with or without an API key.
+    // The "bank already covers the request" early return above has ruled out
+    // bankPool.length >= targetCount, so any Exam request reaching here is short.
+    // Practice/Coach keep graceful partial-serve and live AI fill.
     const isExamMode = config.mode === 'exam';
+    if (isExamMode) {
+      res.status(503).json({
+        error: `Exam block requires ${targetCount} reviewed questions; only ${bankPool.length} are available for this scope`,
+        code: 'AI_INSUFFICIENT_COUNT',
+        returned: bankPool.length,
+        requested: targetCount,
+      });
+      return;
+    }
 
     if (!process.env.ANTHROPIC_API_KEY) {
       if (bankPool.length > 0) {
-        if (isExamMode) {
-          res.status(503).json({
-            error: `Exam block requires ${targetCount} validated questions; live AI is unavailable to fill the shortfall`,
-            code:  'AI_INSUFFICIENT_COUNT',
-            returned: bankPool.length,
-            requested: targetCount,
-          });
-          return;
-        }
         // Practice/Coach: partial bank coverage is acceptable — serve what we have.
         const questions = bankPool.slice(0, targetCount);
         await getRepositories().questions.markUsedByExternalIds(
@@ -2956,20 +2957,6 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
       }
     } else {
       questions = combinedPool.slice(0, targetCount);
-    }
-
-    // Authenticated Exam mode must never silently serve fewer than requested —
-    // fail clearly instead of degrading into a partial (or frontend
-    // answer-bearing local-fallback) response. Practice/Coach keep the
-    // existing graceful-partial behavior via the EMPTY_RESULT check below.
-    if (config.mode === 'exam' && questions.length < targetCount) {
-      res.status(503).json({
-        error: `Exam block requires ${targetCount} questions; only ${questions.length} could be generated or reused`,
-        code: 'AI_INSUFFICIENT_COUNT',
-        returned: questions.length,
-        requested: targetCount,
-      });
-      return;
     }
 
     // Compute reuse counts by identity, not position — blueprint selection
