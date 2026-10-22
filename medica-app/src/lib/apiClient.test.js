@@ -257,6 +257,23 @@ describe('governance.list', () => {
     expect(new URL(mockFetch.mock.calls[1][0], 'http://localhost').pathname).toBe('/api/generated-question-bank/facets');
   });
 
+  it('exportCsv requests the export endpoint with the filters and returns a blob', async () => {
+    const blob = new Blob(['id\r\n'], { type: 'text/csv' });
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, blob: async () => blob });
+    const result = await governance.exportCsv({ reviewStatus: 'unreviewed', difficulty: 'Balanced', subject: 'Pharmacology' });
+    const url = new URL(mockFetch.mock.calls[0][0], 'http://localhost');
+    expect(url.pathname).toBe('/api/generated-question-bank/review/export');
+    expect(url.searchParams.get('difficulty')).toBe('Balanced');
+    expect(url.searchParams.get('subject')).toBe('Pharmacology');
+    expect(url.searchParams.has('page')).toBe(false);
+    expect(result).toBe(blob);
+  });
+
+  it('exportCsv throws the server error when the export is refused', async () => {
+    mockResponse({ error: 'Forbidden', code: 'FORBIDDEN' }, 403);
+    await expect(governance.exportCsv({})).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+  });
+
   it('omits the difficulty parameter when no difficulty is selected', async () => {
     mockResponse({ questions: [], total: 0 });
     await governance.list({});

@@ -7,9 +7,10 @@ vi.mock('../../hooks/useAdminReview', () => ({
   useBulkReviewActions: vi.fn(),
   useBulkReviewMetadata: vi.fn(),
   useReviewFacets: vi.fn(),
+  useReviewExport: vi.fn(),
 }))
 
-import { useBulkReviewActions, useBulkReviewMetadata, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewExport, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
 
 const makeQuestion = (overrides = {}) => ({
   externalId:      'fp-test-1',
@@ -40,6 +41,7 @@ beforeEach(() => {
   useBulkReviewActions.mockReturnValue({ pending: false, error: null, actBulk: vi.fn() })
   useBulkReviewMetadata.mockReturnValue({ pending: false, error: null, applyBulk: vi.fn() })
   useReviewFacets.mockReturnValue({ data: { subjects: [], systems: [], difficulties: [] }, loading: false, error: null })
+  useReviewExport.mockReturnValue({ pending: false, error: null, exportCsv: vi.fn() })
 })
 
 describe('AdminReviewQueue', () => {
@@ -175,6 +177,35 @@ describe('AdminReviewQueue', () => {
 
     expect(screen.getByRole('alert').textContent).toMatch(/filter options could not be loaded/i)
     expect(screen.getByLabelText('Subject')).toBeTruthy()
+  })
+
+  it('exports the currently filtered view', () => {
+    const exportCsv = vi.fn()
+    useReviewExport.mockReturnValue({ pending: false, error: null, exportCsv })
+    useReviewQueue.mockReturnValue({ data: makePage([]), loading: false, error: null, refetch: vi.fn() })
+    render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Difficulty'), { target: { value: 'NBME Difficult' } })
+    fireEvent.change(screen.getByLabelText('Review'), { target: { value: 'unreviewed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
+
+    expect(exportCsv).toHaveBeenCalledTimes(1)
+    expect(exportCsv).toHaveBeenCalledWith(expect.objectContaining({
+      difficulty: 'NBME Difficult',
+      reviewStatus: 'unreviewed',
+      sort: 'priority',
+    }))
+  })
+
+  it('disables the export button while a download is running and reports a failure', () => {
+    useReviewExport.mockReturnValue({ pending: true, error: null, exportCsv: vi.fn() })
+    useReviewQueue.mockReturnValue({ data: makePage([]), loading: false, error: null, refetch: vi.fn() })
+    const { rerender } = render(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Exporting...' }).disabled).toBe(true)
+
+    useReviewExport.mockReturnValue({ pending: false, error: new Error('forbidden'), exportCsv: vi.fn() })
+    rerender(<AdminReviewQueue onSelectDetail={vi.fn()} />)
+    expect(screen.getByRole('alert').textContent).toMatch(/Export failed: forbidden/)
   })
 
   it('renders review state and commercial readiness columns', () => {

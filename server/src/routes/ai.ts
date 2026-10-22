@@ -54,6 +54,7 @@ import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/valida
 import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata.js';
 import { config } from '../config.js';
 import { selectAdaptiveFromBank } from '../lib/adaptiveBankSelection.js';
+import { buildReviewExportCsv } from '../lib/reviewExportCsv.js';
 import { collectExcludedQuestionIds, preferUnseenQuestions } from '../lib/preferUnseenQuestions.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
@@ -299,6 +300,38 @@ router.get('/generated-question-bank/review', requireAuth, requireAdmin, async (
   } catch (err) {
     logger.error('[generated-question-bank/review]', { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: 'Generated question bank review failed', code: 'GENERATED_BANK_REVIEW_FAILED' });
+  }
+});
+
+const REVIEW_EXPORT_PAGE_SIZE = 200;
+const REVIEW_EXPORT_MAX_ROWS = 2000;
+
+// Registered before /review/:id so "export" is never read as a question id.
+router.get('/generated-question-bank/review/export', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  const parsed = generatedQuestionBankReviewQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid generated bank review query', code: 'INVALID_QUERY' });
+    return;
+  }
+
+  const { status, reviewStatus, commercialReady, difficulty, subject, system, sort } = parsed.data;
+  const filters = { status, reviewStatus, commercialReady, difficulty, subject, system };
+
+  try {
+    const { questions } = getRepositories();
+    const rows: Record<string, unknown>[] = [];
+    while (rows.length < REVIEW_EXPORT_MAX_ROWS) {
+      const batch = await questions.findGeneratedBankReview({ ...filters, limit: REVIEW_EXPORT_PAGE_SIZE, offset: rows.length, sort });
+      rows.push(...batch);
+      if (batch.length < REVIEW_EXPORT_PAGE_SIZE) break;
+    }
+    logger.info('[generated-question-bank/review/export]', { userId: req.userId, rows: rows.length });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="review-queue.csv"');
+    res.send(buildReviewExportCsv(rows.slice(0, REVIEW_EXPORT_MAX_ROWS)));
+  } catch (err) {
+    logger.error('[generated-question-bank/review/export]', { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: 'Review export failed', code: 'GENERATED_BANK_EXPORT_FAILED' });
   }
 });
 

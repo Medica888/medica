@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
@@ -55,6 +56,18 @@ test.describe('Admin bulk review makes questions student-visible', () => {
     const candidates = queueBody.questions.filter((q) => !q.commercialReady);
     expect(candidates.length).toBeGreaterThanOrEqual(3);
     const [first, second, untouched] = candidates.map((q) => q.externalId);
+
+    // Export CSV downloads exactly the filtered view: a header plus only unreviewed Balanced rows.
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('review-queue.csv');
+    const csv = readFileSync((await download.path())!, 'utf8');
+    const csvLines = csv.trimEnd().split('\r\n');
+    expect(csvLines[0]).toMatch(/^externalId,subject,system,difficulty,/);
+    expect(csvLines.length).toBeGreaterThan(1);
+    expect(csv).toContain(first);
+    expect(csv).not.toContain('NBME Difficult');
 
     const startSession = (ids: string[]) =>
       page.request.post(`${BACKEND_URL}/api/qbank/sessions`, { data: { ids } });

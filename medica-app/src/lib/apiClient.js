@@ -86,6 +86,23 @@ async function request(method, path, body, options = {}) {
   return data;
 }
 
+async function blobRequest(path) {
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'GET', credentials: 'include' });
+  if (!res.ok) {
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON failure body */ }
+    if (res.status === 401 && !AUTH_FAILURE_EXEMPT_PATHS.has(path)) {
+      setAuthSession('anonymous');
+    }
+    throw Object.assign(new Error(data.error ?? 'Request failed'), {
+      status: res.status,
+      code: data.code,
+      data,
+    });
+  }
+  return res.blob();
+}
+
 async function streamRequest(path, body, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
@@ -261,6 +278,18 @@ export const governance = {
   },
   facets: () =>
     request('GET', '/api/generated-question-bank/facets'),
+  /** Downloads the filtered review queue as a CSV blob (admin only). */
+  exportCsv: ({ status, reviewStatus, commercialReady, difficulty, subject, system, sort } = {}) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (reviewStatus) params.set('reviewStatus', reviewStatus);
+    if (commercialReady !== undefined) params.set('commercialReady', String(commercialReady));
+    if (difficulty) params.set('difficulty', difficulty);
+    if (subject) params.set('subject', subject);
+    if (system) params.set('system', system);
+    if (sort) params.set('sort', sort);
+    return blobRequest(`/api/generated-question-bank/review/export?${params}`);
+  },
   get: (id) =>
     request('GET', `/api/generated-question-bank/review/${encodeURIComponent(id)}`),
   history: (id) =>

@@ -49,6 +49,37 @@ export function useReviewFacets() {
   return { data, loading, error }
 }
 
+/**
+ * Downloads the filtered review queue as a CSV file. The browser save happens here, not in the
+ * component, so the presentational queue only wires a button to `exportCsv`.
+ */
+export function useReviewExport() {
+  const [pending, setPending] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const exportCsv = useCallback(async (filters) => {
+    setPending(true)
+    setError(null)
+    try {
+      const blob = await governance.exportCsv(filters)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'review-queue.csv'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err)
+    } finally {
+      setPending(false)
+    }
+  }, [])
+
+  return { pending, error, exportCsv }
+}
+
 export function useReviewDetail(id) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useBulkReviewActions, useBulkReviewMetadata, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
+import { useBulkReviewActions, useBulkReviewMetadata, useReviewExport, useReviewFacets, useReviewQueue } from '../../hooks/useAdminReview'
 import BulkReviewPanel from './BulkReviewPanel'
 
 const STATUS_FILTERS = [
@@ -99,6 +99,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
   const { pending: bulkPending, error: bulkError, actBulk } = useBulkReviewActions()
   const { pending: metaPending, error: metaError, applyBulk } = useBulkReviewMetadata()
   const { data: facets, error: facetsError } = useReviewFacets()
+  const { pending: exportPending, error: exportError, exportCsv } = useReviewExport()
 
   const { data, loading, error, refetch } = useReviewQueue({
     status: filterStatus || undefined,
@@ -143,6 +144,16 @@ export default function AdminReviewQueue({ onSelectDetail }) {
     })
   }
 
+  const handleExport = () => exportCsv({
+    status: filterStatus || undefined,
+    reviewStatus: reviewStatus || undefined,
+    commercialReady: readyFilter === '' ? undefined : readyFilter === 'true',
+    difficulty: difficultyFilter || undefined,
+    subject: subjectFilter || undefined,
+    system: systemFilter || undefined,
+    sort,
+  })
+
   const handleBulkAction = async (status) => {
     setBulkMessage('')
     const result = await actBulk(selectedVisibleIds, status)
@@ -169,13 +180,23 @@ export default function AdminReviewQueue({ onSelectDetail }) {
             {loading ? 'Loading...' : `${total.toLocaleString()} question${total !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button className="adm-btn-ghost adm-refresh" onClick={refetch} aria-label="Refresh">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M1 7a6 6 0 1 0 1.5-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <path d="M1 3v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Refresh
-        </button>
+        <div className="adm-hdr-actions">
+          <button
+            className="adm-btn-ghost adm-refresh"
+            onClick={handleExport}
+            disabled={exportPending}
+            title="Download the current filtered view (up to 2,000 rows) for offline review"
+          >
+            {exportPending ? 'Exporting...' : 'Export CSV'}
+          </button>
+          <button className="adm-btn-ghost adm-refresh" onClick={refetch} aria-label="Refresh">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M1 7a6 6 0 1 0 1.5-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M1 3v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="adm-toolbar">
@@ -297,6 +318,7 @@ export default function AdminReviewQueue({ onSelectDetail }) {
         {bulkMessage && <span className="adm-bulk-ok" role="status">{bulkMessage}</span>}
         {bulkError && <span className="adm-bulk-error" role="alert">{bulkError.message}</span>}
         {metaError && <span className="adm-bulk-error" role="alert">{metaError.message}</span>}
+        {exportError && <span className="adm-bulk-error" role="alert">Export failed: {exportError.message}</span>}
       </div>
 
       {reviewPanelOpen && selectedVisibleIds.length > 0 && (

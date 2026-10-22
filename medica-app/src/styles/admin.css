@@ -7,6 +7,7 @@
 .adm-page        { display: flex; flex-direction: column; gap: 20px;
                    padding: 28px 32px 48px; max-width: 1200px; }
 .adm-page-hdr    { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.adm-hdr-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .adm-page-title  { font-size: 22px; font-weight: 700; color: var(--t1); letter-spacing: -.4px; }
 .adm-page-sub    { font-size: 13.5px; color: var(--t3); margin-top: 3px; }
 

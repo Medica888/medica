@@ -1625,6 +1625,44 @@ describe('generated question bank', () => {
     expect(filtered.body.questions.map((q: any) => q.externalId)).toEqual([pharm.fingerprint]);
   });
 
+  it('returns 403 for non-admin user on GET /review/export', async () => {
+    const res = await request(app)
+      .get('/api/generated-question-bank/review/export')
+      .set('Authorization', authHeader('user-999'))
+      .expect(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('exports the filtered review queue as an escaped CSV attachment', async () => {
+    await seedBankQuestion({ subject: 'Pharmacology', system: 'Cardiovascular', testedConcept: 'Export pharm concept', topic: 'export pharm' });
+    await seedBankQuestion({ subject: 'Physiology', system: 'Renal / Urinary', testedConcept: 'Export physio concept', topic: 'export physio' });
+
+    const res = await request(app)
+      .get('/api/generated-question-bank/review/export?subject=Pharmacology')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.headers['content-disposition']).toMatch(/attachment; filename="review-queue\.csv"/);
+    const lines = res.text.trimEnd().split('\r\n');
+    expect(lines[0]).toMatch(/^externalId,subject,system,difficulty,/);
+    expect(res.text).toContain('Pharmacology');
+    expect(res.text).not.toContain('Physiology');
+  });
+
+  it('rejects an invalid export query and exports a header-only file when nothing matches', async () => {
+    await request(app)
+      .get(`/api/generated-question-bank/review/export?difficulty=${'x'.repeat(51)}`)
+      .set('Authorization', authHeader('user-1'))
+      .expect(400);
+
+    const empty = await request(app)
+      .get('/api/generated-question-bank/review/export?subject=Nothing')
+      .set('Authorization', authHeader('user-1'))
+      .expect(200);
+    expect(empty.text.trimEnd().split('\r\n')).toHaveLength(1);
+  });
+
   it('returns 403 for non-admin user on GET /metrics', async () => {
     const res = await request(app)
       .get('/api/generated-question-bank/metrics')
