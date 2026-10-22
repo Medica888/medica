@@ -10,6 +10,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import { slugifyConcept } from '../services/ConceptMappingService.js';
 import { createApp } from '../app.js';
 import {
   runAdaptiveRefill,
@@ -2480,6 +2481,71 @@ describe('exam-mode server-owned student view', () => {
 
     expect(res.body.source).toBe('generated-bank');
     expectNoRevealFields(res.body.questions[0]);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  async function seedMasteryWithWeakConcepts(userId: string, weakNames: string[]) {
+    const { userConceptMastery, concepts } = getRepositories();
+    for (let i = 0; i < 25; i++) {
+      const name = `Strong Filler ${i}`;
+      const concept = await concepts.upsertBySlug(slugifyConcept(name), { name, subject: 'Pharmacology', system: 'Cardiovascular' });
+      await userConceptMastery.upsertMany([{ userId, conceptId: concept.id, attempted: 10, correct: 9 }]);
+    }
+    for (const name of weakNames) {
+      const concept = await concepts.upsertBySlug(slugifyConcept(name), { name, subject: 'Pharmacology', system: 'Cardiovascular' });
+      await userConceptMastery.upsertMany([{ userId, conceptId: concept.id, attempted: 10, correct: 1 }]);
+    }
+  }
+
+  it('Exam for an adaptive-eligible user selects reviewed questions covering their weak concepts, with no live AI', async () => {
+    const weak = ['beta blocker negative chronotropy mechanism', 'loop diuretic ototoxicity mechanism'];
+    await seedMasteryWithWeakConcepts('user-1', weak);
+    await seedBankQuestion({
+      testedConcept: weak[0],
+      stem: 'A 60-year-old man with hypertension and stable angina is started on metoprolol. Which receptor effect explains the lower heart rate?',
+      topic: 'Beta blockers',
+      questionAngle: 'mechanism',
+    });
+    await seedBankQuestion({
+      testedConcept: weak[1],
+      stem: 'A 68-year-old man with heart failure receives high-dose intravenous furosemide and develops tinnitus and hearing loss. Which mechanism best explains this adverse effect?',
+      topic: 'Loop diuretics',
+      questionAngle: 'adverse-effect',
+    });
+    // A wide pool of non-matching reviewed questions: random selection would almost never hit both targets.
+    for (let i = 0; i < 30; i++) {
+      await seedBankQuestion({ testedConcept: `Unrelated Reviewed Concept ${i}`, topic: `Filler topic ${i}`, questionAngle: `filler-angle-${i}` });
+    }
+
+    const clientSessionId = randomUUID();
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'exam', questionCount: 4, difficulty: 'Balanced' }, clientSessionId })
+      .expect(200);
+
+    expect(res.body.generationStrategy).toBe('adaptive-bank');
+    expect(res.body.adaptiveConcepts).toEqual(expect.arrayContaining(weak));
+    expect(res.body.questions).toHaveLength(4);
+    for (const question of res.body.questions) expectNoRevealFields(question);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+    // The student view strips the concept, so verify coverage against the server-held reservation.
+    const reservation = await getRepositories().examSessionReservations.findByClientSessionId('user-1', clientSessionId);
+    const reservedConcepts = (reservation?.questions ?? []).map((q) => q.testedConcept);
+    expect(reservedConcepts).toEqual(expect.arrayContaining(weak));
+  });
+
+  it('Exam for an adaptive-eligible user still fails closed when the reviewed pool is too small', async () => {
+    await seedMasteryWithWeakConcepts('user-1', ['Loop Diuretic Ototoxicity']);
+    await seedBankQuestion({ testedConcept: 'Loop Diuretic Ototoxicity' });
+
+    const res = await request(app)
+      .post('/api/generate-questions')
+      .set('Authorization', authHeader())
+      .send({ config: { mode: 'exam', questionCount: 4, difficulty: 'Balanced' }, clientSessionId: randomUUID() });
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('AI_INSUFFICIENT_COUNT');
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 

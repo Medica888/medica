@@ -53,6 +53,7 @@ import { validateQuestion } from '../lib/validation/validationEngine.js';
 import type { MedicalReviewAdapter, ValidationEngineResult } from '../lib/validation/validationTypes.js';
 import { normalizeReviewedContentMetadata } from '../lib/reviewedContentMetadata.js';
 import { config } from '../config.js';
+import { selectAdaptiveFromBank } from '../lib/adaptiveBankSelection.js';
 import { CircuitBreaker } from '../lib/circuitBreaker.js';
 import { createLogger, logger } from '../lib/logger.js';
 import { shuffleQuestionForExam, toStudentExamQuestion } from '../lib/examStudentView.js';
@@ -2425,10 +2426,12 @@ const isStandardizedBlockType = (blockType: unknown): boolean =>
  * 20-question target risks missing a thin area by sampling variance alone,
  * even when the DB has enough of that area overall.
  */
-async function _getExamBankPool(config: Record<string, any>, targetCount: number): Promise<Record<string, any>[]> {
+async function _getExamBankPool(config: Record<string, any>, targetCount: number, widePool = false): Promise<Record<string, any>[]> {
   if (config.mode !== 'exam') return _getReusableGeneratedBankQuestions(config, targetCount);
 
-  const poolFetchCount = isStandardizedBlockType(config.blockType)
+  // Selection needs real choice: re-ranking exactly targetCount randomly-limited rows would
+  // return the same set. Standardized blocks and adaptive ranking therefore fetch a wide pool.
+  const poolFetchCount = widePool || isStandardizedBlockType(config.blockType)
     ? Math.max(targetCount * 10, 200)
     : targetCount;
 
@@ -2628,15 +2631,20 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     // A standardized Step 1 Standard Block is a fixed, non-personalized
     // content-area distribution by definition — adaptive mastery-driven
     // targeting must never override its blueprint quotas.
-    // Exam mode never uses live AI (see the reviewed-only gate below), and adaptive
-    // generation is live-AI-only, so Exam draws from the reviewed pool without it.
+    // Exam mode never uses live AI (see the reviewed-only gate below) and adaptive generation is
+    // live-AI-only, so Exam gets its own blueprint that only re-ranks the reviewed pool. It must
+    // stay separate from adaptiveBlueprint, which skips the bank-covered path entirely.
     let adaptiveBlueprint: AdaptiveBlueprint | null = null;
-    if (!specific && req.userId && !isStandardizedStep1Block && config.mode !== 'exam') {
+    let examAdaptiveBlueprint: AdaptiveBlueprint | null = null;
+    if (!specific && req.userId && !isStandardizedStep1Block) {
       try {
         const { userConceptMastery, concepts } = getRepositories();
         const bp = await new AdaptiveExamService(userConceptMastery, concepts)
           .buildAdaptiveBlueprint(req.userId, targetCount);
-        if (bp.enabled) adaptiveBlueprint = bp;
+        if (bp.enabled) {
+          if (config.mode === 'exam') examAdaptiveBlueprint = bp;
+          else adaptiveBlueprint = bp;
+        }
       } catch (err) {
         logger.warn('[generate-questions] adaptive blueprint skipped', { error: (err as Error).message });
       }
@@ -2646,10 +2654,11 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
     }
 
     const hardModeCaps = HARD_MODE_CAPS[config.difficulty] ?? null;
-    const generatedBankQuestions = await _getExamBankPool(config, targetCount);
+    const generatedBankQuestions = await _getExamBankPool(config, targetCount, Boolean(examAdaptiveBlueprint));
     const validatedQueueCount = await getRepositories().questions.countGeneratedBankReview({ status: 'validated_generated' }).catch(() => -1);
     if (!adaptiveBlueprint && generatedBankQuestions.length >= targetCount) {
       let questions: Record<string, any>[];
+      let adaptiveBankConcepts: string[] = [];
       if (isStandardizedStep1Block) {
         try {
           questions = selectStep1BlueprintBlock(generatedBankQuestions, targetCount);
@@ -2665,6 +2674,10 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
           }
           throw err;
         }
+      } else if (examAdaptiveBlueprint) {
+        const selection = selectAdaptiveFromBank(generatedBankQuestions, examAdaptiveBlueprint, targetCount);
+        questions = selection.questions;
+        adaptiveBankConcepts = selection.matchedConcepts;
       } else {
         questions = generatedBankQuestions.slice(0, targetCount);
       }
@@ -2714,8 +2727,8 @@ router.post('/generate-questions', optionalAuth, aiIpLimiter, aiUserLimiter, val
         source: 'generated-bank',
         count: examView.questions.length,
         telemetry: { ...telemetry, studentView: examView.studentView, reserved: examView.reserved },
-        generationStrategy: 'generated-bank',
-        adaptiveConcepts: [],
+        generationStrategy: examAdaptiveBlueprint ? 'adaptive-bank' : 'generated-bank',
+        adaptiveConcepts: adaptiveBankConcepts,
       });
       return;
     }

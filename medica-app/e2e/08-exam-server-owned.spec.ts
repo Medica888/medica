@@ -38,8 +38,8 @@ test.describe('Authenticated Exam mode is server-owned end to end', () => {
   test.beforeEach(async ({ page }) => {
     // A dedicated, freshly-registered user rather than the shared E2E user, so this spec
     // never depends on what specs 01-07 did to the shared user's history. Exam is served
-    // only from the reviewed pool (no live AI, no adaptive selection), so the outcome is
-    // deterministic for any user.
+    // only from the reviewed pool (never live AI); a user with enough mastery history gets
+    // weak-concept-ranked selection from that pool, a new user a random one.
     await page.context().clearCookies();
     await page.goto('/');
     await register(page, makeTestEmail(), TEST_NAME, TEST_PASSWORD);
